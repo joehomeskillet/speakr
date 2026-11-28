@@ -48,7 +48,7 @@ def speaches(request):
 with httpx.Client(transport=httpx.MockTransport(speaches)) as upstream:
     with patch.object(SpeachesLocalTtsEngine, "_session", side_effect=lambda _: nullcontext(upstream)):
         from src.app import app, db
-        from src.clinic.models import ClinicDictation, ClinicOriginal
+        from src.clinic.models import ClinicDictation, ClinicOriginal, ClinicTranscriptRevision
         from src.clinic.revisions import add_asr_revision, add_human_revision, current_revision
         from src.init_db import initialize_database
         from src.models import Recording, User
@@ -73,7 +73,8 @@ with httpx.Client(transport=httpx.MockTransport(speaches)) as upstream:
             asr = add_asr_revision(dictation, original, "Vorher", "model:synthetic")
             head = add_human_revision(dictation, asr, "Erst Testwort dann Ende.", owner.id)
             db.session.commit()
-            dictation_id, head_id, owner_id, other_id = dictation.id, head.id, owner.id, other.id
+            dictation_id, head_id, asr_id = dictation.id, head.id, asr.id
+            owner_id, other_id = owner.id, other.id
 
         def login(user_id):
             client = app.test_client()
@@ -91,6 +92,7 @@ with httpx.Client(transport=httpx.MockTransport(speaches)) as upstream:
         local = os.environ["CLINIC_TTS_ENDPOINT"].startswith("http://speaches:")
         if local:
             assert status.json == {"available": True}, status.json
+            assert client.get(STATUS + "?details=1").json == {"available": True, "voice": "de_DE"}
             denied_client, denied_headers = login(other_id)
             denied = denied_client.post(SPEAK, headers=denied_headers, json=body)
             assert denied.status_code == 403 and denied.json["code"] == "POLICY_DENIED"
@@ -105,15 +107,35 @@ with httpx.Client(transport=httpx.MockTransport(speaches)) as upstream:
             assert (unapproved.status_code, unapproved.json["code"]) == (422, "CAPABILITY_UNAVAILABLE")
             assert speech == [{"model": MODEL, "input": "Testwort", "voice": "de_DE",
                                "response_format": "wav"}]
+            revision_body = {"dictation_id": dictation_id, "text_revision_id": head_id, "cursor": 14}
+            stale_body = {**revision_body, "text_revision_id": asr_id}
+            hidden = denied_client.post(SPEAK, headers=denied_headers, json=stale_body)
+            assert (hidden.status_code, hidden.json["code"]) == (403, "POLICY_DENIED")
+            stale = client.post(SPEAK, headers=headers, json=stale_body)
+            assert (stale.status_code, stale.json["code"]) == (409, "REVISION_CONFLICT")
+            for invalid in (
+                {**revision_body, "version": None},
+                {**revision_body, "text_revision_id": None},
+                {**revision_body, "text_revision_id": "not-a-uuid"},
+                {"pronunciation_id": dictation_id, "text_revision_id": head_id},
+            ):
+                refused = client.post(SPEAK, headers=headers, json=invalid)
+                assert (refused.status_code, refused.json["code"]) == (400, "INVALID_PAYLOAD")
+            assert len(speech) == 1
+            matched = client.post(SPEAK, headers=headers, json=revision_body)
+            assert matched.status_code == 200 and matched.data == wav
+            assert speech[-1]["input"] == "dann Ende."
             with app.app_context():
                 stored = current_revision(db.session.get(ClinicDictation, dictation_id))
                 assert (stored.id, stored.body) == (head_id, "Erst Testwort dann Ende.")
+                assert ClinicTranscriptRevision.query.filter_by(dictation_id=dictation_id).count() == 2
 
             VOICES.pop()  # Leave a non-German voice installed.
             status = client.get(STATUS)
             speech.clear()
 
         assert status.json == {"available": False}, status.json
+        assert client.get(STATUS + "?details=1").json == {"available": False, "voice": None}
         unavailable = client.post(SPEAK, headers=headers, json=body)
         assert unavailable.status_code == 422 and unavailable.json["code"] == "CAPABILITY_UNAVAILABLE"
         assert speech == []

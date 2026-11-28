@@ -37,6 +37,7 @@ import { createClinicApiClient } from './api-client.js';
 import { scopedClient } from './compose-correction.js';
 import { createLeaseController } from './lease-ui.js';
 import { RichTextEditor } from './richtext-editor-ui.js';
+import { ReadAloud, canonicalReadAloudText } from './read-aloud-ui.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { createLiveSessionController, liveActions } from './live-session-ui.js';
 
@@ -366,10 +367,11 @@ function useLiveDocument(V, props, state) {
     const path = scope + '/correction';
     const graphicsPath = scope + '/graphics';
     const editor = V.shallowRef(null);
+    const selectionInput = V.shallowRef(null);
     const document = V.shallowRef(null);
     const loading = V.ref(false);
     const loadFailed = V.ref(false);
-    let base;
+    const base = V.shallowRef(null);
     let pending;
     let acquiring;
     let disposed = false;
@@ -393,7 +395,8 @@ function useLiveDocument(V, props, state) {
             return false;
         }
         loadFailed.value = false;
-        base = data;
+        base.value = data;
+        selectionInput.value = null;
         pending = null;
         // Old revisions have no snapshot. An empty document still needs a place to type.
         const lines = data.text.split('\n', 2049);
@@ -415,12 +418,12 @@ function useLiveDocument(V, props, state) {
             const text = sent.nodes.map((node) => node.kind === 'graphic'
                 ? '[graphic: ' + node.alt_text + ']' : node.runs.map((run) => run.text).join('')).join('\n');
             pending = { sent, method: 'POST', idempotencyKey: defaultKey(),
-                ifMatch: base.etag.replace(/\.g\d+"$/, '.g' + generation + '"'),
+                ifMatch: base.value.etag.replace(/\.g\d+"$/, '.g' + generation + '"'),
                 body: { text, document: sent, lease_generation: generation,
-                    expected_text_revision_id: base.text_revision_id,
-                    expected_document_version: base.document_version ?? 0,
-                    expected_state_version: base.state?.version,
-                    audio_position_ms: base.state?.audio_position_ms ?? 0 } };
+                    expected_text_revision_id: base.value.text_revision_id,
+                    expected_document_version: base.value.document_version ?? 0,
+                    expected_state_version: base.value.state?.version,
+                    audio_position_ms: base.value.state?.audio_position_ms ?? 0 } };
         }
         const request = pending;
         const res = await client.request(path + '/save', request);
@@ -436,7 +439,8 @@ function useLiveDocument(V, props, state) {
         if (!data?.document || !Number.isInteger(data.document_version) || typeof data.etag !== 'string'
             || typeof data.text_revision_id !== 'string') return { outcome: 'UNKNOWN' };
         pending = null;
-        base = { ...data, state: { version: data.state_version, audio_position_ms: data.audio_position_ms } };
+        base.value = { ...data, text: canonicalReadAloudText(request.body.text),
+            state: { version: data.state_version, audio_position_ms: data.audio_position_ms } };
         return { ...res, sent: request.sent };
     }
 
@@ -462,6 +466,12 @@ function useLiveDocument(V, props, state) {
         else void release();
     });
     return { client, editor, document, loading, loadFailed, held, writable, load, save, addGraphic,
+        rememberSelection: ({ target }) => {
+            if (target.matches('textarea[data-run-id], textarea[data-read-aloud-text]')) selectionInput.value = target;
+        },
+        read: () => ({ text: base.value?.text, revision: base.value?.text_revision_id,
+            nodes: editor.value?.doc.nodes, input: selectionInput.value,
+            unavailable: loading.value || loadFailed.value || editor.value?.dirty || !!pending }),
         graphicsPath: '/api/clinic/v1' + graphicsPath,
         acquire: () => {
             acquiring = lease.acquire().then((lock) => {
@@ -475,7 +485,7 @@ function useLiveDocument(V, props, state) {
 const LiveBody = {
     name: 'ClinicLiveBody',
     props: BODY_PROPS,
-    components: { RichTextEditor },
+    components: { RichTextEditor, ReadAloud },
     setup(props) {
         const V = props.vue || globalThis.Vue;
         if (!V) throw new Error('Vue is required to mount the live view');
@@ -555,10 +565,16 @@ const LiveBody = {
           <button v-if="writing.loadFailed.value && !writing.document.value" type="button" class="button"
             style="min-height:48px" @click="writing.load()">Erneut laden</button>
         </div>
-        <RichTextEditor v-if="writing?.document.value" ref="richEditor"
-          :client="writing.client" :document="writing.document.value" :can-edit="writing.writable.value"
-          :save-document="writing.save" :reload-document="() => writing.load(true)"
-          :add-graphic="writing.addGraphic" :graphics-path="writing.graphicsPath" />
+        <template v-if="writing?.document.value">
+          <div @focusin="writing.rememberSelection">
+            <RichTextEditor ref="richEditor"
+              :client="writing.client" :document="writing.document.value" :can-edit="writing.writable.value"
+              :save-document="writing.save" :reload-document="() => writing.load(true)"
+              :add-graphic="writing.addGraphic" :graphics-path="writing.graphicsPath" />
+          </div>
+          <ReadAloud :client="writing.client" :dictation-id="dictationId" :read="writing.read"
+            :remember-selection="writing.rememberSelection" />
+        </template>
         <p v-else-if="!writing && !state.session.phrases.length && !state.session.partial"
           role="note" class="hint" style="margin: 0; padding: 22px 28px">{{ TEXT.empty }}</p>
       </div>

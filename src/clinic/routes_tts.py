@@ -13,7 +13,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NoReturn
+from uuid import UUID
 
 from flask import Blueprint, Response, abort, jsonify, request, session
 from flask_login import current_user
@@ -50,6 +51,7 @@ class Loaded:
     document: local_tts.CanonicalText
     subject: Subject
     recording: RecordingFacts
+    text_revision_id: str | None = None
 
 
 # load(actor_id, kind, object_id) -> Loaded, or None when absent or not authorized.
@@ -66,7 +68,7 @@ def _json_body() -> dict[str, Any]:
     return body
 
 
-def _bad():
+def _bad() -> NoReturn:
     raise _Refusal("INVALID_PAYLOAD")
 
 
@@ -74,16 +76,28 @@ class _Refusal(Exception):
     pass
 
 
-def _parse(body: dict[str, Any]) -> tuple[str, str, int, dict[str, Any], str | None]:
-    """Return kind, object id, client version, selection kwargs and requested voice."""
-    if body.keys() - ({"dictation_id", "pronunciation_id", "version", "voice"} | SELECTION_KEYS):
+def _parse(body: dict[str, Any]) -> tuple[str, str, int | str, dict[str, Any], str | None]:
+    """Return kind, object id, revision selector, selection kwargs and requested voice."""
+    if body.keys() - ({"dictation_id", "pronunciation_id", "version", "text_revision_id", "voice"} | SELECTION_KEYS):
         _bad()
     ids = [k for k in ("dictation_id", "pronunciation_id") if k in body]
     if len(ids) != 1 or not isinstance(body[ids[0]], str) or not body[ids[0]]:
         _bad()
-    version = body.get("version")
-    if type(version) is not int or version < 1:
-        _bad()
+    revision: int | str
+    if "text_revision_id" in body:
+        raw_revision = body["text_revision_id"]
+        if ids[0] != "dictation_id" or "version" in body or not isinstance(raw_revision, str):
+            _bad()
+        try:
+            revision = str(UUID(raw_revision))
+        except ValueError:
+            _bad()
+        if revision != raw_revision.lower():
+            _bad()
+    else:
+        revision = body.get("version")
+        if type(revision) is not int or revision < 1:
+            _bad()
     voice = body.get("voice")
     if voice is not None and not isinstance(voice, str):
         _bad()
@@ -93,8 +107,8 @@ def _parse(body: dict[str, Any]) -> tuple[str, str, int, dict[str, Any], str | N
     if ids[0] == "pronunciation_id":
         if selection:
             _bad()
-        return PRONUNCIATION_KIND, body[ids[0]], version, {}, voice
-    return SELECTION_KIND, body[ids[0]], version, selection, voice
+        return PRONUNCIATION_KIND, body[ids[0]], revision, {}, voice
+    return SELECTION_KIND, body[ids[0]], revision, selection, voice
 
 
 class TtsApi:
@@ -159,7 +173,10 @@ class TtsApi:
             abort(404)
         if not self._authenticated():
             return _problem("UNAUTHORIZED")
-        return jsonify(available=self._available_capability() is not None)
+        capability = self._available_capability()
+        if request.args.get("details") == "1":
+            return jsonify(available=capability is not None, voice=capability.voice_id if capability else None)
+        return jsonify(available=capability is not None)
 
     def _speak(self):
         if not clinic_mode_enabled():
@@ -171,7 +188,7 @@ class TtsApi:
         except CsrfValidationError:
             return _problem("FORBIDDEN")
         try:
-            kind, object_id, version, selection, voice = _parse(_json_body())
+            kind, object_id, revision, selection, voice = _parse(_json_body())
         except _Refusal as error:
             return _problem(str(error))
         # No document load or synthesis while the capability is absent.
@@ -186,6 +203,13 @@ class TtsApi:
             return _problem("POLICY_DENIED")
         extra = {"pronunciation": loaded.document.text} if kind == PRONUNCIATION_KIND else selection
         try:
+            if isinstance(revision, str):
+                local_tts._require_play(loaded.subject, loaded.recording)
+                if revision != loaded.text_revision_id:
+                    return _problem("REVISION_CONFLICT")
+                version = loaded.document.version
+            else:
+                version = revision
             result = local_tts.synthesize(
                 loaded.document,
                 current_version=version,

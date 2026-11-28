@@ -1476,13 +1476,16 @@ def register_clinic_audio(flask_app):
 
     def tts_load(actor, kind, object_id):
         dictation = db.session.get(ClinicDictation, object_id) if kind == routes_tts.SELECTION_KIND else None
-        head = None if dictation is None else revisions.current_revision(dictation)
-        if head is None or not may(actor, 'play', dictation):
+        if dictation is None or not may(actor, 'play', dictation):
+            return None
+        head = revisions.current_revision(dictation)
+        if head is None:
             return None
         return routes_tts.Loaded(
             document=local_tts.CanonicalText(text=head.body, version=text_version(dictation)),
             subject=policy.build_subject(actor),
-            recording=policy.build_facts(dictation.recording_id, dictation.author_user_id))
+            recording=policy.build_facts(dictation.recording_id, dictation.author_user_id),
+            text_revision_id=head.id)
 
     routes_live.register_live_commands(
         dispatch, lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)))
