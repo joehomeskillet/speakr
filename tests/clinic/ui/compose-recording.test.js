@@ -214,6 +214,66 @@ describe('recording view controller', () => {
         expect(TEXT.open).toBe('Öffnen');
     });
 
+    it('exposes the clinic ID after saving a take without submitting it', async () => {
+        const request = vi.fn();
+        const rec = recorder(async () => ({ id: 7, dictation_id: 'draft-7' }));
+        const { c } = make({ recorder: rec, options: { client: { request } } });
+        await toReview(c);
+        expect(c.model().editableDraftId).toBeNull();
+        expect((await c.saveRecording()).ok).toBe(true);
+        expect(c.model()).toMatchObject({ editableDraftId: 'draft-7', canSubmit: true, message: TEXT.sent });
+        expect(request).not.toHaveBeenCalled();
+        request.mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'draft-7', etag: 'version' } })
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'draft-7', status: 'vorbereitung_online' } });
+        expect((await c.submit()).ok).toBe(true);
+        expect(c.model().editableDraftId).toBeNull();
+        expect(rec.uploadRecordedAudio).toHaveBeenCalledOnce();
+    });
+
+    it('reuses the category flow’s save action and allows editing before category selection', async () => {
+        const set = { id: 's1', name: 'Testbereich', version: 1, categories: ['Rot'], required: true };
+        const request = vi.fn().mockResolvedValueOnce({ outcome: 'ok', data: { sets: [set] } });
+        const rec = recorder(async () => ({ id: 7, dictation_id: 'draft-7' }));
+        const { c } = make({ recorder: rec, options: { client: { request } } });
+        await c.loadCategories();
+        await toReview(c);
+        expect(c.model()).toMatchObject({ recordActionLabel: TEXT.upload, canSaveRecording: false });
+        expect((await c.sendRecording()).ok).toBe(true);
+        expect(c.model()).toMatchObject({
+            recordActionLabel: TEXT.submit,
+            editableDraftId: 'draft-7',
+            categories: [{ ...set, value: '' }],
+        });
+        expect((await c.submit()).code).toBe('missing_category');
+        expect(request.mock.calls).toEqual([['/categories']]);
+    });
+
+    it('offers audio editing before the draft metadata is saved for submission', async () => {
+        const id = 'draft-7';
+        const request = vi.fn().mockResolvedValueOnce({
+            outcome: 'ok', data: {
+                dictation_id: id, etag: 'version', status_axes: { workflow: 'neu_angelegt' },
+                draft_metadata: { title: 'Bericht' }, draft_edit_actions: ['rename'], allowed_actions: ['send'],
+            },
+        }).mockResolvedValueOnce({ outcome: 'ok', data: { acceptance_required: false } });
+        const rec = recorder(async () => ({ id: 7, dictation_id: id }));
+        const { c } = make({ recorder: rec, options: { client: { request }, draftMetadata: true } });
+        await toReview(c);
+        expect(c.model()).toMatchObject({ recordActionLabel: 'Entwurf sichern', canSaveRecording: false, editableDraftId: null });
+        expect((await c.sendRecording()).ok).toBe(true);
+        expect(c.model()).toMatchObject({ editableDraftId: id, canEditDraft: true, canSubmit: false });
+        expect(rec.uploadRecordedAudio).toHaveBeenCalledOnce();
+        expect((await c.submit()).code).toBe('invalid_phase');
+    });
+
+    it('does not open the audio editor with a legacy recording-only receipt', async () => {
+        const { c } = make({ options: { client: { request: vi.fn() } } });
+        await toReview(c);
+        expect((await c.saveRecording()).ok).toBe(true);
+        expect(c.model().created).toEqual({ dictationId: 'rec-1' });
+        expect(c.model().editableDraftId).toBeNull();
+    });
+
     it('starts the next dictation clean after success', async () => {
         const { c, client } = make();
         expect(c.another().code).toBe('invalid_phase');
