@@ -209,6 +209,7 @@ export const PlaybackTempo = {
         audio: { type: Object, default: null },
         stepSeconds: { type: Number, required: true },
         onSync: { type: Function, default: null },
+        onToggle: { type: Function, default: null },
     },
     setup(props) {
         const tempo = usePlaybackTempo({ audio: props.audio, onSync: props.onSync });
@@ -235,6 +236,7 @@ export const PlaybackTempo = {
         };
         const toggle = () => {
             if (!media) return;
+            if (props.onToggle) return props.onToggle();
             if (media.paused === false) media.pause();
             else if (typeof media.play === 'function') Promise.resolve(media.play()).catch(() => {});
         };
