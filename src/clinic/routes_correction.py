@@ -37,7 +37,7 @@ from wtforms.validators import ValidationError
 
 from src.clinic import alignment_tokens as at
 from src.clinic import correction as corr
-from src.clinic import caution_words, lease, live_session, revisions
+from src.clinic import caution_rules, caution_words, lease, live_session, revisions, vocabulary
 from src.clinic.alignment import ClinicAlignmentRevision
 from src.clinic.audio_invalidation import get_compatible_links
 from src.clinic.audio_revisions import current_audio_revision
@@ -48,6 +48,7 @@ from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
 from src.clinic.parity_dispatch import JSON, CommandProblem, RunOnce
 from src.clinic.rich_text_doc import RichTextError, to_plain_text
 from src.clinic.richtext import CanonicalDocument, ClinicRichTextSnapshot
+from src.clinic.routes_vocabulary import ApiError, canonical_selection
 from src.clinic.unicode_anchor_map import OffsetError, to_codepoint_offset, to_utf16_offset
 from src.database import db
 from src.models import User
@@ -332,6 +333,11 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
             out['document'] = payload
             out['document_version'] = _version
         if clinic_mode_enabled():
+            from src.clinic.bundle_store import ClinicBundleDocument, audio_synced
+
+            saved = db.session.get(ClinicBundleDocument, head.id) if head else None
+            if saved is not None:
+                out['audio_synced'] = audio_synced(saved, audio)
             evidence = current_marks(dictation.id, audio.id, head.id) if head and audio else []
             out['recognition_spans'] = [
                 dict(id=row.id, kind=row.kind, start_ms=row.start_ms, end_ms=row.end_ms)
@@ -447,7 +453,8 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
     def get_review_markers(dictation_id: UUID) -> Response:
         dictation = object_for(dictation_id, 'correction_read')
         head = revisions.current_revision(dictation)
-        hits = caution_words.open_review_hits(dictation, head)
+        rules = caution_rules.effective_rule_set(dictation.pool_id)
+        hits = caution_words.open_review_hits(dictation, head, rules)
         return jsonify(text_revision_id=head.id if head else None, review_markers=[
             dict(id=hit.marker_id, label=hit.word, anchor_offset=to_utf16_offset(head.body, hit.offset))
             for hit in hits
@@ -477,10 +484,69 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
             head = current_head(dictation)
             if dictation.pool_id != pool_id:
                 abort(409)
-            caution_words.confirm_review_hit(dictation, head, str(marker_id), actor, lease_generation=generation)
+            rules = caution_rules.effective_rule_set(dictation.pool_id)
+            audio = current_audio_revision(dictation)
+            caution_words.confirm_review_hit(
+                dictation, head, str(marker_id), actor, lease_generation=generation,
+                rules=rules, audio_revision_id=audio.id if audio else None,
+            )
             return dict(id=str(marker_id), text_revision_id=head.id, confirmed=True)
 
         return write(dictation_id, 'review_marker_confirm', f'{pool_id}:{marker_id}', data, apply)
+
+    @bp.post(f'{PATH}/vocabulary-proposal')
+    def propose_vocabulary(dictation_id: UUID) -> Response:
+        """PAR-COR-009: mark the saved selection as one pending vocabulary proposal.
+
+        The phrase is taken from the confirmed transcript revision, not from a
+        free-standing body, and only an editor who may correct this dictation
+        can submit it. A repeated mark of the same phrase returns the existing
+        PENDING item. The call never writes a user or pool vocabulary entry.
+        """
+        data = _body({'expected_text_revision_id', 'selection_start', 'selection_end', 'lease_generation'},
+                     {'expected_text_revision_id', 'selection_start', 'selection_end', 'lease_generation'})
+        generation = _int(data['lease_generation'], 1)
+        start, end = _int(data['selection_start']), _int(data['selection_end'])
+        if start >= end:
+            abort(400)
+        try:
+            expected = _uuid(data['expected_text_revision_id'])
+        except (ValueError, TypeError, AttributeError):
+            abort(400)
+
+        def apply(dictation: ClinicDictation, actor: int) -> JSON:
+            lease.assert_current(dictation.id, actor, generation, datetime.now(timezone.utc))
+            head = revisions.current_revision(dictation)
+            if head is None or head.id != expected:
+                raise corr.CorrectionConflict('text changed since it was read')
+            try:
+                start_cp = to_codepoint_offset(head.body, start)
+                end_cp = to_codepoint_offset(head.body, end)
+            except OffsetError:
+                raise corr.CorrectionError('selection is outside the confirmed revision')
+            if start_cp >= end_cp:
+                raise corr.CorrectionError('selection is empty')
+            try:
+                phrase = canonical_selection(head.body[start_cp:end_cp])
+            except ApiError:
+                raise corr.CorrectionError('selection is not a phrase')
+            pending = vocabulary.list_review_items(
+                user_id=actor, status=vocabulary.REVIEW_STATUS_PENDING)
+            item = next((
+                row for row in pending
+                if row.dictation_id == dictation.id and row.written_form == phrase
+                and row.operation == vocabulary.REVIEW_OP_ADD
+                and row.origin == vocabulary.ORIGIN_CORRECTION and row.pool_id is None
+            ), None)
+            if item is None:
+                item = vocabulary.submit_review_item(
+                    user_id=actor, written_form=phrase, operation=vocabulary.REVIEW_OP_ADD,
+                    origin=vocabulary.ORIGIN_CORRECTION, dictation_id=dictation.id,
+                    information=f'text_revision_id={head.id}')
+            return dict(id=item.id, status=item.status, written=item.written_form,
+                        text_revision_id=head.id, published=False)
+
+        return write(dictation_id, 'vocabulary_proposal', expected, data, apply)
 
     @bp.post(f'{PATH}/markers')
     def add_marker(dictation_id: UUID) -> Response:

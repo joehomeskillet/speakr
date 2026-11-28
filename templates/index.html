@@ -151,6 +151,7 @@
         {% else %}
         {% include 'components/header.html' %}
         {% endif %}
+        {% include 'modals/global-error.html' %}
 
         <div class="flex-1 flex overflow-hidden relative">
             <!-- Sidebar (renders its own mobile backdrop as its first element) -->
@@ -245,7 +246,7 @@
                     </div>
                     <!-- end V8 menu views (v8-71) -->
                     <clinic-recording-view v-if="currentView === 'clinic-recording'" :client="clinicClient" :current-user="clinicUser"
-                                           :recorder="clinicRecorder" :upload-file="clinicUploadFile"
+                                           :recorder="clinicRecorder" :upload-file="clinicUploadFile" :microphone="clinicMicrophone"
                                            @open="openClinicMenuDictation" @worklist="goClinicView('clinic-worklist')"></clinic-recording-view>
                     <clinic-live-view v-else-if="currentView === 'clinic-live' && clinicLiveId" :client="clinicClient"
                                       :dictation-id="clinicLiveId" :current-user="clinicUser" ref="clinicLiveMount"></clinic-live-view>
@@ -278,6 +279,7 @@
                      title, subline, actions) belongs to the page component. -->
                 <div v-if="clinicWorklistEnabled && clinicAdminView"
                      data-testid="clinic-admin-view" data-clinic-shell-view :data-admin-view="clinicAdminView.view"
+                     :class="{cadm: ['clinic-admin-pools', 'clinic-admin-authors', 'clinic-admin-users', 'clinic-admin-asr'].includes(clinicAdminView.view)}"
                      class="flex-1 overflow-y-auto content v8-page">
                     <div class="breadcrumb" data-testid="clinic-admin-breadcrumb">
                         <a href="#/aufnahmen" @click.prevent="goClinicView('clinic-recordings')">Speakr</a><span>›</span><span>Verwaltung</span><span>›</span><span v-text="clinicAdminView.label"></span>
@@ -333,7 +335,6 @@
         {% include 'modals/upload-disclaimer-modal.html' %}
         {% include 'modals/recording-recovery-modal.html' %}
         {% include 'modals/duplicates-modal.html' %}
-        {% include 'modals/global-error.html' %}
         {% include 'modals/toast-container.html' %}
 
         <!-- Bulk Operations Modals -->
@@ -353,16 +354,18 @@
         /* Administration pages (v8-114): the element and class rules of clinic-v8.css that are written at zero specificity
            (:where(.v8-page ...)) lose to the preflight and to the app classes (.field, .grid, .tabs, .empty). The same rules,
            raised to the specificity of an element selector, for the pages that mark their root with .v8-admin-page. */
+        .v8-ui .cadm[data-admin-view]{display:block}
         *:where(.v8-admin-page *){box-sizing:border-box}
         a:where(.v8-admin-page *){color:var(--v8-text);text-underline-offset:3px}
         button:where(.v8-admin-page *),input:where(.v8-admin-page *),select:where(.v8-admin-page *),textarea:where(.v8-admin-page *){font:inherit}
-        button:where(.v8-admin-page *),a:where(.v8-admin-page *),input:where(.v8-admin-page *),select:where(.v8-admin-page *),textarea:where(.v8-admin-page *),summary:where(.v8-admin-page *){outline-offset:4px}
-        button:focus-visible:where(.v8-admin-page *),a:focus-visible:where(.v8-admin-page *),input:focus-visible:where(.v8-admin-page *),select:focus-visible:where(.v8-admin-page *),textarea:focus-visible:where(.v8-admin-page *),summary:focus-visible:where(.v8-admin-page *){outline:3px solid #ba8196}
+        .v8-ui :is(.v8-admin-page,.clinic-asr-profiles-view) :is(button,a,input,select,textarea,summary,[tabindex="0"]):focus-visible{
+            outline:3px solid var(--brand-accent);outline-offset:2px;box-shadow:none
+        }
         button:where(.v8-admin-page *),a:where(.v8-admin-page *),summary:where(.v8-admin-page *){-webkit-tap-highlight-color:transparent}
         button:where(.v8-admin-page *){cursor:pointer}
-        button:disabled:where(.v8-admin-page *){cursor:default;opacity:.5}
         button:where(.v8-admin-page *){border:1px solid var(--line);border-radius:8px;background-color:var(--surface);padding:9px 13px;font-weight:600;color:var(--v8-text);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px}
-        button:hover:not(:disabled):where(.v8-admin-page *){background:var(--v8-s1);border-color:#b9c9c4}
+        button:hover:not(:disabled):where(.v8-admin-page *){background:var(--v8-s1);border-color:var(--v8-text-2)}
+        :is(.v8-admin-page,.clinic-asr-profiles-view) :is(h1,h2){text-wrap:balance}
         h1:where(.v8-admin-page *){font-size:30px;line-height:1.2;font-weight:700;letter-spacing:-.8px;margin:0 0 9px}
         h2:where(.v8-admin-page *){font-size:16px;line-height:1.35;margin:0 0 14px;letter-spacing:-.2px}
         h3:where(.v8-admin-page *){font-size:14px;margin:0 0 10px}
@@ -373,32 +376,51 @@
         .field:where(.v8-admin-page *){display:grid;gap:6px;margin:0 0 16px}
         .field label:where(.v8-admin-page *),.field>span:where(.v8-admin-page *){font-weight:650;font-size:12px}
         .field small:where(.v8-admin-page *){font-size:11px;color:var(--v8-muted)}
-        input:not([type=checkbox]):not([type=radio]):not([type=range]):where(.v8-admin-page *),select:where(.v8-admin-page *),textarea:where(.v8-admin-page *){width:100%;padding:10px 11px;border:1px solid var(--v8-input-line,#ccd8d3);border-radius:7px;color:var(--v8-text);background-color:var(--surface);min-height:40px}
-        textarea:where(.v8-admin-page *){resize:vertical;min-height:100px;line-height:1.65}
+        .v8-ui :is(.v8-admin-page,.clinic-asr-profiles-view){--v8-input-line:color-mix(in srgb,var(--v8-text-2) 75%,var(--surface))}
+        .v8-ui :is(.v8-admin-page,.clinic-asr-profiles-view) :is(input:not(:where([type=checkbox],[type=radio],[type=range])),select,textarea){
+            width:100%;padding:10px 11px;border:1px solid var(--v8-input-line);
+            border-radius:7px;color:var(--v8-text);background-color:var(--surface);min-height:40px
+        }
+        .v8-ui :is(.v8-admin-page,.clinic-asr-profiles-view) :is(input,textarea)::placeholder{color:var(--v8-muted);opacity:1}
+        .v8-ui :is(.v8-admin-page,.clinic-asr-profiles-view) textarea{resize:vertical;min-height:100px;line-height:1.65}
         .filterbar .field:where(.v8-admin-page *){margin:0;flex:0 1 175px}
         .filterbar .field.search:where(.v8-admin-page *){flex:1 1 240px}
         table:where(.v8-admin-page *){width:100%;border-collapse:collapse;text-align:left;font-size:12px;white-space:nowrap}
         thead:where(.v8-admin-page *){background:var(--v8-s1)}
-        th:where(:not([scope=row])):where(.v8-admin-page *){font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:650;color:var(--v8-text-2);padding:12px 14px;border-bottom:1px solid var(--line)}
+        th:where(:not([scope=row])):where(.v8-admin-page *){font-size:12px;font-weight:650;color:var(--v8-text-2);padding:12px 14px;border-bottom:1px solid var(--line)}
         td:where(.v8-admin-page *){padding:13px 14px;border-bottom:1px solid var(--v8-line-2);vertical-align:middle}
         tbody tr:last-child td:where(.v8-admin-page *){border-bottom:0}
         tbody tr:hover:where(.v8-admin-page *){background:var(--surface)}
         td strong:where(.v8-admin-page *){display:block;color:var(--v8-text);font-weight:650}
         td small:where(.v8-admin-page *){display:block;font-size:10px;color:var(--v8-muted);margin-top:3px}
-        .tabs:where(.v8-admin-page *){display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px;overflow:auto}
+        .tabs:where(.v8-admin-page *){--burgundy:var(--brand-accent);display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px;overflow:auto}
         .tabs button:where(.v8-admin-page *){white-space:nowrap;border:0;border-bottom:3px solid transparent;border-radius:0;background:transparent;padding:10px 14px;font-weight:600;color:var(--v8-text-2)}
         .tabs button[aria-selected=true]:where(.v8-admin-page *){color:var(--v8-text);border-bottom-color:var(--burgundy)}
         .empty:where(.v8-admin-page *){border:1px dashed var(--line);padding:28px;text-align:center;font-size:13px;color:var(--v8-muted);border-radius:8px}
 
         /* Overrides inside an admin page: the shell rules above (primary, icon-button, field) are written for other views. */
-        .v8-ui .v8-admin-page .field{appearance:auto;width:auto;min-height:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;font-size:inherit;margin:0 0 16px}
+        .v8-ui .v8-admin-page .field:is(div,label){appearance:auto;width:auto;min-height:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;font-size:inherit;margin:0 0 16px}
         .v8-ui .v8-admin-page .filterbar .field{margin:0}
-        .v8-ui .v8-admin-page .primary{background:var(--ink);border-color:var(--ink);color:#fff;padding:9px 13px;font-size:inherit;font-weight:600}
-        .v8-ui .v8-admin-page .primary:hover:not(:disabled){background:#2c565b;border-color:#2c565b;color:#fff}
+        .v8-ui .asr-source[aria-checked=true]:not(:disabled),
+        .v8-ui .clinic-resources-view .asr-profile-save:not(:disabled),
+        .v8-ui :is(.v8-admin-page,.clinic-asr-profiles-view) :is(.primary,.btn--primary){
+            background-color:var(--ink);border-color:var(--ink);color:var(--v8-on-ink,var(--cream))
+        }
+        .v8-ui .clinic-resources-view .asr-profile-save:hover:not(:disabled),
+        .v8-ui :is(.v8-admin-page,.clinic-asr-profiles-view) :is(.primary,.btn--primary):hover:not(:disabled){
+            background-color:color-mix(in srgb,var(--brand2) 90%,var(--v8-on-ink,var(--cream)));
+            border-color:color-mix(in srgb,var(--brand2) 90%,var(--v8-on-ink,var(--cream)))
+        }
         .v8-ui .v8-admin-page .small{padding:5px 9px;min-height:30px;font-size:12px}
-        .v8-ui .v8-admin-page .danger{color:var(--danger)}
+        .v8-ui .v8-admin-page .danger{color:var(--text-danger-strong)}
         .v8-ui .v8-admin-page .icon-button{width:38px;height:38px;min-height:38px;padding:0;border-color:transparent;background:transparent;border-radius:7px;color:var(--v8-text-2)}
         .v8-ui .v8-admin-page .icon-button:hover:not(:disabled){background:var(--v8-s2);border-color:var(--line);color:var(--v8-text)}
+        .v8-ui .v8-admin-page .filterbar .icon-button{width:40px;height:40px}
+        .v8-ui .v8-admin-page .filterbar :is(input,select){min-height:40px!important}
+        .v8-ui .clinic-resources-view :is(.asr-source,.asr-profile-save):disabled,
+        .v8-ui .cadm :is(.v8-admin-page,.clinic-asr-profiles-view) :is(button,input,select,textarea):disabled{
+            background-color:var(--v8-s2);border-color:var(--line);color:var(--v8-text-2);cursor:not-allowed;opacity:1
+        }
         .v8-ui .v8-admin-page .subline{margin:0}
         .v8-ui .v8-admin-page .pagehead h1{margin:0 0 9px}
         .v8-ui .v8-admin-page .panel h2,.v8-ui .v8-admin-page .panel h3{font-weight:700}
@@ -428,7 +450,7 @@
         .v8-ui .v8-admin-page .tag{font-size:11px}
         .v8-ui [data-clinic-shell-view] :is(h1,h2,h3)[tabindex="-1"]:focus{outline:none}
         /* accounts-ui.js panel inside an admin page: no inner box, table with the card border, compact row buttons. */
-        .v8-ui .v8-admin-page section[aria-labelledby=acc-title]{border:0!important;padding:0!important;background:transparent!important;overflow-x:auto;display:grid;gap:12px}
+        .v8-ui .v8-admin-page section[aria-labelledby=acc-title]{border:0!important;padding:0!important;background:transparent!important;display:grid;gap:12px}
         .v8-ui .v8-admin-page section[aria-labelledby=acc-title] > h2{margin:0}
         .v8-ui .v8-admin-page section[aria-labelledby=acc-title] > p{margin:0;font-size:12px;color:var(--v8-muted)}
         .v8-ui .v8-admin-page section[aria-labelledby=acc-title] > button{justify-self:start}
@@ -448,13 +470,35 @@
         .v8-ui .v8-admin-page .pools-ui li button{min-height:28px;padding:3px 9px;font-size:12px}
         .v8-ui .v8-admin-page .pools-ui form{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
         .v8-ui .v8-admin-page .pools-ui form label{flex:1 1 100%;font-weight:650;font-size:12px}
-        .v8-ui .v8-admin-page .pools-ui form input{flex:1 1 120px;min-height:34px;width:auto}
-        .v8-ui .v8-admin-page .pools-ui [role=alertdialog]{border:1px solid #e8dcc1;background:#faf6ec;border-radius:8px;padding:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+        .v8-ui .v8-admin-page .pools-ui form input{flex:1 1 120px;width:auto}
+        .v8-ui .v8-admin-page :is(.pools-ui [role=alertdialog], [role=alertdialog].warning){border:1px solid var(--text-warn-strong);background:var(--bg-warn-light);color:var(--v8-text)}
+        .v8-ui .v8-admin-page .pools-ui [role=alertdialog]{border-radius:8px;padding:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
         .v8-ui .v8-admin-page .pools-ui [role=alertdialog] p{flex:1 1 100%;margin:0}
+        .v8-ui .cadm .clinic-asr-profiles-view [data-testid=training] table{white-space:normal;overflow-wrap:anywhere}
+        .v8-ui .cadm .clinic-asr-profiles-view [data-testid=training] td button{white-space:nowrap}
         @media(max-width:1100px){.grid.equal:where(.v8-admin-page *){grid-template-columns:1fr 1fr}}
+        @media(min-width:761px) and (max-width:960px){
+            .v8-ui:has(.cadm[data-admin-view]) .topbar{flex-wrap:wrap;align-content:center}
+            .v8-ui .cadm .clinic-asr-profiles-view .asr-panels{grid-template-columns:minmax(0,1fr)}
+        }
         @media(max-width:760px){h1:where(.v8-admin-page *){font-size:26px}
         .grid:where(.v8-admin-page *),.grid.equal:where(.v8-admin-page *),.grid.three:where(.v8-admin-page *){grid-template-columns:1fr}
         .filterbar .field:where(.v8-admin-page *){flex:1 1 150px}}
+        @media(max-width:760px){
+            .v8-ui .cadm .clinic-authors-view .table-wrap{overflow-x:auto}
+            .v8-ui .cadm .clinic-admin-pools-view table{white-space:normal;overflow-wrap:anywhere;hyphens:auto}
+            .v8-ui .cadm .clinic-admin-pools-view td.wrap{min-width:0}
+            .v8-ui .cadm .clinic-admin-pools-view :is(th,td){padding:6px}
+        }
+        @media(max-width:640px){
+            .v8-ui .cadm .cadm-account-table .cadm-account-name{display:none}
+        }
+        @media(max-width:760px),(pointer:coarse){
+            .v8-ui .cadm :is(.v8-admin-page,.clinic-asr-profiles-view) :is(button,summary,input:not(:where([type=checkbox],[type=radio],[type=range])),select){min-height:48px}
+            .v8-ui .cadm .v8-admin-page :is(.icon-button,.btn--icon){min-width:48px}
+            .v8-ui .cadm .v8-admin-page .filterbar :is(input,select){min-height:48px!important}
+            .v8-ui .cadm :is(.v8-admin-page,.clinic-asr-profiles-view) label:has(input:is([type=checkbox],[type=radio])){min-height:48px}
+        }
 
     </style>
     {% endif %}
