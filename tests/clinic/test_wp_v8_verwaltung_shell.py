@@ -246,12 +246,15 @@ def test_asr_settings_persist_and_render_in_both_views(live_server, browser, tmp
     proofs = Path(os.environ.get("P100_PROOFS", str(tmp_path)))
     proofs.mkdir(parents=True, exist_ok=True)
 
+    def open_settings(page):
+        panel = _wait_page(page, "clinic-admin-asr").get_by_role("region", name="Profilkonfiguration")
+        panel.get_by_text("Quellen und Speichern einstellen", exact=True).click()
+        return panel
+
     def open_view(view):
         if view == "admin":
             admin.goto(route)
-            config = _wait_page(admin, "clinic-admin-asr").get_by_role("region", name="Profilkonfiguration")
-            config.get_by_text("Quellen und Speichern einstellen", exact=True).click()
-            return config
+            return open_settings(admin)
         admin.goto(base + "/#/ressourcen")
         _mounted(admin)
         admin.get_by_role("tab", name="ASR-Profile").click()
@@ -288,7 +291,7 @@ def test_asr_settings_persist_and_render_in_both_views(live_server, browser, tmp
 
     second, second_errors = _login(browser, base, ADMIN_EMAIL)
     second.goto(route)
-    _wait_page(second, "clinic-admin-asr")
+    open_settings(second)
     expect(second.get_by_role("radio", name="Aufnahmegerät")).to_have_attribute("aria-checked", "true")
     expect(second.get_by_label("Speicherregel")).to_have_value("ask")
     current = second.get_by_role("region", name="Profilstand")
@@ -315,6 +318,7 @@ def test_asr_settings_persist_and_render_in_both_views(live_server, browser, tmp
     panel.get_by_role("button", name="Profilvorgabe übernehmen", exact=True).click()
     expect(panel.get_by_text("Profilvorgabe gespeichert.", exact=True)).to_be_visible()
     second.reload()
+    open_settings(second)
     expect(second.get_by_label("Quellenzuordnung")).to_have_value("separate")
     expect(second.get_by_label("Quelle für Hintergrund-Erkennung")).to_have_value("headset")
     admin.route("**/api/clinic/v1/asr-profiles", synthetic_capabilities)

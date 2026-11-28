@@ -197,7 +197,6 @@ const ASR_TEMPLATE = `
   <details v-if="adminLayout && (view.profileMode || view.supportsSaveRule)">
     <summary>Quellen und Speichern einstellen</summary>
     <div class="field-grid" style="margin-block-start:var(--sp-3)">${ASR_SOURCE_FIELDS}</div>
-    <p v-if="view.profileMode" class="hint">Getrennte Quellen verwenden dasselbe Erkennungsmodell. Getrennte Akustikprofile werden nicht unterstützt.</p>
   </details>
   <div class="field-grid" :style="adminLayout ? null : 'margin-block-start:var(--sp-3)'">
     <template v-if="!adminLayout">${ASR_SOURCE_FIELDS}</template>
