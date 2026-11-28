@@ -513,9 +513,10 @@ export function createCorrectionViewController(options) {
         closeMessage.value = '';
         if (documentLoading.value) return { ok: false, code: 'loading' };
         documentLoading.value = Boolean(doc);
+        const { discard, readOnlyAlignment } = loadOptions ?? {};
         let res;
         try {
-            res = await editor.load(loadOptions);
+            res = await editor.load({ discard });
             if (disposed || !res?.ok) return res;
             knownRevision = editor.textRevisionId.value;
             if (doc) {
@@ -532,7 +533,8 @@ export function createCorrectionViewController(options) {
         }
         ready.value = true;
         loadGeneration.value += 1;
-        await Promise.all([alignment.refresh(), doc ? null : saver.loadResume(), modes.load(), loadReview()]);
+        await Promise.all([alignment.refresh({ readOnly: readOnlyAlignment }),
+            doc ? null : saver.loadResume(), modes.load(), loadReview()]);
         return res;
     }
 
@@ -797,7 +799,8 @@ export function createCorrectionViewController(options) {
             const res = await client.request('/dictations/' + encodeURIComponent(dictationId) + '/leases');
             if (!disposed && res.outcome === 'ok' && res.data?.may_acquire === true) await editor.acquire();
         }
-        const res = await load();
+        // Opening can acquire the write lease while only reading alignment.
+        const res = await load({ readOnlyAlignment: true });
         if (!disposed && !res?.ok && opts.openMode === 'correction'
             && editor.lease.value.status === 'held') await editor.release();
         return res;
