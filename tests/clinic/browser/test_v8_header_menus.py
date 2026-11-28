@@ -38,14 +38,14 @@ def _contrast(text, background):
 
 
 @pytest.mark.parametrize("path,role", [
-    ("/", "admin"), ("/account", "admin"), ("/admin", "admin"),
+    ("/", "admin"), ("/account", "admin"), ("/admin", "admin"), ("/", "author"),
 ])
-@pytest.mark.parametrize("size", ["1440x900", "390x844"])
+@pytest.mark.parametrize("size", ["1440x900", "1280x720", "768x1024", "390x844", "320x568"])
 @pytest.mark.parametrize("theme", support.THEMES)
 def test_header_menus(browser, app_base, role_states, commit, path, role, size, theme):
-    width, height = support.VIEWPORTS[size]
+    width, height = (768, 1024) if size == "768x1024" else support.VIEWPORTS[size]
     context = browser.new_context(viewport={"width": width, "height": height},
-                                  storage_state=role_states[role], **support.theme_context_options(theme))
+                                  storage_state=role_states[role], has_touch=width <= 390, **support.theme_context_options(theme))
     try:
         context.add_init_script(support.theme_init_script(theme))
         page = context.new_page()
@@ -58,9 +58,10 @@ def test_header_menus(browser, app_base, role_states, commit, path, role, size, 
             support._wait_loading_overlay_gone(page)
         assert page.evaluate("document.documentElement.classList.contains('dark')") == (theme == "dark")
 
-        stem = f"{commit}__header_{path.strip('/') or 'recordings'}_{size}_{theme}"
+        stem = f"{commit}__header_{path.strip('/') or 'recordings'}_{role}_{size}_{theme}"
         support.OUT_DIR.mkdir(parents=True, exist_ok=True)
         page.screenshot(path=str(support.OUT_DIR / f"{stem}.png"), animations="disabled")
+        (support.OUT_DIR / f"{stem}.html").write_text(page.content(), encoding="utf-8")
 
         details = page.get_by_test_id("clinic-pages-menu")
         trigger = details.locator("summary")
@@ -75,6 +76,27 @@ def test_header_menus(browser, app_base, role_states, commit, path, role, size, 
         link.hover()
         _contrast(link, link)
         page.screenshot(path=str(support.OUT_DIR / f"{stem}_pages.png"), animations="disabled")
+        (support.OUT_DIR / f"{stem}_pages.html").write_text(page.content(), encoding="utf-8")
+        support.assert_label_floor(page, stem)
+        columns = menu.evaluate("el => getComputedStyle(el).gridTemplateColumns.split(' ').length")
+        assert columns == (1 if width == 320 else 2)
+        if width <= 768:
+            overflow = support.horizontal_overflow(page)
+            assert not (overflow["document"] or overflow["body"]), overflow
+            links = menu.get_by_role("link").all()
+            for target in [trigger, *links]:
+                target.scroll_into_view_if_needed()
+                bounds = target.bounding_box()
+                assert bounds and bounds["x"] >= 0 and bounds["x"] + bounds["width"] <= width + 1
+                if width <= 390:
+                    support.assert_touch_target(target)
+            if width == 320:
+                for target in links:
+                    assert target.evaluate("""el => {
+                        const text = document.createRange();
+                        text.selectNodeContents(el);
+                        return text.getClientRects().length === 1;
+                    }"""), target.inner_text()
         page.keyboard.press("Escape")
         expect(menu).to_be_hidden()
         expect(trigger).to_be_focused()
@@ -97,10 +119,19 @@ def test_header_menus(browser, app_base, role_states, commit, path, role, size, 
             item.hover()
             _contrast(item.locator("span").first, item)
         page.screenshot(path=str(support.OUT_DIR / f"{stem}_account.png"), animations="disabled")
+        (support.OUT_DIR / f"{stem}_account.html").write_text(page.content(), encoding="utf-8")
 
+        support.assert_label_floor(page, stem + "_account")
+        if width <= 390:
+            support.assert_phone_control_floor(page, stem)
+            for target in account.locator(":is(a,button):visible").all():
+                support.assert_touch_target(target)
         if path == "/":
             trigger.click()
-            link.click()
+            if width <= 390:
+                link.tap()
+            else:
+                link.click()
             expect(page).to_have_url(f"{app_base}/#/neu")
             expect(menu).to_be_hidden()
         assert not errors, errors

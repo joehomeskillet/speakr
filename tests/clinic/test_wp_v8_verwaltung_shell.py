@@ -450,6 +450,6 @@ def test_jobs_filter_matches_the_refresh_button_at_both_widths(live_server, brow
         assert style[0] == "none" and "svg" in style[1] and style[2] == "400", style
         select_box, button_box = field.bounding_box(), refresh.bounding_box()
         assert select_box["y"] == button_box["y"]
-        assert select_box["height"] == button_box["height"] == 38
+        assert select_box["height"] == button_box["height"] == (48 if width == 390 else 38)
         assert refresh.evaluate("el => getComputedStyle(el).fontSize") == "13px"
     assert not errors, errors

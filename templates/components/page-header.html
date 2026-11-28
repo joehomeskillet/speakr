@@ -11,7 +11,7 @@
 <header id="global-header" class="bg-[var(--bg-secondary)] border-b border-[var(--border-primary)] px-3 sm:px-4 py-2 flex items-center justify-between flex-shrink-0 z-50 gap-3 sticky top-0" style="min-height: 56px;">
     <!-- Left: Speakr logo + name + page label -->
     <div class="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-        <a href="{{ url_for('recordings.index') }}" class="flex items-center gap-2 sm:gap-3 min-w-0 hover:opacity-80 transition-opacity">
+        <a href="{{ url_for('recordings.index') }}" class="flex items-center gap-2 sm:gap-3 min-w-0 hover:opacity-80 transition-opacity{% if clinic_mode %} v8-chrome page-header__brand{% endif %}">
             <img src="{{ url_for('static', filename='img/icon-64.png') }}" srcset="{{ url_for('static', filename='img/icon-64.png') }} 1x, {{ url_for('static', filename='img/icon-128.png') }} 2x" alt="Speakr" class="app-logo w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0">
             <h1 class="text-lg sm:text-xl font-bold text-[var(--text-primary)] truncate">Speakr</h1>
         </a>
