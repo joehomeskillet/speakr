@@ -31,7 +31,7 @@
                :class="n.level === 'error' ? 'fa-circle-exclamation text-red-500' : (n.level === 'warning' ? 'fa-triangle-exclamation text-amber-500' : 'fa-circle-info text-[var(--text-accent)]')"></i>
             <div class="flex-1 min-w-0">
                 <p class="break-words" v-text="notificationText(n)"></p>
-                <a v-if="n.link" :href="n.link" class="text-[var(--text-accent)]" v-text="t('notifications.view')"></a>
+                <a v-if="notificationLink(n)" :href="notificationLink(n)" data-notification-open class="text-[var(--text-accent)]" v-text="t('notifications.view')"></a>
             </div>
             <button type="button" class="ph-ib" @click.stop="dismissNotification(n.id)" :aria-label="t('notifications.dismiss')" :title="t('notifications.dismiss')">
                 <i class="fas fa-xmark" aria-hidden="true"></i>

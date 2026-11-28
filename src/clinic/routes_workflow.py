@@ -531,6 +531,7 @@ def create_blueprint(
                 fields.append('notes')
 
             workflow.transition(db.session(), row.id, 'send_online')
+            workflow.store_routing_target(db.session(), row.id, actor_id=current_user.id)
             settled = recognition_state.settle(db.session(), row.id)
             row.version_counter += 1
             if audit.record_in_tx('recording.edited', recording_id=row.recording_id,
