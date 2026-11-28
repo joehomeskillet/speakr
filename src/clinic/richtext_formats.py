@@ -27,7 +27,7 @@ from src.clinic.rich_text_doc import (
 )
 from src.clinic.richtext import SCHEMA_VERSION, CanonicalDocument, Segment
 from src.clinic.rtf_text import rtf_to_text, text_to_rtf
-from src.clinic.sdict_bundle import FORMAT_VERSION, BundleError, build_bundle, read_bundle
+from src.clinic.sdict_bundle import FORMAT_VERSION, Bundle, BundleError, build_bundle, read_bundle
 from src.clinic.unicode_anchor_map import map_through_normalisation, to_utf16_offset
 
 _MACRO = re.compile(r"(?i)<\s*(?:script|iframe|object)\b|vbaProject|\\objdata|\\macro")
@@ -198,17 +198,21 @@ def reload_bundle(
         if exc.code == "active_content":
             raise FormatError("macro_refused") from exc
         raise FormatError("malformed") from exc
+    return document_from_bundle(bundle)
+
+
+def document_from_bundle(bundle: Bundle) -> CanonicalDocument:
+    """Read the canonical document from an already validated archive."""
     _reject_macro_files(bundle.files)
     try:
         payload = json.loads(bundle.files["text/document.json"].decode("utf-8"))
         doc = CanonicalDocument.from_payload(payload)
-    except (KeyError, UnicodeError, ValueError, RichTextError) as exc:
+        plain = bundle.files.get("text/body.txt", b"").decode("utf-8")
+        got = tuple((item["id"], item["start"], item["end"]) for item in bundle.manifest.get("anchors", []))
+    except (KeyError, TypeError, ValueError) as exc:
         raise FormatError("malformed") from exc
-    if bundle.files.get("text/body.txt", b"").decode("utf-8") != to_plain_text(doc):
+    if plain != to_plain_text(doc):
         raise FormatError("identity_mismatch")
-    got = tuple(
-        (item["id"], item["start"], item["end"]) for item in bundle.manifest.get("anchors", [])
-    )
     if got != _anchors(doc) or payload.get("schema_version") != SCHEMA_VERSION:
         raise FormatError("anchor_mismatch")
     return doc

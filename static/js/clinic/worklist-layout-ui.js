@@ -452,9 +452,11 @@ export function WorklistLayoutControls(Vue) {
       </select>
     </div>
     <div class="cl-panel__foot">
-      <button type="button" class="primary" :disabled="!L.state.canEdit || !L.state.dirty || L.state.status === 'saving'"
+      <button type="button" class="primary" style="flex: none; white-space: nowrap; min-height: var(--sp-7)"
+              :disabled="!L.state.canEdit || !L.state.dirty || L.state.status === 'saving'"
               @click="L.save()">{{ LABELS.save }}</button>
-      <button type="button" class="secondary" @click="L.load()">{{ LABELS.reload }}</button>
+      <button type="button" class="secondary" style="flex: none; white-space: nowrap; min-height: var(--sp-7)"
+              @click="L.load()">{{ LABELS.reload }}</button>
     </div>
   </div>
 </div>`,
