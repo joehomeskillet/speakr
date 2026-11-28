@@ -34,7 +34,7 @@ import { formatDictationReference } from './worklist-ui.js';
 import { createClinicApiClient } from './api-client.js';
 import { SessionTransportNotice } from './compose-settings.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
-import { CorrectionAudioPanel, DictationSummary, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT } from './correction-editor-ui.js';
+import { CorrectionAudioPanel, DictationSummary, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT, insertDocumentChoiceRun } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
 import { CorrectionWaveform } from './correction-waveform-ui.js';
 import { PlaybackTempo, usePlaybackTempo } from './playback-tempo-ui.js';
@@ -126,7 +126,7 @@ export const TEXT = Object.freeze({
     workerForeign: 'Von anderer Person übernommen',
     workerLost: 'Übernahme verloren',
     workerFree: 'Noch nicht übernommen',
-    templateMenu: 'Textbaustein einfügen',
+    templateMenu: 'Vorlage oder Datei einfügen',
     openAssignment: 'Zuordnung offen',
     noPool: 'Kein Pool zugewiesen',
     options: 'Wiedergabeoptionen',
@@ -1140,6 +1140,14 @@ const UiIcon = {
  * and the spacing of the child panels. Tokens only, so light and dark both work.
  */
 const LOCAL_CSS = `
+.v8-ui .editor-page .document-choice{color:var(--v8-text)}
+.v8-ui .editor-page .document-choice[data-inline]{position:static;margin:8px 12px}
+.v8-ui .document-choice :is(.button,.snippet-option),.v8-ui .editor-page [data-tool=template]{min-height:48px;min-width:48px}
+.v8-ui .document-choice .snippet-option{overflow-wrap:anywhere;display:block}
+.v8-ui .document-choice :is(h3,h4,.document-preview):focus-visible,.v8-ui .document-choice label:focus-within{outline:var(--focus-outline);outline-offset:var(--focus-offset)}
+.v8-ui .document-choice label{cursor:pointer}
+.v8-ui .document-choice .document-preview{white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto;max-height:9lh;padding:10px;border:1px solid var(--line);border-radius:7px;background:var(--v8-s2)}
+.v8-ui .document-choice-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .v8-ui .editor-page :is(.subline,.document-id,.document-context dt,.word-sync-info,.font-size,.template-meta,.editor-status){color:var(--v8-text-2)}
 .v8-ui .editor-page :is(.context-tools,.player-controls,.word-sync-controls) .icon-button:not(:hover):not([aria-pressed=true]):not([aria-expanded=true]){background:transparent;border-color:transparent}
 .v8-ui .editor-page :is(.context-tools,.player-controls,.word-sync-controls) .icon-button:is(:hover,[aria-expanded=true]):not([aria-pressed=true]){background:var(--v8-s2);border-color:var(--line)}
@@ -1643,7 +1651,121 @@ export const CorrectionBody = {
         ]);
         const WORKER = { held: TEXT.workerHeld, foreign: TEXT.workerForeign, lost: TEXT.workerLost };
         const workerLabel = () => WORKER[e.lease.value.status] || TEXT.workerFree;
-        const templatesOpen = V.ref(false);
+        const choice = V.shallowRef(null);
+        const templatesOpen = V.computed(() => Boolean(choice.value));
+        const choiceHeading = V.shallowRef(null);
+        const previewHeading = V.shallowRef(null);
+        const choiceNotice = V.ref('');
+        const documentEditor = s.document;
+        const choiceDocument = () => documentEditor?.available.value ? documentEditor.doc.value : null;
+        const choiceWritable = () => e.canEdit.value && !c.documentLoading?.value && e.leaseController.canWrite();
+        let choiceOpener;
+        const staleChoice = 'Der Text oder die Bearbeitung hat sich geändert. Bitte öffnen Sie die Vorschau erneut.';
+        const closeChoice = (message = 'Nicht eingefügt. Der Text wurde nicht geändert.', focusEditor = false) => {
+            if (!choice.value) return;
+            const field = choice.value.draft.field || textEl.value;
+            const heading = choiceHeading.value;
+            const restoreFocus = heading?.parentElement?.contains(heading.ownerDocument.activeElement);
+            choice.value = null;
+            choiceNotice.value = message;
+            if (focusEditor || restoreFocus) {
+                later(() => (focusEditor || choiceOpener?.disabled ? field : choiceOpener)?.focus());
+            }
+        };
+        function readChoiceDraft(opener, document) {
+            if (!document) return editorPort.read();
+            const { nodeId, runId } = documentEditor.selection.value;
+            const node = document.nodes.find((item) => item.id === nodeId && item.runs.length)
+                || document.nodes.find((item) => item.runs.length);
+            const run = node?.runs.find((item) => item.id === runId) || node?.runs[0];
+            const field = run && opener?.closest('.editor-document')?.querySelector('[data-run-id="' + run.id + '"]');
+            if (!field || field.value !== run.text) return null;
+            return { field, nodeId: node.id, runId: run.id, text: run.text,
+                start: field.selectionStart, end: field.selectionEnd, direction: field.selectionDirection };
+        }
+        const toggleChoice = async (opener) => {
+            if (choice.value) return closeChoice();
+            if (!choiceWritable()) return;
+            const document = choiceDocument();
+            const draft = readChoiceDraft(opener, document);
+            if (!draft) {
+                choiceNotice.value = 'Wählen Sie zuerst einen Textabschnitt aus.';
+                return;
+            }
+            choiceOpener = opener;
+            choiceNotice.value = '';
+            shortcutsOpen.value = false;
+            choice.value = { draft, document, text: e.text.value, revision: e.textRevisionId.value,
+                generation: e.lease.value.generation, load: c.loadGeneration.value };
+            later(() => choiceHeading.value?.focus());
+            await e.loadTemplates();
+        };
+        const sameDraft = (current) => choiceWritable()
+            && current.generation === e.lease.value.generation && current.revision === e.textRevisionId.value
+            && current.load === c.loadGeneration.value && current.text === e.text.value && current.document === choiceDocument();
+        async function chooseSource(source) {
+            const current = choice.value;
+            if (!current || !sameDraft(current)) return closeChoice(staleChoice);
+            const pending = { ...current, preview: null, error: '', busy: true };
+            choice.value = pending;
+            const res = await e.previewDocument(source);
+            if (choice.value !== pending) return;
+            const data = res.data;
+            if (!sameDraft(pending) || (res.outcome === 'ok' && data?.text_revision_id !== pending.revision)) {
+                return closeChoice(staleChoice);
+            }
+            const text = typeof data?.text === 'string' ? data.text.replace(/\r\n?/g, '\n') : '';
+            const mark = typeof data?.insertion_mark === 'string' ? data.insertion_mark : '';
+            const at = mark ? text.indexOf(mark) : -1;
+            const preview = at < 0 ? text : text.slice(0, at) + text.slice(at + mark.length);
+            if (res.outcome !== 'ok' || !preview.trim()) {
+                const error = res.status === 413 ? 'Die Datei ist zu gross. Wählen Sie eine kleinere Datei.'
+                    : 'Keine Vorschau möglich. Wählen Sie eine andere Vorlage oder eine lesbare TXT-, RTF-, DOCX- oder ODT-Datei.';
+                choice.value = { ...pending, busy: false, error };
+                return;
+            }
+            const ready = { ...pending, busy: false, preview, caret: at < 0 ? preview.length : at, losses: data.losses };
+            choice.value = ready;
+            later(() => {
+                const heading = previewHeading.value;
+                if (choice.value === ready && heading?.parentElement?.contains(heading.ownerDocument.activeElement)) heading.focus();
+            });
+        }
+        function chooseFile(event) {
+            const input = event.target;
+            const file = input.files?.[0];
+            input.value = '';
+            if (file) chooseSource({ file });
+        }
+        function insertChoice() {
+            const current = choice.value;
+            if (!current?.preview) return;
+            if (!sameDraft(current)) return closeChoice(staleChoice);
+            const { draft, document } = current;
+            const { text, start, end } = draft;
+            const next = text.slice(0, start) + current.preview + text.slice(end);
+            if (next === text) return closeChoice('Der ausgewählte Text ist bereits im Diktat.');
+            // A document sends both its structure and its plain text in the correction save.
+            const encoder = new TextEncoder();
+            const size = (value) => encoder.encode(JSON.stringify(value)).length;
+            const bytes = document ? size({ text: current.text, document }) + 2 * (size(next) - size(text)) : size(next);
+            const tooManyCharacters = document && [...current.text].length - [...text].length + [...next].length > 1_000_000;
+            if (tooManyCharacters || bytes > 2 * 1024 * 1024 - 512) {
+                choice.value = { ...current, preview: null, error: 'Der Text wäre zu lang zum Speichern. Wählen Sie eine kürzere Datei oder Vorlage.' };
+                return;
+            }
+            closeChoice('', true);
+            const caret = start + current.caret;
+            const inserted = document ? insertDocumentChoiceRun(documentEditor, draft, next, caret)
+                : tb.insertText(current.preview, draft, current.caret);
+            if (inserted && document) later(() => draft.field.setSelectionRange(caret, caret));
+            choiceNotice.value = inserted ? 'Text eingefügt. Mit «Rückgängig» stellen Sie den vorherigen Text wieder her.'
+                : 'Dieser Text kann hier nicht unverändert eingefügt werden.';
+        }
+        V.watch?.([e.canEdit, e.text, e.textRevisionId, e.lease, c.loadGeneration, choiceDocument, () => c.documentLoading?.value], () => {
+            if (choice.value && !sameDraft(choice.value)) closeChoice(staleChoice);
+        }, { flush: 'sync' });
+        V.onBeforeUnmount?.(() => { choice.value = null; });
         const DRAWER_TITLES = { assignment: TEXT.ctxAssignment, marks: TEXT.ctxMarks, options: TEXT.ctxOptions };
         const drawerTitle = () => DRAWER_TITLES[drawer.value] || '';
         const closeDrawer = () => {
@@ -1667,7 +1789,7 @@ export const CorrectionBody = {
         }
         // saveMessage already says "Nicht gespeicherte Änderungen." while dirty; do not repeat it.
         const unsavedSuffix = () => Boolean(e.dirty.value) && !/nicht gespeicherte/i.test(String(s.message.value || ''));
-        const pickTemplate = (id) => { templatesOpen.value = false; if (id) e.applyTemplate(id); };
+        const pickTemplate = (id) => chooseSource({ templateId: id });
         const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
         const fileInput = V.shallowRef(null);
         const onSessionFile = (event) => {
@@ -1728,6 +1850,7 @@ export const CorrectionBody = {
             alignStatus: a.status, alignError: a.error,
             revisionAlignment, segments: revisionAlignment.segments, alignAnnouncement: a.announcement,
             saveState: s.state, saveMessage: s.message,
+            choice, choiceHeading, previewHeading, choiceNotice, closeChoice, toggleChoice, chooseSource, chooseFile, insertChoice,
             mode: m.mode, modeStatus: m.status, modeError: m.error, modeAnnouncement: m.announcement,
             backstepSeconds: m.backstepSeconds,
             ready: c.ready, loadGeneration: c.loadGeneration, revisionGeneration: c.revisionGeneration,
@@ -1864,7 +1987,7 @@ export const CorrectionBody = {
         <span v-if="pedalStatus" data-testid="pedal-status">{{ pedalStatus }}</span>
       </p>
 
-      <div class="editor-document" @keydown.esc="shortcutsOpen = false; templatesOpen = false">
+      <div class="editor-document" @keydown.esc="shortcutsOpen = false; closeChoice()">
         <div class="editorbar symbol-toolbar" role="toolbar" :aria-label="TEXT.toolbar" data-testid="toolbar">
           <div class="toolbar-group">
             <span class="tool-wrap" v-tip="{ label: TEXT.undo, keys: 'Strg/Cmd+Z' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.undo"
@@ -1878,7 +2001,7 @@ export const CorrectionBody = {
             <span class="tool-wrap" v-tip="{ label: TEXT.markerTip, keys: 'Strg/Cmd+Umschalt+M' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.marker"
                     aria-disabled="true" data-tool="marker" @click="tb.insertMarker()"><UiIcon name="marker" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.templateMenu }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.templateMenu"
-                    :aria-expanded="String(templatesOpen)" aria-controls="ccv-templates" :disabled="!canEdit" data-tool="template" @click="templatesOpen = !templatesOpen; shortcutsOpen = false"><UiIcon name="snippet" /></button></span>
+                    :aria-expanded="String(templatesOpen)" aria-haspopup="dialog" :aria-controls="templatesOpen ? 'ccv-templates' : null" :disabled="!canEdit" data-tool="template" @click="toggleChoice($event.currentTarget)"><UiIcon name="snippet" /></button></span>
           </div>
           <div class="toolbar-group">
             <span class="tool-wrap" v-tip="{ label: TEXT.find, keys: 'Strg/Cmd+F' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.find"
@@ -1919,7 +2042,7 @@ export const CorrectionBody = {
             <span class="tool-wrap" v-tip="{ label: focusMode ? TEXT.focusOff : TEXT.focusOn }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="focusMode ? TEXT.focusOff : TEXT.focusOn"
                     :aria-pressed="String(focusMode)" data-tool="focus" @click="tb.toggleFocus()"><UiIcon :name="focusMode ? 'unfocus' : 'focus'" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.shortcuts, keys: 'F1' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.shortcuts"
-                    :aria-expanded="String(shortcutsOpen)" data-tool="shortcuts" @click="shortcutsOpen = !shortcutsOpen; templatesOpen = false"><UiIcon name="keyboard" /></button></span>
+                    :aria-expanded="String(shortcutsOpen)" data-tool="shortcuts" @click="shortcutsOpen = !shortcutsOpen; closeChoice(undefined, true)"><UiIcon name="keyboard" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.save, keys: 'Strg/Cmd+S' }"><button type="button" class="icon-button save-button" :class="{ 'has-changes': dirty }" :style="FOCUS"
                     :aria-label="dirty ? TEXT.saveDirty : TEXT.save"
                     :disabled="saveState === 'saving' || saveState === 'saved' || Boolean(fileAction)" data-testid="save" @click="c.save()"><UiIcon name="save" /></button></span>
@@ -1952,26 +2075,34 @@ export const CorrectionBody = {
           </dl>
         </div>
 
-        <div v-if="templatesOpen" id="ccv-templates" class="editor-popover" role="dialog" :aria-label="TEXT.templateMenu" data-testid="template-menu" style="left: 13px">
-          <div class="popover-heading">
-            <strong>{{ TEXT.template }}</strong>
-            <span class="tool-wrap" v-tip="{ label: TEXT.close }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.close" @click="templatesOpen = false"><UiIcon name="close" /></button></span>
-          </div>
-          <div class="snippet-options">
-            <button type="button" class="snippet-option" :style="FOCUS" :disabled="!canEdit" :aria-pressed="String(!template)" @click="pickTemplate('')">
-              <span><strong>{{ TEXT.noTemplate }}</strong></span>
-            </button>
+        <div v-if="templatesOpen" id="ccv-templates" class="editor-popover document-choice" :data-inline="choice.document ? '' : null" role="dialog" aria-labelledby="ccv-choice-heading" data-testid="template-menu">
+          <h3 id="ccv-choice-heading" ref="choiceHeading" tabindex="-1" :style="FOCUS">{{ TEXT.templateMenu }}</h3>
+          <p>Prüfen Sie den Text in der Vorschau. Erst «Text einfügen» ändert Ihr Diktat.</p>
+          <p v-if="choice.draft.start !== choice.draft.end">Der markierte Text wird dabei ersetzt.</p>
+          <p v-if="templatesError" role="status">{{ templatesError }}</p>
+          <p v-else-if="!templates.loaded" role="status">Vorlagen werden gesucht …</p>
+          <p v-else-if="!templates.items.length">Für dieses Diktat sind keine Vorlagen verfügbar.</p>
+          <div v-if="templates.items.length" class="snippet-options">
             <button v-for="row in templates.items" :key="row.id" type="button" class="snippet-option" :style="FOCUS" :disabled="!canEdit"
-                    :aria-pressed="String(Boolean(template && template.id === row.id))" @click="pickTemplate(row.id)">
-              <UiIcon name="snippet" /><span><strong>{{ row.name }}</strong><small>Version {{ row.version }}</small></span>
-            </button>
+                    @click="pickTemplate(row.id)">{{ row.name }}</button>
+          </div>
+          <label class="button" :style="FOCUS"><span>Datei auswählen</span>
+            <input type="file" class="sr-only" :style="FOCUS" aria-describedby="ccv-file-formats" accept=".txt,.rtf,.docx,.odt" :disabled="!canEdit" @change="chooseFile">
+          </label>
+          <p id="ccv-file-formats">Textdatei, Word, RTF oder OpenDocument</p>
+          <p v-if="choice.busy" role="status">Vorschau wird geladen …</p>
+          <p v-if="choice.error" role="alert">{{ choice.error }}</p>
+          <template v-if="choice.preview">
+            <h4 id="ccv-preview-heading" ref="previewHeading" tabindex="-1" :style="FOCUS">Vorschau</h4>
+            <div class="document-preview" role="region" aria-labelledby="ccv-preview-heading" tabindex="0" :style="FOCUS">{{ choice.preview }}</div>
+            <ul v-if="choice.losses?.length"><li v-for="loss in choice.losses" :key="loss.code">{{ loss.detail }}</li></ul>
+          </template>
+          <div class="document-choice-actions">
+            <button v-if="choice.preview" type="button" class="button primary" :style="FOCUS" :disabled="!canEdit" @click="insertChoice">Text einfügen</button>
+            <button type="button" class="button" :style="FOCUS" @click="closeChoice()">Abbrechen</button>
           </div>
         </div>
-
-        <p v-if="templatesError" class="template-meta" role="note">{{ templatesError }}</p>
-        <ul v-if="template && template.issues.length" class="template-meta" role="note" aria-label="Hinweise zur Vorlage" style="margin: 0; list-style: none">
-          <li v-for="issue in template.issues" :key="issue.code">{{ issue.message }}</li>
-        </ul>
+        <p v-if="choiceNotice" class="template-meta" role="status">{{ choiceNotice }}</p>
         <p v-if="manual" class="template-meta" role="note">{{ TEXT.manual }}</p>
         <p v-if="toolStatus()" class="template-meta" role="status" data-testid="toolbar-reason">{{ toolStatus() }}</p>
 

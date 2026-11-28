@@ -35,7 +35,17 @@
 import { createClinicApiClient } from './api-client.js';
 import { createLeaseController, leaseActions } from './lease-ui.js';
 import { createTemplatesManager } from './templates-ui.js';
+import { sanitizePaste } from './richtext-editor-ui.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
+
+export function insertDocumentChoiceRun(documentEditor, draft, text, caret) {
+    if (sanitizePaste(text).text !== text) return false;
+    const { nodeId, runId, start, end, direction } = draft;
+    return documentEditor.editRun(nodeId, runId, text, {
+        before: { runId, start, end, direction },
+        after: { runId, start: caret, end: caret },
+    });
+}
 
 export const LABELS = Object.freeze({
     title: 'Korrektur',
@@ -124,7 +134,7 @@ export function useCorrectionEditor(options) {
 
     client.switchContext({ accountId: user.id != null ? user.id : null, dictationId });
 
-    const manager = createTemplatesManager({ client, reactive: refs.reactive });
+    const manager = createTemplatesManager({ client, dictationId, reactive: refs.reactive });
     const lease = createLeaseController({ client, dictationId, mayTakeOver: user.mayTakeOver === true });
     const leaseState = refs.shallow(lease.getState());
 
@@ -146,8 +156,10 @@ export function useCorrectionEditor(options) {
     }
 
     async function loadTemplates() {
+        templatesError.value = '';
+        template.value = null;
         const res = await manager.load();
-        templatesError.value = res.ok ? '' : res.message;
+        if (res.code !== 'cancelled') templatesError.value = res.ok ? '' : LABELS.templateFailed;
         return res;
     }
 
@@ -196,6 +208,15 @@ export function useCorrectionEditor(options) {
         return { ok: true };
     }
 
+    async function previewDocument({ templateId, file }) {
+        if (file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            return client.request(base + '/documents/preview', { method: 'POST', formData });
+        }
+        return client.request(base + '/templates/' + encodeURIComponent(templateId) + '/preview');
+    }
+
     /** Select a versioned template for this view; the server keeps the append-only history. */
     async function applyTemplate(templateId) {
         if (!manager.state.loaded) {
@@ -236,7 +257,7 @@ export function useCorrectionEditor(options) {
     return {
         text, recordingId, textRevisionId, etag, dirty, manual, loading, error, audio, audioSynced, template,
         templates: manager.state, templatesError, lease: leaseState, canEdit, announcement,
-        load, applyTemplate, setText, dispose, audioSource,
+        load, loadTemplates, applyTemplate, previewDocument, setText, dispose, audioSource,
         availableLeaseActions: () => leaseActions(leaseState.value),
         ...(opts.exposeLeaseController === true ? { leaseController: lease } : {}),
         acquire: lease.acquire, release: lease.release, takeOver: lease.takeOver,

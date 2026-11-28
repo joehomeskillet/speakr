@@ -103,6 +103,7 @@ function scopeKey(row) {
 export function createTemplatesManager(options) {
     const client = (options && options.client) || createClinicApiClient();
     const wrap = (options && options.reactive) || ((value) => value);
+    const scope = options?.dictationId == null ? '' : '?dictation_id=' + encodeURIComponent(options.dictationId);
     const state = wrap({
         loaded: false,
         items: [], // every known version: { id, name, scope, scopeId, version, mimeType, sha256, marker }
@@ -110,6 +111,7 @@ export function createTemplatesManager(options) {
         stale: false,
         status: 'normal',
     });
+    let listRequest = 0;
     let pending = null; // { digest, key } of the draft that is being (re)tried
 
     function setStatus(status) {
@@ -169,8 +171,15 @@ export function createTemplatesManager(options) {
     }
 
     async function load() {
+        const request = ++listRequest;
         setStatus('processing');
-        const row = await client.request(TEMPLATES);
+        if (scope) {
+            state.items = [];
+            state.selectedId = null;
+            state.loaded = false;
+        }
+        const row = await client.request(TEMPLATES + scope);
+        if (scope && request !== listRequest) return refuse('cancelled');
         if (row.outcome !== 'ok') return failure(row, 'permission');
         const rows = (row.data && row.data.items) || [];
         for (const item of state.items) if (!rows.some((next) => next.id === item.id)) item.active = false;
@@ -193,7 +202,7 @@ export function createTemplatesManager(options) {
         const loaded = await load();
         if (!loaded.ok) return loaded;
         setStatus('processing');
-        const details = await Promise.all(state.items.filter((row) => row.active).map((row) => client.request(TEMPLATES + '/' + encodeURIComponent(row.id))));
+        const details = await Promise.all(state.items.filter((row) => row.active).map((row) => client.request(TEMPLATES + '/' + encodeURIComponent(row.id) + scope)));
         const failed = details.find((row) => row.outcome !== 'ok');
         if (failed) return failure(failed, 'permission');
         merge(details.map((row) => row.data));
