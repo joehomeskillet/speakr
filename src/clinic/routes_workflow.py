@@ -57,6 +57,7 @@ from src.clinic.models import (
 )
 from src.clinic.parity_dispatch import JSON, CommandProblem, ParityDispatch, RunOnce
 from src.clinic.pool_policy import author_pool_ids
+from src.clinic.recording_type import REPORT
 from src.clinic.release import _heads as release_heads, current_audio_id
 from src.database import db
 from src.models import Recording
@@ -70,6 +71,7 @@ PERM_VIEW = 'history'
 Authorize = Callable[[int, str, ClinicDictation], bool]
 _CONFLICT = frozenset({'stale_version', 'stale_revision'})
 _SEND_CONFLICTS = {
+    'recording_type_cannot_send': 'Nur Berichte können an den Schreibdienst gesendet werden.',
     'not_draft': 'Nur neu angelegte Diktate können eingereicht werden.',
     'audio_required': 'Keine Audiorevision vorhanden.',
     'no_staff_pool': 'Das Diktat wurde nicht gesendet. Es ist kein Schreibdienst zugeordnet.',
@@ -511,6 +513,8 @@ def create_blueprint(
         def apply(row, expected, _key, now):
             if row.version_counter != expected:
                 raise workflow.WorkflowError('stale_version')
+            if row.recording_type != REPORT:
+                raise workflow.WorkflowError('recording_type_cannot_send')
             item = db.session.get(workflow.ClinicWorkflowDictation, row.id, with_for_update=True)
             if item is None or item.status != workflow.DRAFT:
                 raise workflow.WorkflowError('not_draft')
