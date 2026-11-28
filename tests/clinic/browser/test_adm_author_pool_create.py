@@ -53,7 +53,14 @@ def _shoot(browser, state, base, label):
                 context.close()
 
 
-def test_admin_creates_pools_and_assigns_members(browser, app_base, role_states):
+def test_admin_creates_pools_and_assigns_members(browser, tmp_path):
+    # Own server: this test puts the shared author into two unlinked pools, which would
+    # leave that author without a routable pool for every later test on the shared app_base.
+    with support.serve_app(tmp_path, support.SERVER) as app_base:
+        _admin_creates_pools_and_assigns_members(browser, app_base, {"admin": support.login(browser, app_base, support.ROLES["admin"])})
+
+
+def _admin_creates_pools_and_assigns_members(browser, app_base, role_states):
     context = browser.new_context(storage_state=role_states["admin"], viewport={"width": 1440, "height": 900})
     try:
         page = context.new_page()
