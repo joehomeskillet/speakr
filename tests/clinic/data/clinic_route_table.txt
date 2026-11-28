@@ -492,6 +492,7 @@ on clinic_pool_admin.usage {"action":null,"arg":"recording_id","batch_all":false
 on clinic_pools.list_pools {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_pools.put_pool {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_preferences.correction_mode {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
+on clinic_preferences.key_bindings {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_preferences.last_selection {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_preferences.notifications {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_preferences.recipient_default {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
