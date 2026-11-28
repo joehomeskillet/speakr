@@ -829,9 +829,9 @@ export function createVocabularyComponent(Vue, client, currentUserId = () => nul
                 }
             }
             Vue.onMounted(loadPools);
-            Vue.onActivated(() => { if (poolStatus.value !== 'loading') return loadPools(); });
-            Vue.onDeactivated(() => { generation += 1; poolStatus.value = 'idle'; });
-            Vue.onBeforeUnmount(() => { generation += 1; });
+            Vue.onActivated?.(() => { if (poolStatus.value !== 'loading') return loadPools(); });
+            Vue.onDeactivated?.(() => { generation += 1; poolStatus.value = 'idle'; });
+            Vue.onBeforeUnmount?.(() => { generation += 1; });
             return {
                 state, store, label, enumLabel: vocabularyEnumLabel, surfaceStyle, controlStyle, listStyle, pools, poolStatus, selectedPoolName, selectList, loadPools, addSelected,
                 proposalDraft, canPropose, submitProposal,

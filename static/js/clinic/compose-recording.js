@@ -1053,11 +1053,13 @@ const DraftSendFields = {
           <textarea maxlength="4000" rows="2" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.notes" @input="c.setDraftField('notes', $event.target.value)"></textarea>
         </label>
         <div class="field-grid">
-          <label style="${DRAFT_FIELD}"><span>Priorität</span>
-            <select :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.priority" @change="c.setDraftField('priority', Number($event.target.value))">
-              <option v-for="p in priorities" :key="p.value" :value="p.value">{{ p.label }}</option>
-            </select>
-          </label>
+          <fieldset style="${DRAFT_FIELD}" :disabled="!m.draft.editActions.includes('priority')">
+            <legend>Priorität</legend>
+            <label v-for="p in priorities" :key="p.value">
+              <input type="radio" name="draft-priority" :value="p.value" :checked="m.draft.fields.priority === p.value"
+                     @change="c.setDraftField('priority', p.value)" /> {{ p.label }}
+            </label>
+          </fieldset>
           <label style="${DRAFT_FIELD}"><span>Frist</span>
             <input type="date" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.deadline_date" @input="c.setDraftField('deadline_date', $event.target.value)" />
             <small>Tagesende (Europe/Zurich)</small>
@@ -1225,7 +1227,7 @@ export const RECORDING_TEMPLATE = `
       <div v-if="m.created" data-testid="created">
         <draft-send-fields v-if="m.draft && !m.retryingTake && !['retryPending', 'submitted', 'notDraft'].includes(m.phase)" :m="m" :c="c" @reload="reloadDraft" />
         <required-categories v-if="!m.retryingTake && !['retryPending', 'submitting'].includes(m.phase) && m.categories.length && m.canSubmit"
-                             :items="m.categories" :disabled="!m.canSelectCategory" @select="c.selectCategory" />
+                             :items="m.categories" :disabled="!m.canSelectCategory" button-options @select="c.selectCategory" />
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
         <div v-if="!m.routing && m.canSubmit && (m.retryingTake || m.directSend) && m.phase !== 'retryPending'"
              style="display: grid; justify-items: center; gap: var(--ui-space-3)">

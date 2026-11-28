@@ -318,18 +318,29 @@ export function categoriesComponent(vue, options) {
 }
 
 export const RequiredCategories = {
-    props: { items: Array, disabled: Boolean },
+    props: { items: Array, disabled: Boolean, buttonOptions: Boolean },
     emits: ['select'],
     template: `
 <section class="panel mb-3 text-left" aria-labelledby="crv-categories-title">
   <h2 id="crv-categories-title">Pflichtkategorien</h2>
   <div v-for="item in items" :key="item.id" class="field">
-    <label :for="'crv-category-' + item.id" class="break-words">{{ item.name }}</label>
-    <select :id="'crv-category-' + item.id" :value="item.value" required :disabled="disabled"
-            @change="$emit('select', item.id, $event.target.value)">
-      <option value="">Kategorie wählen</option>
-      <option v-for="value in item.categories" :key="value" :value="value">{{ value }}</option>
-    </select>
+    <template v-if="buttonOptions">
+      <span :id="'crv-category-' + item.id" class="break-words">{{ item.name }}</span>
+      <div class="actions" role="group" :aria-labelledby="'crv-category-' + item.id">
+        <button v-for="value in ['', ...item.categories]" :key="value" type="button" class="button min-h-12 whitespace-normal break-words"
+                :aria-pressed="item.value === value" :disabled="disabled" @click="$emit('select', item.id, value)">
+          {{ value || 'Kategorie wählen' }}
+        </button>
+      </div>
+    </template>
+    <template v-else>
+      <label :for="'crv-category-' + item.id" class="break-words">{{ item.name }}</label>
+      <select :id="'crv-category-' + item.id" :value="item.value" required :disabled="disabled"
+              @change="$emit('select', item.id, $event.target.value)">
+        <option value="">Kategorie wählen</option>
+        <option v-for="value in item.categories" :key="value" :value="value">{{ value }}</option>
+      </select>
+    </template>
   </div>
 </section>`,
 };

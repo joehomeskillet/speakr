@@ -185,12 +185,14 @@ describe('recording view controller', () => {
         expect(m.authorId).toBe('4');
         expect(Object.keys(c)).not.toContain('setAuthor');
         expect(Object.keys(c)).not.toContain('setPool');
-        const draftForm = RECORDING_TEMPLATE.match(/<form\b[^>]*data-testid="draft-metadata"[^>]*>[\s\S]*?<\/form>/)?.[0] || '';
-        const recordingControls = draftForm ? RECORDING_TEMPLATE.replace(draftForm, '') : RECORDING_TEMPLATE;
+        const draftForm = RecordingView.components.DraftSendFields.template;
+        const recordingControls = RECORDING_TEMPLATE + draftForm;
         expect(recordingControls).not.toMatch(/<select\b|author-picker|pool/i);
-        expect(draftForm.match(/<select\b[^>]*>/gi) || []).toEqual(draftForm ? [
-            expect.stringContaining(':value="m.draft.fields.priority"'),
-        ] : []);
+        expect(recordingControls).not.toMatch(/<input\b[^>]*\breadonly\b/i);
+        for (const button of recordingControls.match(/<button\b[^>]*>/gi)) {
+            expect(button).toMatch(/\sclass="(?:[^"\s]+\s+)*button(?:\s|")/);
+        }
+        expect(draftForm).toContain(':checked="m.draft.fields.priority === p.value"');
         expect(RECORDING_TEMPLATE).not.toMatch(/author-picker|pool/i);
         expect(RECORDING_TEMPLATE).not.toContain('c.text.author');
         expect(TEXT.author).toBe('Diktiert von');
@@ -723,7 +725,10 @@ describe('managed take files', () => {
         await expect(rec.uploadRecordedAudio({ title: 'Test' })).rejects.toThrow('offline');
         expect(rec.recordedFile()).toBe(take);
         await expect(rec.uploadRecordedAudio({ title: 'Test' })).resolves.toEqual({ dictation_id: 'd-9' });
-        expect(upload.mock.calls).toEqual([[take, 'Test'], [take, 'Test']]);
+        expect(upload.mock.calls).toEqual([
+            [take, 'Test', { id: expect.any(String), retry: false }],
+            [take, 'Test', { id: upload.mock.calls[0][2].id, retry: true }],
+        ]);
     });
 });
 

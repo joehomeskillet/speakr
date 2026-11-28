@@ -155,7 +155,7 @@ export function createOutputViewController(options) {
         results.value = { ...results.value, [format]: { phase: status, label, tone: surface, surface: surfaceOf(surface), job: job || null } };
     };
 
-    async function load() {
+    async function load({ includePreferences = true } = {}) {
         phase.value = 'loading';
         const query = opts.includeAllFileFormats ? '?file_formats=all' : '';
         const res = await client.request(base + '/output-targets' + query);
@@ -175,10 +175,12 @@ export function createOutputViewController(options) {
         if (releasedRevisionId.value && targets.value.some((t) => t.channel === 'file') && !find('kis')) {
             targets.value.push(targetView({ id: 'kis', channel: 'kis', available: false }, releasedRevisionId.value));
         }
-        const defaults = await client.request(OUTPUT_PREFERENCES);
-        preferences.value = defaults.outcome === 'ok' && Array.isArray(defaults.data?.formats) ? defaults.data : null;
-        selected.value = selectableTargets().filter((t) => preferences.value?.formats.includes(preferenceId(t.id))).map((t) => t.id);
-        preferenceNotice.value = preferences.value ? '' : TEXT.defaultsLoadFailed;
+        if (includePreferences) {
+            const defaults = await client.request(OUTPUT_PREFERENCES);
+            preferences.value = defaults.outcome === 'ok' && Array.isArray(defaults.data?.formats) ? defaults.data : null;
+            selected.value = selectableTargets().filter((t) => preferences.value?.formats.includes(preferenceId(t.id))).map((t) => t.id);
+            preferenceNotice.value = preferences.value ? '' : TEXT.defaultsLoadFailed;
+        }
         clipboard = null;
         phase.value = 'ready';
         return true;

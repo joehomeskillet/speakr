@@ -325,11 +325,13 @@ def test_saved_draft_round_trip(browser, app_base, role_states, size, theme):
         receipt = upload.value.json()
         expect(view.get_by_test_id('created-id')).to_have_text(receipt['dictation_id'])
         form = view.get_by_test_id('draft-metadata')
+        expect(view.locator('select, input[readonly], button:not(.button)')).to_have_count(0)
         expect(view.get_by_test_id('draft-acceptance')).to_have_text('Abnahme: Nicht erforderlich')
         expect(view.get_by_test_id('submit-draft')).to_be_disabled()
         form.get_by_label('Titel').fill('Synthetischer P04-Entwurf')
         form.get_by_label('Anmerkung').fill('Synthetische Anmerkung für den Versand.')
-        form.get_by_label('Priorität').select_option(label='Dringend')
+        priority = form.get_by_role('group', name='Priorität').get_by_role('radio', name='Dringend')
+        priority.check()
         form.get_by_label('Frist').fill('2026-07-20')
         path = app_base + '/api/clinic/v1/dictations/' + receipt['dictation_id']
         with page.expect_response(path + '/metadata') as save:
@@ -346,7 +348,8 @@ def test_saved_draft_round_trip(browser, app_base, role_states, size, theme):
         page.go_back()
         expect(form.get_by_label('Titel')).to_have_value('Synthetischer P04-Entwurf')
         expect(form.get_by_label('Anmerkung')).to_have_value('Synthetische Anmerkung für den Versand.')
-        expect(form.get_by_label('Priorität')).to_have_value('128')
+        expect(priority).to_be_checked()
+        expect(priority).to_have_value('128')
         expect(form.get_by_label('Frist')).to_have_value('2026-07-20')
         expect(view.get_by_test_id('draft-acceptance')).to_have_text('Abnahme: Erforderlich')
         assert author.request.get(path + '/detail').json()['deadline_at'] == '2026-07-20T21:59:59Z'
