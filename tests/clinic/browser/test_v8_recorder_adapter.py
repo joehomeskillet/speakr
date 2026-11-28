@@ -111,6 +111,7 @@ def test_lost_confirmations_keep_one_take_and_offer_keyboard_retry(app_base, siz
             context.add_init_script(theme_init_script(theme))
             page = context.new_page()
             page.goto(app_base + '/#/neu')
+            support._wait_loading_overlay_gone(page)
             view = page.get_by_test_id('clinic-recording-view')
             expect(view.get_by_test_id('rec-start')).to_be_enabled(timeout=support.SHOW_TIMEOUT_MS)
             expect(page.locator('html')).to_have_class(re.compile(r'\bdark\b' if theme == 'dark' else r'^(?!.*\bdark\b)'))
