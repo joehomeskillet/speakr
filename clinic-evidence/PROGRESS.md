@@ -1,5 +1,9 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## P-062 – Versanddaten vor dem Einreichen
+
+Im lokalen Klinik-Browserlauf wurden Titel, Anmerkung, Priorität und ein Zürcher Tagesendtermin eines synthetischen P04-Entwurfs gespeichert und nach erneutem Öffnen geprüft. Die angezeigte Abnahmepflicht folgte einer separaten Admin-Änderung. Staging und Originalsystemvergleich stehen aus; die offenen Paritätslücken bleiben unverändert.
+
 ## P-141 – ASR-Wartezeit (PAR-ASR-003)
 
 Die Klinik-API erlaubt berechtigten Bearbeitern nach Ablauf der Profilfrist den Wechsel von In Vorbereitung zu Zu schreiben. Ein lokaler synthetischer API-/DB-Test prüft eine verspätete ASR-Antwort als Nebenversion bei vorhandenem menschlichem Textkopf. Staging und Referenzvergleich bleiben offen.
