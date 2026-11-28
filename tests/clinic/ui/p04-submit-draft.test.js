@@ -6,6 +6,11 @@ const path = '/dictations/' + id;
 const etag = '"' + id + ':3"';
 const detail = { outcome: 'ok', data: { dictation_id: id, etag } };
 const sent = { outcome: 'ok', data: { dictation_id: id, status: 'vorbereitung_online' } };
+const categorySet = { id: 's1', name: 'Testbereich', version: 3, categories: ['Rot', 'Blau'], required: true };
+
+function categories(sets) {
+    return { outcome: 'ok', data: { sets } };
+}
 
 function recording(receipt = { dictation_id: id }) {
     const upload = vi.fn().mockResolvedValue(receipt);
@@ -18,6 +23,50 @@ function recording(receipt = { dictation_id: id }) {
 }
 
 describe('P04 draft submission', () => {
+    it('saves the recording first and submits the selected category with its version', async () => {
+        const { controller, upload, request } = recording();
+        request.mockResolvedValueOnce(categories([categorySet]));
+        await controller.loadCategories();
+        controller.setTitle('Synthetische Aufnahme');
+        await controller.start();
+        await controller.stop();
+        expect((await controller.sendRecording()).ok).toBe(true);
+        expect(controller.model().message).toContain('Gespeichert');
+        expect((await controller.submit()).code).toBe('missing_category');
+        expect(controller.model().message).toContain('Testbereich');
+        expect(request.mock.calls).toEqual([['/categories']]);
+
+        controller.selectCategory('s1', 'Rot');
+        request.mockResolvedValueOnce(detail).mockResolvedValueOnce({ outcome: 'network' }).mockResolvedValueOnce(sent);
+        expect((await controller.submit()).ok).toBe(false);
+        controller.selectCategory('s1', 'Blau');
+        expect((await controller.submit()).ok).toBe(true);
+        expect(request.mock.calls[2]).toEqual([path + '/send', {
+            method: 'POST', body: { categories: [{ set_id: 's1', version: 3, value: 'Rot' }] },
+            ifMatch: etag, idempotencyKey: expect.any(String),
+        }]);
+        expect(request.mock.calls[3]).toEqual(request.mock.calls[2]);
+        expect(upload).toHaveBeenCalledOnce();
+    });
+
+    it('refreshes requirements when the server rejects a stale selection', async () => {
+        const { controller, request } = recording();
+        request.mockResolvedValueOnce(categories([categorySet]));
+        await controller.loadCategories();
+        controller.setMode('file');
+        controller.selectFile({ name: 'test.wav', size: 20 });
+        await controller.sendFile();
+        controller.selectCategory('s1', 'Rot');
+        request.mockResolvedValueOnce(detail)
+            .mockResolvedValueOnce({ outcome: 'conflict', code: 'stale_version' })
+            .mockResolvedValueOnce(categories([{ ...categorySet, version: 4, categories: ['Blau'] }]));
+
+        expect((await controller.submit()).code).toBe('stale_version');
+        expect(controller.model().categories).toEqual([{ ...categorySet, version: 4, categories: ['Blau'], value: '' }]);
+        expect((await controller.submit()).code).toBe('missing_category');
+        expect(request.mock.calls[3]).toEqual(['/categories']);
+    });
+
     it('stops locally, saves a draft, then submits the confirmed dictation once', async () => {
         const { controller, upload, request } = recording();
         controller.setTitle('Synthetische Aufnahme');
