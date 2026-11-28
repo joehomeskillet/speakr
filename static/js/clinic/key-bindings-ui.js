@@ -30,7 +30,9 @@ const MODIFIERS = ['Ctrl', 'Alt', 'Shift', 'Meta'];
 const RESERVED = new Set([
     'f1', 'tab', 'shift+tab', 'escape',
     ...['ctrl', 'meta'].flatMap((mod) => ['a', 'c', 'f', 'h', 'l', 'n', 'q', 'r', 's', 't', 'v', 'w', 'x', 'y', 'z',
-        'enter', 'shift+f', 'shift+z', 'shift+t', 'shift+n', 'tab', 'shift+tab'].map((key) => `${mod}+${key}`)),
+        'b', 'i', 'u', 'shift+b', 'shift+i', 'shift+u', 'enter', 'shift+enter', 'shift+f', 'shift+m',
+        'shift+y', 'shift+z', 'shift+t', 'shift+n', 'tab', 'shift+tab'].map((key) => mod === 'meta' && key.startsWith('shift+')
+        ? `shift+meta+${key.slice(6)}` : `${mod}+${key}`)),
 ]);
 const MESSAGES = {
     binding_conflict: 'Dieses Tastenkürzel ist bereits vergeben. Wählen Sie ein anderes.',

@@ -31,6 +31,8 @@ describe('per-user key bindings', () => {
         expect(await set('play_pause', 'F5')).toBe(false);
         expect(state).toMatchObject({ bindings: defaults, errorAction: 'play_pause', error: expect.stringContaining('fest belegt') });
         expect(await set('play_pause', ' Shift + Ctrl + F ')).toBe(false);
+        expect(await set('play_pause', 'Ctrl+B')).toBe(false);
+        expect(await set('play_pause', 'Meta+Shift+M')).toBe(false);
         expect(request).toHaveBeenCalledTimes(3);
         expect(state.notice).toBe('');
     });

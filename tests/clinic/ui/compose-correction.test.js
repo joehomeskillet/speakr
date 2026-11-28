@@ -114,17 +114,15 @@ describe('compose-correction contract', () => {
     });
 
     it('composes the editor and finish building blocks and reuses tokens, api-client and key bindings', () => {
-        for (const mod of [
+        const expected = [
             'correction-editor-ui', 'correction-alignment-ui', 'correction-waveform-ui', 'playback-tempo-ui',
             'correction-modes-ui', 'correction-save-ui', 'audio-markers-ui', 'playback-gain-ui',
-            'finish-options-ui', 'workflow-actions-ui',
-        ]) expect(source).toContain(`./${mod}.js`);
-        expect(source).toContain("from './tokens.js'");
-        expect(source).toContain("from './api-client.js'");
-        const imports = [...source.matchAll(/from '(\.\/(?!correction-player-position\.js')[^']+)'/g)].map((m) => m[1]);
+            'correction-toolbar-ui', 'richtext-editor-ui', 'finish-options-ui', 'workflow-actions-ui',
+            'correction-player-position', 'worklist-ui', 'tokens', 'api-client', 'compose-settings', 'key-bindings-ui',
+        ].map((mod) => `./${mod}.js`).sort();
+        const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
         expect(imports).toHaveLength(new Set(imports).size);
-        expect(imports).toContain('./key-bindings-ui.js');
-        expect(imports).toHaveLength(14);
+        expect(imports.sort()).toEqual(expected);
     });
 
     it('keeps the fixed finish command in the focused section alongside personal shortcuts', () => {
