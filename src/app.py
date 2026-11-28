@@ -1455,6 +1455,8 @@ def register_clinic_audio(flask_app):
     from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
     from src.clinic.models import ClinicDictation
+    from src.clinic.richtext_graphics import GraphicStore
+    from src.clinic.routes_richtext_graphics import create_blueprint as create_graphics_blueprint
     from src.clinic import routes_live_drafts
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
@@ -1499,13 +1501,16 @@ def register_clinic_audio(flask_app):
 
     def tts_load(actor, kind, object_id):
         dictation = db.session.get(ClinicDictation, object_id) if kind == routes_tts.SELECTION_KIND else None
-        head = None if dictation is None else revisions.current_revision(dictation)
-        if head is None or not may(actor, 'play', dictation):
+        if dictation is None or not may(actor, 'play', dictation):
+            return None
+        head = revisions.current_revision(dictation)
+        if head is None:
             return None
         return routes_tts.Loaded(
             document=local_tts.CanonicalText(text=head.body, version=bundle_store.text_version(dictation)),
             subject=policy.build_subject(actor),
-            recording=policy.build_facts(dictation.recording_id, dictation.author_user_id))
+            recording=policy.build_facts(dictation.recording_id, dictation.author_user_id),
+            text_revision_id=head.id)
 
     def edit_live(actor, dictation_id):
         return may(actor, 'edit', db.session.get(ClinicDictation, dictation_id))
@@ -1525,6 +1530,7 @@ def register_clinic_audio(flask_app):
     flask_app.register_blueprint(routes_correction.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         run_once=run_once, require_if_match=True))
+    flask_app.register_blueprint(create_graphics_blueprint(GraphicStore(originals_root)))
     flask_app.register_blueprint(routes_correction_documents.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation)))
     # V8 alignment (v8-86)
