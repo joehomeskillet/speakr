@@ -9,7 +9,6 @@
     "clinic-spec/docs/12_Webclient_und_Importagent.md",
     "clinic-spec/docs/13_Audio_Live_Editor.md",
     "clinic-spec/planning/conflicts-resolved.json",
-    "clinic-spec/tests/acceptance.json",
     "clinic-spec/contracts/clinic-api.openapi.json",
     "AGENTS.md",
     "conftest.py",

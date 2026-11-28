@@ -101,6 +101,9 @@ assert archived.status_code == 200 and archived.json["discarded_at"]
 assert alice.get(first).json["text"] == "First saved"
 assert [row["draft_id"] for row in alice.get(base).json["drafts"]] == [ids[1]]
 assert alice.post(first + "/switch", headers=auth, json={"tab_id": "tab-a"}).status_code == 409
+for body in ({}, {"cursor": {"session_id": selection.json["session_id"], "after_sequence": 0}}):
+    resume = alice.post(f"/api/clinic/v1/live/dictations/{ids[0]}/resume", headers=auth, json=body)
+    assert resume.status_code == 409, (resume.status_code, resume.json)
 restart = alice.post("/api/clinic/v1/parity/commands", headers={**auth, "Idempotency-Key": str(uuid4())}, json={
     "command": "start_live_session", "request_id": str(uuid4()), "expected_revision": 0,
     "payload": {"dictation_id": ids[0], "profile_revision_id": str(uuid4()), "capture_mime": "audio/webm"},

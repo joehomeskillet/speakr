@@ -381,10 +381,6 @@ def create_blueprint(
                 record_read(dictation_id, "live_phrase_text")
             return jsonify(result)
 
-        if session_id is not None:
-            row = model.query.filter_by(id=session_id, dictation_id=dictation_id).first()
-            return page(row, True) if row is not None else _problem("POLICY_DENIED")
-
         def latest_ended():
             row = (_history(dictation_id)
                    .order_by(model.started_at.desc(), model.created_at.desc(), model.id.desc()).first())
@@ -397,14 +393,18 @@ def create_blueprint(
         def open_session():
             return model.query.filter_by(active_key=dictation_id).first()
 
-        active = open_session()
-        if active is None:
-            return latest_ended()
-        if not authorize_dictation(actor, dictation_id):
-            return page(active, True)
-
         def act():
             _require_undiscarded(dictation_id)
+            if session_id is not None:
+                row = model.query.filter_by(id=session_id, dictation_id=dictation_id).first()
+                return page(row, True) if row is not None else _problem("POLICY_DENIED")
+
+            active = open_session()
+            if active is None:
+                return latest_ended()
+            if not authorize_dictation(actor, dictation_id):
+                return page(active, True)
+
             try:
                 row, _point = live_session.recover(
                     dictation_id, actor, now(), client_id=data.get("client_id"),
@@ -416,12 +416,14 @@ def create_blueprint(
                 db.session.rollback()
                 if not (authorize_view or authorize_dictation)(actor, dictation_id):
                     return _problem("POLICY_DENIED")
+                _require_undiscarded(dictation_id)
                 active = open_session()
                 if active is None:
                     return latest_ended()
                 if error.reason == live_session.NOT_HOLDER and "generation" in data:
                     return _problem("POLICY_DENIED")
                 return page(active, True)
+            _require_undiscarded(dictation_id)
             response = page(row, False)
             db.session.commit()
             return response
