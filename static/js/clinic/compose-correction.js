@@ -1707,11 +1707,13 @@ export const CorrectionBody = {
         const toggleChoice = async (opener) => {
             if (choice.value) return closeChoice();
             if (!canEdit.value || !e.leaseController.canWrite()) return;
+            const draft = insertionTarget();
+            if (documentMode.value && !draft.runId) return;
             closeBlocks();
             choiceOpener = opener;
             choiceNotice.value = '';
             shortcutsOpen.value = false;
-            choice.value = { draft: insertionTarget(), document: doc?.doc.value, revision: e.textRevisionId.value,
+            choice.value = { draft, document: doc?.doc.value, revision: e.textRevisionId.value,
                 generation: e.lease.value.generation, load: c.loadGeneration.value };
             later(() => choiceHeading.value?.focus());
             await e.loadTemplates();
@@ -1769,7 +1771,7 @@ export const CorrectionBody = {
             }
             choice.value = null;
             if (!insertAt(current.preview, current.draft, current.caret)) {
-                choice.value = { ...current, preview: null, error: 'Der Text kann an dieser Stelle nicht eingefügt werden.' };
+                choice.value = { ...current, preview: null, error: 'Der Text kann nicht unverändert eingefügt werden. Wählen Sie eine kürzere Datei oder Vorlage.' };
                 return;
             }
             choiceNotice.value = 'Text eingefügt. Mit «Rückgängig» stellen Sie den vorherigen Text wieder her.';

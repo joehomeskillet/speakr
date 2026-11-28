@@ -642,6 +642,7 @@ export function createRecordingViewController(options) {
         localMessage = '';
         const result = await machine.cancel();
         if (result.ok) {
+            localMessage = '';
             resetUploadChoice();
             notify();
         }
