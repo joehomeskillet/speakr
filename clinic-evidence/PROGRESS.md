@@ -1,5 +1,9 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## FX-fa9ed7 – Ausgabeziele beim Fertigstellen
+
+Der Abschlussdialog lädt die Ausgabeziele der freigegebenen Textrevision ohne persönliche Ausgabevorgaben. TXT und DOCX müssen einzeln bestätigt werden. 72 fokussierte JavaScript-Tests und zwei lokale Chromium-Fälle mit synthetischen Daten bestanden. Die Prüfung auf Staging steht aus.
+
 ## P-254 – Web-Alternative für PAR-OPS-004
 
 Im Klinikmodus bietet das App-Manifest die Schnellzugriffe **Neue Aufnahme**, **Aufnahmen** und **Arbeitsliste**. Sie öffnen bestehende Ansichten und setzen eine gültige Anmeldung voraus. Die [Browser-App-Anleitung](../docs/de/user-guide/pwa.md) erklärt auch Lesezeichen und Browserstart. `WG-OPS-004` bleibt offen; `BT-OPS-004` wurde nicht gegen das Referenzsystem ausgeführt. Kein nativer Autostart- oder Tray-Ersatz.
