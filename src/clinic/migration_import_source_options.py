@@ -1,6 +1,6 @@
 """Additive upgrade of import-source option columns (PAR-IMP-006).
 
-Adds backup name, retention, cleanup and backup root. Existing rows keep an
+Adds backup name, retention, cleanup, backup root and the backup toggle. Existing rows keep an
 EOL flag that was already set and gain cleanup off. Missing routing defaults
 and an empty file pattern are filled once. Both directions are idempotent.
 A fresh database already has the columns from ``create_all``.
@@ -12,7 +12,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
 TABLE = "clinic_import_source_config"
-COLUMNS = ("backup_name", "backup_retention_days", "cleanup_enabled", "backup_root")
+COLUMNS = ("backup_name", "backup_retention_days", "cleanup_enabled", "backup_root", "backup_enabled")
 
 
 def _literals(dialect: str) -> tuple[str, str]:
@@ -28,6 +28,7 @@ def _column_types(dialect: str) -> dict[str, str]:
         "backup_retention_days": "INTEGER",
         "cleanup_enabled": "BOOLEAN NOT NULL DEFAULT " + off,
         "backup_root": "VARCHAR(1024)",
+        "backup_enabled": "BOOLEAN",  # NULL preserves the legacy root-based setting.
     }
 
 

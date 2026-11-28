@@ -1,5 +1,7 @@
 <!-- Loading Overlay - Prevents FOUC -->
 <style>
+    /* Hallmark · scope: app · shape: app screen · theme: existing Speakr V8 tokens · shared startup status */
+    /* Hallmark · critique: keep quick loads quiet and make slow loads readable without motion. */
     /* Inline critical loading styles for instant rendering */
     .app-loading-overlay {
         position: fixed;
@@ -9,7 +11,7 @@
         bottom: 0;
         /* The page's own theme colours, set in <head> before this appears,
            so the overlay never flashes a different colour. */
-        background: var(--bg-primary, #1a1b26);
+        background: var(--bg-primary, var(--brand-canvas));
         z-index: 9999;
         display: flex;
         align-items: center;
@@ -18,11 +20,12 @@
            after 400 ms: a page that loads quickly goes straight from its
            background to its content with no spinner flashing in between. */
         opacity: 0;
+        visibility: hidden;
         animation: app-loading-appear 0.2s ease-out 0.4s forwards;
         transition: opacity 0.3s ease-out;
     }
     @keyframes app-loading-appear {
-        to { opacity: 1; }
+        to { opacity: 1; visibility: visible; }
     }
     .app-loading-overlay.fade-out {
         opacity: 0;
@@ -36,28 +39,39 @@
         width: 50px;
         height: 50px;
         margin: 0 auto 20px;
-        border: 3px solid var(--border-primary, rgba(255, 255, 255, 0.1));
-        border-top-color: var(--text-accent, #7aa2f7);
+        border: 3px solid var(--border-primary, var(--ui-border));
+        border-top-color: var(--text-accent, var(--brand-accent));
         border-radius: 50%;
         animation: spin 1s linear infinite;
     }
     .app-loading-text {
-        color: var(--text-muted, #a0a0b0);
+        color: var(--text-muted, var(--ui-text-muted));
         font-size: 14px;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        letter-spacing: 0.5px;
+        font-family: var(--ui-font-sans);
     }
     @keyframes spin {
         to { transform: rotate(360deg); }
     }
+    @media (prefers-reduced-motion: reduce) {
+        .app-loading-overlay {
+            /* Keep the delay, then show the status without a fade. */
+            animation-duration: 0s;
+            transition: none;
+        }
+        .app-loading-spinner { animation: none; }
+    }
+    html, body { overflow-x: clip; }
     /* The class is set on <html> at once, in <head>, so the page is hidden
        from the first paint. Set on <body> only, it was added by a timer once
        <body> existed, and Firefox could paint the mounted page before that:
        the content appeared for a frame, then disappeared until the page was
        ready. */
-    html.app-loading body, body.app-loading { overflow: hidden; }
+    html.app-loading, html.app-loading body, body.app-loading { overflow-y: clip; }
     html.app-loading body > *:not(.app-loading-overlay),
-    body.app-loading > *:not(.app-loading-overlay) { opacity: 0; }
+    body.app-loading > *:not(.app-loading-overlay) {
+        opacity: 0;
+        visibility: hidden;
+    }
 </style>
 <script>
     // Immediate loading overlay initialization
@@ -74,12 +88,18 @@
                 setTimeout(initLoadingOverlay, 10);
                 return;
             }
+            if (document.querySelector('.app-loading-overlay')) return;
             document.body.classList.add('app-loading');
             var overlay = document.createElement('div');
             overlay.className = 'app-loading-overlay';
-            overlay.innerHTML = '<div class="app-loading-content"><div class="app-loading-spinner"></div><div class="app-loading-text">Loading…</div></div>';
+            overlay.setAttribute('role', 'status');
+            var clinic = {{ (clinic_mode or clinic_login or false)|tojson }};
+            var caption = (clinic || /^de(?:-|$)/i.test(document.documentElement.lang)) ? 'Lädt…' : 'Loading…';
+            overlay.innerHTML = '<div class="app-loading-content"><div class="app-loading-spinner" aria-hidden="true"></div><div class="app-loading-text">' + caption + '</div></div>';
             document.body.appendChild(overlay);
         }
+        // Handle DOM readiness before loading.js can create its fallback overlay.
+        document.addEventListener('DOMContentLoaded', initLoadingOverlay, { once: true });
         initLoadingOverlay();
     })();
 </script>
