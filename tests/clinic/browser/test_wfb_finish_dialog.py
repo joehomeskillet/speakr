@@ -216,7 +216,7 @@ def test_finish_dialog(browser: Browser, staging: str, mount: str, output: bool)
         expect(docx).to_contain_text(DOCX)
         if output:
             expect(txt.get_by_role("status")).to_have_text(READY)
-            download = txt.get_by_role("link", name="Laden", exact=True)
+            download = txt.get_by_role("link", name="Herunterladen", exact=True)
             expect(download).to_be_visible()
             expect(download).to_have_attribute("download", "")
             expect(docx.get_by_role("status")).to_have_text(FAILED)

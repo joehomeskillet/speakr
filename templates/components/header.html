@@ -1,6 +1,7 @@
 {% from 'components/queue/_queue.html' import queue_indicator %}
+{% from 'components/brand-lockup.html' import brand_lockup %}
 <!-- Single adaptive top header.
-     In list view: shows Speakr logo + name.
+     In list view: shows the Ploudrli logo.
      In recording-detail view: title + inline meta + recording action
      icons take that slot, so the separate detail header is no longer
      needed (it used to add ~72px of vertical chrome).
@@ -24,12 +25,10 @@
             <i class="fas fa-bars text-lg"></i>
         </button>
 
-        <!-- LIST VIEW (or any non-detail screen): Speakr logo + name -->
-        <div v-if="currentView !== 'detail' || !selectedRecording"
-             class="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
-            <img src="{{ url_for('static', filename='img/icon-64.png') }}" srcset="{{ url_for('static', filename='img/icon-64.png') }} 1x, {{ url_for('static', filename='img/icon-128.png') }} 2x" alt="Speakr" class="app-logo w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0">
-            <h1 class="text-lg sm:text-xl font-bold text-[var(--text-primary)] truncate">Speakr</h1>
-        </div>
+        <!-- LIST VIEW (or any non-detail screen): Ploudrli logo -->
+        <h1 v-if="currentView !== 'detail' || !selectedRecording" class="flex min-w-0 items-center rounded-ui-sm bg-ui-surface px-1">
+            {{ brand_lockup() }}
+        </h1>
 
         <!-- DETAIL VIEW: recording title + inline meta + action icons.
              Replaces the separate desktop-header.html for desktop.
@@ -43,8 +42,8 @@
                  content, which made the input collapse to a few dozen
                  pixels in edit mode. -->
             <div class="flex items-center gap-2 min-w-0 flex-1">
-                <a href="/" class="flex-shrink-0 hidden sm:block sm:mr-1.5" :title="t('tooltips.backToHome')">
-                    <img src="{{ url_for('static', filename='img/icon-64.png') }}" srcset="{{ url_for('static', filename='img/icon-64.png') }} 1x, {{ url_for('static', filename='img/icon-128.png') }} 2x" alt="Speakr" class="app-logo w-7 h-7">
+                <a href="/" class="flex-shrink-0 hidden sm:flex sm:mr-1.5 min-h-12 min-w-12 items-center justify-center rounded-ui-sm bg-ui-surface focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ui-text" :title="t('tooltips.backToHome')">
+                    {{ brand_lockup('symbol') }}
                 </a>
                 <h1 v-if="!editingTitle"
                     @dblclick="selectedRecording.can_edit !== false ? toggleEditTitle() : null"
