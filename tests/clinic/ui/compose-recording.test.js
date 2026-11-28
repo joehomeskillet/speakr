@@ -32,9 +32,12 @@ function make(extra) {
     return { c, rec, uploadFile, onOpen, onWorklist, client };
 }
 
-async function toReview(c) {
+const privateTypes = ['notiz', 'sitzung', 'patientengespraech'];
+const recordingTypes = ['bericht', ...privateTypes];
+
+async function toReview(c, type = 'bericht') {
     c.setTitle('Bericht');
-    await c.start();
+    await c.start(type);
     c.pause();
     c.resume();
     await c.stop();
@@ -50,6 +53,67 @@ afterEach(() => {
 });
 
 describe('recording view controller', () => {
+    it('requires an explicit recording type and clears it after cancelling', async () => {
+        const { c, rec } = make();
+        c.setTitle('Bericht');
+        expect(c.model()).toMatchObject({ recordingType: null, isPrivate: false, starting: false });
+        expect((await c.start()).ok).toBe(false);
+        expect((await c.start('unknown')).ok).toBe(false);
+        expect(rec.startRecording).not.toHaveBeenCalled();
+        expect((await c.start('sitzung')).ok).toBe(true);
+        expect(c.model()).toMatchObject({ recordingType: 'sitzung', isPrivate: true });
+        expect((await c.cancel()).ok).toBe(true);
+        expect(c.model()).toMatchObject({ recordingType: null, isPrivate: false, starting: false });
+    });
+
+    it.each(recordingTypes)('transfers the chosen %s type and submits only Bericht', async (type) => {
+        const rec = recorder(async () => ({ dictation_id: 'd-7', recording_type: type }));
+        const request = vi.fn()
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-7', etag: 'draft' } })
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-7', status: 'zu_schreiben' } });
+        const fetchPreflight = async () => ({ ok: true, json: async () => ({
+            routable: true, staff_service_names: ['Süd'],
+        }) });
+        const { c } = make({ recorder: rec, options: { client: { request }, fetchPreflight, oneButton: true } });
+        const isPrivate = type !== 'bericht';
+        await c.checkRouting();
+        await toReview(c, type);
+        expect(c.model()).toMatchObject({ phase: 'review', recordingType: type, isPrivate, privateSaved: false,
+            plannedDestination: isPrivate ? '' : 'Wird gesendet an: Schreibdienst Süd' });
+        expect((await c.submit()).ok).toBe(false);
+        expect((await c.sendRecording()).ok).toBe(true);
+        expect(rec.startRecording).toHaveBeenCalledOnce();
+        expect(rec.uploadRecordedAudio.mock.calls).toEqual([[{ title: 'Bericht', recording_type: type }]]);
+        if (isPrivate) {
+            expect(c.model()).toMatchObject({ canSubmit: false, privateSaved: true, plannedDestination: '', submittedVisibility: '' });
+            expect((await c.submit()).ok).toBe(false);
+            expect(request).not.toHaveBeenCalled();
+        } else {
+            expect(c.model().phase).toBe('submitted');
+            expect(request).toHaveBeenCalledWith('/dictations/d-7/send', expect.objectContaining({ method: 'POST' }));
+        }
+        expect(c.another().ok).toBe(true);
+        expect(c.model()).toMatchObject({ recordingType: null, isPrivate: false, privateSaved: false });
+    });
+
+    it.each([
+        ['legacy', { id: 7 }],
+        ['wrong-type', { dictation_id: 'd-7', recording_type: 'bericht' }],
+    ])('does not claim privacy from a %s receipt', async (_kind, receipt) => {
+        const rec = recorder(async () => receipt);
+        const request = vi.fn();
+        const { c } = make({ recorder: rec, options: { client: { request } } });
+        await toReview(c, 'notiz');
+        expect((await c.sendRecording()).code).toBe('no_receipt');
+        expect(c.model()).toMatchObject({ phase: 'failed', privateSaved: false, canSubmit: false, created: null });
+        expect(c.openCreated()).toBe(false);
+        expect((await c.submit()).ok).toBe(false);
+        rec.uploadRecordedAudio.mockResolvedValueOnce({ dictation_id: 'd-7', recording_type: 'notiz' });
+        expect((await c.sendRecording()).ok).toBe(true);
+        expect(c.model().privateSaved).toBe(true);
+        expect(request).not.toHaveBeenCalled();
+    });
+
     it('retries only an explicitly sent take, once automatically, then offers one manual retry', async () => {
         vi.useFakeTimers();
         const takeId = '05d0e36d-64bb-41ec-bfd3-52c278e75ca5';
@@ -118,7 +182,7 @@ describe('recording view controller', () => {
         await c.checkRouting();
         expect(c.model()).toMatchObject({ localVisibility: '', submittedVisibility: '' });
         c.setTitle('Bericht');
-        await c.start();
+        await c.start('bericht');
         expect(c.model()).toMatchObject({ phase: 'recording', localVisibility: '', submittedVisibility: '' });
         c.pause();
         c.resume();
@@ -200,7 +264,7 @@ describe('recording view controller', () => {
         expect(c.model().message).toBe('Ein Titel ist erforderlich.');
         c.setTitle('Bericht');
         expect(c.model().phase).toBe('ready');
-        await c.start();
+        await c.start('bericht');
         expect(c.model().phase).toBe('recording');
         expect(c.model().titleLocked).toBe(true);
         c.pause();
@@ -212,7 +276,7 @@ describe('recording view controller', () => {
         expect(c.model().controls.find((b) => b.id === 'send').disabled).toBe(false);
         const out = await c.send();
         expect(out.ok).toBe(true);
-        expect(rec.uploadRecordedAudio).toHaveBeenCalledWith({ title: 'Bericht' });
+        expect(rec.uploadRecordedAudio).toHaveBeenCalledWith({ title: 'Bericht', recording_type: 'bericht' });
         expect(c.model().phase).toBe('sent');
         expect(c.model().created).toEqual({ dictationId: 'rec-1' });
         expect(c.model().message).toBe(TEXT.sent);
@@ -228,12 +292,12 @@ describe('recording view controller', () => {
         expect(c.model().controls.find((b) => b.id === 'start').disabled).toBe(true);
         c.setTitle('   ');
         expect(c.model().phase).toBe('title');
-        expect((await c.start()).code).toBe('invalid_phase');
+        expect((await c.start('bericht')).code).toBe('invalid_phase');
         expect(rec.startRecording).not.toHaveBeenCalled();
 
         // Start with initial title; locked during recording and pause.
         c.setTitle('Erster Titel');
-        await c.start();
+        await c.start('bericht');
         expect(c.model().titleLocked).toBe(true);
         expect(c.setTitle('Zwischentitel').code).toBe('invalid_phase');
         c.pause();
@@ -260,7 +324,7 @@ describe('recording view controller', () => {
         expect(c.setTitle('Zu spät').code).toBe('invalid_phase');
         release({ dictation_id: 'd-42' });
         expect((await pending).ok).toBe(true);
-        expect(rec.uploadRecordedAudio).toHaveBeenCalledWith({ title: 'Geänderter Titel' });
+        expect(rec.uploadRecordedAudio).toHaveBeenCalledWith({ title: 'Geänderter Titel', recording_type: 'bericht' });
         expect(c.model().phase).toBe('sent');
         expect(c.model().titleLocked).toBe(true);
         expect(c.setTitle('Nach Speichern').code).toBe('invalid_phase');
@@ -280,16 +344,16 @@ describe('recording view controller', () => {
         expect(c.model().titleLocked).toBe(false);
         expect(c.setTitle('Korrigierter Titel').ok).toBe(true);
         expect((await c.send()).ok).toBe(true);
-        expect(rec.uploadRecordedAudio).toHaveBeenNthCalledWith(1, { title: 'Bericht' });
-        expect(rec.uploadRecordedAudio).toHaveBeenNthCalledWith(2, { title: 'Korrigierter Titel' });
+        expect(rec.uploadRecordedAudio).toHaveBeenNthCalledWith(1, { title: 'Bericht', recording_type: 'bericht' });
+        expect(rec.uploadRecordedAudio).toHaveBeenNthCalledWith(2, { title: 'Korrigierter Titel', recording_type: 'bericht' });
     });
 
     it('refuses invalid transitions and a second start', async () => {
         const { c, rec } = make();
-        expect((await c.start()).code).toBe('invalid_phase');
+        expect((await c.start('bericht')).code).toBe('invalid_phase');
         c.setTitle('x');
-        await c.start();
-        expect((await c.start()).code).toBe('invalid_phase');
+        await c.start('bericht');
+        expect((await c.start('bericht')).code).toBe('invalid_phase');
         expect(rec.startRecording).toHaveBeenCalledOnce();
         expect((await c.send()).code).toBe('invalid_phase');
         expect(c.resume().code).toBe('invalid_phase');
@@ -324,7 +388,7 @@ describe('recording view controller', () => {
         rec.startRecording = vi.fn(async () => { throw new Error('NotAllowedError'); });
         const { c } = make({ recorder: rec });
         c.setTitle('x');
-        expect((await c.start()).code).toBe('start_failed');
+        expect((await c.start('bericht')).code).toBe('start_failed');
         expect(c.model().phase).toBe('ready');
         expect(c.model().message).toBe(TEXT.startFailed);
         expect(c.model().message).toContain('Datei hochladen');
@@ -346,7 +410,7 @@ describe('recording view controller', () => {
         expect(c.model().microphoneOptions).toEqual(microphone.inputs);
         expect(c.model()).toMatchObject({ selectedMicrophoneId: 'desk', needsMicrophoneAccess: false });
         microphone.inputs = [{ deviceId: 'laptop', label: 'Notebook' }];
-        expect(await c.start()).toEqual({ ok: false, code: 'microphone_unavailable' });
+        expect(await c.start('bericht')).toEqual({ ok: false, code: 'microphone_unavailable' });
         expect(getUserMedia).toHaveBeenCalledOnce();
         expect(getUserMedia).toHaveBeenCalledWith({ audio: expect.objectContaining({ deviceId: { exact: 'desk' } }) });
         expect(c.model()).toMatchObject({ phase: 'ready', created: null });
@@ -418,7 +482,7 @@ describe('recording view controller', () => {
         const request = vi.fn().mockResolvedValueOnce({
             outcome: 'ok', data: {
                 dictation_id: id, etag: 'version', status_axes: { workflow: 'neu_angelegt' },
-                draft_metadata: { title: 'Bericht' }, draft_edit_actions: ['rename'], allowed_actions: ['send'],
+                draft_metadata: { title: 'Bericht', recording_type: 'bericht' }, draft_edit_actions: ['rename'], allowed_actions: ['send'],
             },
         }).mockResolvedValueOnce({ outcome: 'ok', data: { acceptance_required: false } });
         const rec = recorder(async () => ({ id: 7, dictation_id: id }));
@@ -463,7 +527,7 @@ describe('recording view controller', () => {
         const { c, rec, uploadFile } = make({ options: { authorized: () => false } });
         expect(c.model().message).toBe(TEXT.denied);
         c.setTitle('x');
-        expect((await c.start()).code).toBe('unauthorized');
+        expect((await c.start('bericht')).code).toBe('unauthorized');
         expect(c.setMode('file').code).toBe('unauthorized');
         expect(c.selectFile(audio()).code).toBe('unauthorized');
         expect((await c.sendFile()).code).toBe('unauthorized');
@@ -488,7 +552,7 @@ describe('recording view controller', () => {
         expect(c.model().voxEnabled).toBe(false);
         expect(c.model().voxStatus).toContain('Sprachpausen bleiben erhalten');
         c.setTitle('erste');
-        await c.start();
+        await c.start('bericht');
         c.pause();
         expect(c.toggleVox()).toEqual({ ok: true, enabled: true });
         expect(rec.startRecording.mock.calls).toEqual([[{ voxEnabled: false }]]);
@@ -500,7 +564,7 @@ describe('recording view controller', () => {
         await c.send();
         c.another();
         c.setTitle('zweite');
-        await c.start();
+        await c.start('bericht');
         expect(rec.startRecording).toHaveBeenLastCalledWith({ voxEnabled: true });
         expect(c.model().voxStatus).toBe('Diese Aufnahme wird stimmgesteuert.');
         c.pause();
@@ -527,6 +591,30 @@ describe('file upload path', () => {
         expect(isAudioFile(null)).toBe(false);
     });
 
+    it.each(recordingTypes)('requires a file type choice and transfers the chosen %s type', async (type) => {
+        const request = vi.fn();
+        const uploadFile = vi.fn(async () => ({ dictation_id: 'd-9', recording_type: type }));
+        const { c } = make({ uploadFile, options: { client: { request } } });
+        const file = audio();
+        c.setMode('file');
+        expect(c.model()).toMatchObject({ recordingType: null, canUpload: false });
+        expect(c.selectFile(file).ok).toBe(true);
+        expect(c.model().canUpload).toBe(false);
+        expect((await c.sendFile()).ok).toBe(false);
+        expect(uploadFile).not.toHaveBeenCalled();
+        expect(c.selectFileType(type).ok).toBe(true);
+        expect(c.model()).toMatchObject({ recordingType: type, canUpload: true, isPrivate: type !== 'bericht' });
+        expect((await c.sendFile()).ok).toBe(true);
+        expect(uploadFile.mock.calls).toEqual([[file, undefined, { recording_type: type }]]);
+        if (type !== 'bericht') {
+            expect(c.model()).toMatchObject({ privateSaved: true, canSubmit: false });
+            expect((await c.submit()).ok).toBe(false);
+            expect(request).not.toHaveBeenCalled();
+        }
+        expect(c.another().ok).toBe(true);
+        expect(c.model()).toMatchObject({ recordingType: null, canUpload: false });
+    });
+
     it('selects, uploads and shows the created dictation', async () => {
         const { c, uploadFile, onOpen } = make();
         expect(c.selectFile(audio()).code).toBe('invalid_phase');
@@ -535,6 +623,7 @@ describe('file upload path', () => {
         expect(c.model().message).toBe(TEXT.fileInvalid);
         expect(c.selectFile(audio()).ok).toBe(true);
         expect(c.model().file).toEqual({ name: 'diktat.wav', size: 1200 });
+        c.selectFileType('bericht');
         expect(c.model().canUpload).toBe(true);
         expect(c.model()).toMatchObject({ localVisibility: '', submittedVisibility: '' });
         const out = await c.sendFile();
@@ -555,6 +644,7 @@ describe('file upload path', () => {
         const uploadFile = vi.fn(() => new Promise((resolve) => { release = resolve; }));
         const { c } = make({ uploadFile });
         c.setMode('file');
+        c.selectFileType('bericht');
         c.selectFile(audio());
         const first = c.sendFile();
         expect(c.model().phase).toBe('sending');
@@ -572,6 +662,7 @@ describe('file upload path', () => {
         const uploadFile = vi.fn(async () => { calls += 1; if (calls === 1) throw new Error('boom'); return { id: 'd-2' }; });
         const { c } = make({ uploadFile });
         c.setMode('file');
+        c.selectFileType('bericht');
         c.selectFile(audio());
         expect((await c.sendFile()).code).toBe('no_receipt');
         const m = c.model();
@@ -589,6 +680,7 @@ describe('file upload path', () => {
     it('treats a receipt without id as failed', async () => {
         const { c } = make({ uploadFile: vi.fn(async () => ({ ok: true })) });
         c.setMode('file');
+        c.selectFileType('bericht');
         c.selectFile(audio());
         await c.sendFile();
         expect(c.model().phase).toBe('failed');
@@ -599,6 +691,7 @@ describe('file upload path', () => {
     it('cancelFile clears the selection', () => {
         const { c } = make();
         c.setMode('file');
+        c.selectFileType('bericht');
         c.selectFile(audio());
         expect(c.cancelFile().ok).toBe(true);
         expect(c.model().file).toBeNull();
@@ -608,7 +701,7 @@ describe('file upload path', () => {
     it('does not switch source while a recording is running', async () => {
         const { c } = make();
         c.setTitle('x');
-        await c.start();
+        await c.start('bericht');
         expect(c.setMode('file').code).toBe('invalid_phase');
         expect(c.setMode('nope').code).toBe('invalid_mode');
     });
@@ -625,6 +718,7 @@ describe('dispose', () => {
         const uploadFile = vi.fn(() => new Promise((resolve) => { release = resolve; }));
         const b = make({ uploadFile });
         b.c.setMode('file');
+        b.c.selectFileType('bericht');
         b.c.selectFile(audio());
         const pending = b.c.sendFile();
         await b.c.dispose();
@@ -659,6 +753,7 @@ describe('no browser storage', () => {
         await c.send();
         c.another();
         c.setMode('file');
+        c.selectFileType('bericht');
         c.selectFile(audio());
         await c.sendFile();
         await c.dispose();
@@ -709,6 +804,30 @@ describe('view registration and setup', () => {
         expect(RECORDING_TEMPLATE).toContain('{{ m.submittedVisibility }}');
     });
 
+    it.each(recordingTypes)('starts the %s tile and keeps its type while recording', async (type) => {
+        const rec = recorder();
+        const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: rec, uploadFile: vi.fn(), vue: fakeVue() }, {});
+        expect(view.m.value.recordingType).toBeNull();
+        expect(view.selectedType.value).toBeFalsy();
+        view.startType(type);
+        expect(view.m.value.starting).toBe(true);
+        expect(view.selectedType.value.id).toBe(type);
+        await vi.waitFor(() => expect(view.m.value.phase).toBe('recording'));
+        expect(rec.startRecording).toHaveBeenCalledOnce();
+    });
+
+    it('shows consent and privacy hints on the tiles and on the selected recording', () => {
+        const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: recorder(), uploadFile: vi.fn(), vue: fakeVue() }, {});
+        const hints = Object.fromEntries(view.recordingTypes.map(({ id, hint }) => [id, hint]));
+        expect(hints.patientengespraech).toBe('Bitte informieren Sie die Patientin oder den Patienten und holen Sie das Einverständnis ein.');
+        expect(hints.notiz).toBe('Nur für Sie sichtbar. Bitte keine Patientendaten.');
+        expect(RECORDING_TEMPLATE).toContain('{{ type.hint }}');
+        expect(RECORDING_TEMPLATE).toContain('{{ selectedType.hint }}');
+        expect(RECORDING_TEMPLATE).toContain(':aria-pressed="m.recordingType === type.id"');
+        expect(RECORDING_TEMPLATE).toContain('@click="c.selectFileType(type.id)"');
+        expect(RECORDING_TEMPLATE).toMatch(/<input id="crv-file"[^>]*:disabled="!selectedType \|\| !m.canSelectFile"/);
+    });
+
     it('emits open and worklist and disposes on unmount', async () => {
         const Vue = fakeVue();
         const emit = vi.fn();
@@ -719,7 +838,7 @@ describe('view registration and setup', () => {
         }, { emit });
         view.c.setTitle('x');
         await view.c.checkRouting();
-        await view.c.start();
+        await view.c.start('bericht');
         await view.c.stop();
         await view.c.send();
         view.c.toWorklist();
@@ -787,8 +906,11 @@ describe('view registration and setup', () => {
         await press('R', { repeat: true });
         expect(rec.startRecording).not.toHaveBeenCalled();
         await press('R', { target: doc.body });
+        expect(rec.startRecording).not.toHaveBeenCalled();
+        expect(view.m.value.phase).toBe('ready');
+        await view.c.start('bericht');
         expect(view.m.value.phase).toBe('recording');
-        await press('R');
+        await press('R', { target: doc.body });
         expect(view.m.value.phase).toBe('paused');
         await press('R');
         expect(view.m.value.phase).toBe('recording');

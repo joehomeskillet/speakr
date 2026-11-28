@@ -41,6 +41,22 @@ describe('clinic recorder upload', () => {
         expect(stock.discardRecording).not.toHaveBeenCalled();
     });
 
+    it('keeps the original title, type and take ID across upload retries', async () => {
+        const { recorder, stock, upload } = stoppedTake();
+        const receipt = { id: 42, dictation_id: 'synthetic-dictation', recording_type: 'notiz' };
+        upload.mockResolvedValueOnce({ id: 42 }).mockResolvedValueOnce(receipt);
+        await expect(recorder.uploadRecordedAudio({ title: 'Original', recording_type: 'notiz' }))
+            .rejects.toThrow('no_receipt');
+        expect(stock.clearRecording).not.toHaveBeenCalled();
+        await expect(recorder.uploadRecordedAudio({ title: 'Edited', recording_type: 'bericht' }))
+            .resolves.toEqual(receipt);
+        expect(stock.clearRecording).toHaveBeenCalledOnce();
+        const [, title, metadata] = upload.mock.calls[0];
+        expect(title).toBe('Original');
+        expect(metadata).toEqual({ id: expect.any(String), retry: false, recording_type: 'notiz' });
+        expect(upload).toHaveBeenLastCalledWith(expect.any(File), title, { ...metadata, retry: true });
+    });
+
     it('keeps a new recording when the previous upload finishes', async () => {
         const { recorder, state, stock, upload } = stoppedTake();
         upload.mockResolvedValue({ id: 1 });

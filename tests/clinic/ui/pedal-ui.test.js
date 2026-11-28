@@ -232,7 +232,8 @@ describe('recording view wiring', () => {
         expect(recorder.startRecording).not.toHaveBeenCalled();
         authorized = true;
         press('F8');
-        await settleCapture();
+        expect(recorder.startRecording).not.toHaveBeenCalled();
+        expect((await view.start('bericht')).ok).toBe(true);
         expect(view.model().phase).toBe('recording');
         press('F8');
         expect(view.model().phase).toBe('paused');
@@ -263,15 +264,20 @@ describe('recording view wiring', () => {
         await view.dispose();
     });
 
-    it('pauses capture on release, including release before asynchronous microphone startup completes', async () => {
+    it('ignores pedal hold during microphone startup and pauses a resumed take on release', async () => {
         const { view, recorder, press, release } = make();
         let grantMicrophone;
         recorder.startRecording.mockImplementationOnce(() => new Promise(resolve => { grantMicrophone = resolve; }));
         view.setTitle('Synthetic title');
+        const start = view.start('bericht');
         press('F9');
         release('F9');
         grantMicrophone(true);
-        await settleCapture();
+        expect((await start).ok).toBe(true);
+        expect(view.model().phase).toBe('recording');
+        expect(recorder.pauseRecording).not.toHaveBeenCalled();
+        expect(recorder.startRecording).toHaveBeenCalledOnce();
+        expect(view.pause().ok).toBe(true);
         expect(view.model().phase).toBe('paused');
         expect(recorder.pauseRecording).toHaveBeenCalledTimes(1);
         press('F9');
@@ -289,8 +295,10 @@ describe('recording view wiring', () => {
         try {
             const { view, player, press } = make({ authorized: () => authorized });
             view.setTitle('Synthetic title');
+            expect((await view.start('bericht')).ok).toBe(true);
+            expect(view.pause().ok).toBe(true);
             press('F8');
-            await settleCapture();
+            expect(view.model().phase).toBe('recording');
             authorized = false;
             fire(window, new Event('blur'));
             expect(view.model().phase).toBe('paused');

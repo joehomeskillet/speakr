@@ -77,6 +77,10 @@ describe('V8 work pages: prototype structure', () => {
     it('the recording page keeps recorder test ids without showing the author', () => {
         const t = templates.recording;
         expect(t).not.toContain('data-testid="author"');
+        expect(t.match(/data-testid="rec-start"/g)).toHaveLength(1);
+        expect(t).toMatch(/<button v-if="type.id === 'bericht'"[^>]*data-testid="rec-start"[^>]*@click="startType\(type.id\)"/);
+        expect(t).toMatch(/<button v-else[^>]*:data-testid="'rec-start-' \+ type.id"[^>]*@click="startType\(type.id\)"/);
+        expect(t).toContain(`:data-testid="'file-type-' + type.id"`);
         for (const action of ['start', 'pause', 'resume', 'stop', 'send', 'cancel']) {
             expect(t).toContain(`data-testid="rec-${action}"`);
         }

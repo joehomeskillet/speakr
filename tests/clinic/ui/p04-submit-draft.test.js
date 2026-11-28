@@ -28,7 +28,7 @@ describe('P04 draft submission', () => {
         request.mockResolvedValueOnce(categories([categorySet]));
         await controller.loadCategories();
         controller.setTitle('Synthetische Aufnahme');
-        await controller.start();
+        await controller.start('bericht');
         await controller.stop();
         expect((await controller.sendRecording()).ok).toBe(true);
         expect(controller.model().message).toContain('Gespeichert');
@@ -54,6 +54,7 @@ describe('P04 draft submission', () => {
         request.mockResolvedValueOnce(categories([categorySet]));
         await controller.loadCategories();
         controller.setMode('file');
+        controller.selectFileType('bericht');
         controller.selectFile({ name: 'test.wav', size: 20 });
         await controller.sendFile();
         controller.selectCategory('s1', 'Rot');
@@ -70,7 +71,7 @@ describe('P04 draft submission', () => {
     it('stops locally, saves a draft, then submits the confirmed dictation once', async () => {
         const { controller, upload, request } = recording();
         controller.setTitle('Synthetische Aufnahme');
-        await controller.start();
+        await controller.start('bericht');
         await controller.stop();
         expect(controller.model().controls.find(c => c.id === 'send').label).toBe('Entwurf sichern');
         expect((await controller.submit()).ok).toBe(false);
@@ -97,6 +98,7 @@ describe('P04 draft submission', () => {
     it('replays an uncertain file submission with the same version and key, without another upload', async () => {
         const { controller, upload, request } = recording({ id: 19, dictation_id: id });
         controller.setMode('file');
+        controller.selectFileType('bericht');
         controller.selectFile({ name: 'test.wav', size: 20 });
         await controller.sendFile();
         request.mockResolvedValueOnce(detail).mockRejectedValueOnce(new Error('offline'))
@@ -114,6 +116,7 @@ describe('P04 draft submission', () => {
     it('does not offer another submission after the server confirms this is no longer a draft', async () => {
         const { controller, request } = recording();
         controller.setMode('file');
+        controller.selectFileType('bericht');
         controller.selectFile({ name: 'test.wav', size: 20 });
         await controller.sendFile();
         request.mockResolvedValueOnce(detail).mockResolvedValueOnce({ outcome: 'conflict', code: 'NOT_DRAFT' });
@@ -122,6 +125,7 @@ describe('P04 draft submission', () => {
         expect((await controller.submit()).ok).toBe(false);
         expect(request).toHaveBeenCalledTimes(2);
         controller.another();
+        controller.selectFileType('bericht');
         controller.selectFile({ name: 'next.wav', size: 30 });
         await controller.sendFile();
         expect(controller.model().canSubmit).toBe(true);
@@ -130,6 +134,7 @@ describe('P04 draft submission', () => {
     it('never uses a recording id for a workflow command', async () => {
         const { controller, request } = recording({ id: 19 });
         controller.setMode('file');
+        controller.selectFileType('bericht');
         controller.selectFile({ name: 'test.wav', size: 20 });
         await controller.sendFile();
         expect((await controller.submit()).ok).toBe(false);
@@ -139,6 +144,7 @@ describe('P04 draft submission', () => {
     it('keeps the draft when routing is refused and stops before POST when the user leaves', async () => {
         const { controller, request } = recording();
         controller.setMode('file');
+        controller.selectFileType('bericht');
         controller.selectFile({ name: 'test.wav', size: 20 });
         await controller.sendFile();
         request.mockResolvedValueOnce(detail)
@@ -181,6 +187,7 @@ describe('P04 draft metadata confirmation', () => {
 
     function selectFile(controller) {
         controller.setMode('file');
+        controller.selectFileType('bericht');
         controller.selectFile({ name: 'test.wav', size: 20 });
     }
 
@@ -197,7 +204,7 @@ describe('P04 draft metadata confirmation', () => {
 
         await controller.loadCategories();
         controller.setTitle('Synthetische Aufnahme');
-        await controller.start();
+        await controller.start('bericht');
         await controller.stop();
         expect((await controller.sendRecording()).ok).toBe(true);
         expect(controller.model()).toMatchObject({
@@ -274,7 +281,7 @@ describe('P04 draft metadata confirmation', () => {
             [path + '/metadata']: confirmed,
         }[url]));
         controller.setTitle(initialFields.title);
-        await controller.start();
+        await controller.start('bericht');
         await controller.stop();
         await controller.sendRecording();
         expect(request).toHaveBeenCalledTimes(2);

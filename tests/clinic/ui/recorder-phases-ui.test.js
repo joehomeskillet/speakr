@@ -65,6 +65,30 @@ describe('recorder phases', () => {
         expect(m.getState().phase).toBe('sent');
     });
 
+    it('uploads the successfully started type across retries without changing VOX options', async () => {
+        const rec = recorder();
+        const m = createRecorderPhases({ recorder: rec, automaticTitle: true });
+        rec.startRecording.mockResolvedValueOnce(false);
+        expect((await m.start('bericht')).ok).toBe(false);
+        m.setTitle('Test');
+        expect((await m.start('sitzung', { voxEnabled: true })).ok).toBe(true);
+        expect(rec.startRecording).toHaveBeenLastCalledWith({ voxEnabled: true });
+        expect((await m.start('notiz')).ok).toBe(false);
+        await m.stop();
+        rec.uploadRecordedAudio.mockRejectedValueOnce(new Error('offline'))
+            .mockResolvedValueOnce({ dictation_id: 'synthetic-dictation', recording_type: 'sitzung' });
+        expect((await m.send()).ok).toBe(false);
+        expect((await m.send()).ok).toBe(true);
+        expect(rec.uploadRecordedAudio.mock.calls).toEqual([
+            [{ title: 'Test', recording_type: 'sitzung' }],
+            [{ title: 'Test', recording_type: 'sitzung' }],
+        ]);
+        m.reset();
+        await toReview(m);
+        await m.send();
+        expect(rec.uploadRecordedAudio).toHaveBeenLastCalledWith({ title: 'Bericht' });
+    });
+
     it('treats an upload without receipt as failed', async () => {
         const m = createRecorderPhases({ recorder: recorder(async () => undefined) });
         await toReview(m);

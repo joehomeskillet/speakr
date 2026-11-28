@@ -56,6 +56,11 @@ export function receiptDictationId(value) {
     return Number.isInteger(id) && id >= 0 ? String(id) : null;
 }
 
+export function hasUploadReceipt(value, recordingType) {
+    return receiptDictationId(value) !== null && (!recordingType || recordingType === 'bericht'
+        || (typeof value.dictation_id === 'string' && value.recording_type === recordingType));
+}
+
 export function formatRecordingDuration(seconds) {
     if (!Number.isFinite(seconds) || seconds < 0) return '';
     const whole = Math.floor(seconds);
@@ -119,18 +124,20 @@ export function createClinicRecorder(audio, state, uploadFile) {
             gatedTake = null;
             await audio.clearRecording();
         },
-        async uploadRecordedAudio({ title }) {
+        async uploadRecordedAudio({ title, recording_type }) {
             const chunks = state.audioChunks.value;
             if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
             const previous = takes.get(chunks);
-            const take = previous || { id: globalThis.crypto.randomUUID(), title };
+            const take = previous || { id: globalThis.crypto.randomUUID(), title, recording_type };
             takes.set(chunks, take);
             const gated = gatedTake?.chunks === chunks ? gatedTake.blob : null;
             const file = gated
                 ? new File([gated], 'aufnahme.wav', { type: gated.type })
                 : new File(chunks, 'aufnahme.webm', { type: state.mediaRecorder.value.mimeType.split(';')[0] });
-            const receipt = await uploadFile(file, take.title, { id: take.id, retry: Boolean(previous) });
-            if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
+            const metadata = { id: take.id, retry: Boolean(previous) };
+            if (take.recording_type !== undefined) metadata.recording_type = take.recording_type;
+            const receipt = await uploadFile(file, take.title, metadata);
+            if (!hasUploadReceipt(receipt, take.recording_type)) throw new Error('no_receipt');
             // A new take gets its own chunk array as soon as capture starts.
             if (state.audioChunks.value === chunks) {
                 gatedTake = null;
@@ -162,6 +169,7 @@ export function createRecorderPhases(options) {
     let capturePending = false;
     const listeners = new Set();
     let generation = 0;
+    let takeType;
     let state = { phase: 'title', title: '', error: null, receipt: null };
 
     function set(patch) {
@@ -189,20 +197,22 @@ export function createRecorderPhases(options) {
         return { ok: true };
     }
 
-    async function start(recordingOptions) {
+    async function start(type, recordingOptions) {
         const blocked = guard(automaticTitle ? ['title', 'ready'] : ['ready']);
         if (blocked) return blocked;
         if (capturePending) return denied('capture_pending');
+        const typed = typeof type === 'string';
         const title = state.title.trim() || localDictationTitle();
         const mine = generation;
         capturePending = true;
         set({ error: null });
         try {
-            if (await recorder.startRecording(recordingOptions) === false) return denied('start_cancelled');
+            if (await recorder.startRecording(typed ? recordingOptions : type) === false) return denied('start_cancelled');
             if (mine !== generation) {
                 await recorder.discardRecording();
                 return denied('stale');
             }
+            takeType = typed ? type : undefined;
             set({ phase: 'recording', title, error: null });
             return { ok: true };
         } catch (e) {
@@ -316,12 +326,14 @@ export function createRecorderPhases(options) {
         set({ phase: 'sending', error: null });
         let receipt = null;
         try {
-            receipt = await recorder.uploadRecordedAudio({ title: state.title.trim() || localDictationTitle() });
+            const upload = { title: state.title.trim() || localDictationTitle() };
+            if (takeType !== undefined) upload.recording_type = takeType;
+            receipt = await recorder.uploadRecordedAudio(upload);
         } catch (e) {
             receipt = null;
         }
         if (mine !== generation) return denied('stale');
-        if (receiptDictationId(receipt) === null) {
+        if (!hasUploadReceipt(receipt, takeType)) {
             set({ phase: 'failed', error: 'no_receipt' });
             return denied('no_receipt');
         }
