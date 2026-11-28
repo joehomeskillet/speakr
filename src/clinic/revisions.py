@@ -117,6 +117,15 @@ def current_revision(dictation: ClinicDictation) -> ClinicTranscriptRevision | N
     return _select_head(_load(dictation.id))
 
 
+def current_revision_with_count(
+    dictation: ClinicDictation,
+) -> tuple[ClinicTranscriptRevision | None, int]:
+    """Return the correction head and bundle version from the same row snapshot."""
+    _check_dictation(dictation)
+    rows = _load(dictation.id)
+    return _select_head(rows), len(rows)
+
+
 def history(dictation: ClinicDictation) -> list[ClinicTranscriptRevision]:
     """Revisions in chain order, parent before child. Human siblings come first."""
     _check_dictation(dictation)

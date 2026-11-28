@@ -59,6 +59,8 @@ with app.app_context():
         return user
 
     admin = account("w226admin", sys.argv[3], True)
+    if "identity_admin" in sys.argv[5:]:
+        db.session.get(identity.ClinicAccountPolicy, admin.id).is_identity_admin = True
     lead = account("w226lead", sys.argv[4])
     typist = account("w226typist", "w226typist@local.test")
     other = account("w226other", "w226other@local.test")
