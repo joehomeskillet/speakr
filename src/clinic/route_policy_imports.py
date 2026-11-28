@@ -29,4 +29,9 @@ AUTH: tuple[str, ...] = (
     'clinic_imports_web.update_source',
 )
 
-ADMIN: tuple[str, ...] = ()
+ADMIN: tuple[str, ...] = (
+    'clinic_agent_admin.list_agents',
+    'clinic_agent_admin.enroll',
+    'clinic_agent_admin.set_enabled',
+    'clinic_agent_admin.rotate_key',
+)

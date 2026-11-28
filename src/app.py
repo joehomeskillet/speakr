@@ -1517,13 +1517,15 @@ def register_clinic_operations(flask_app):
     Called at startup only in clinic mode, after register_clinic_audio, and reuses the one
     receipt runner. The import agent authenticates with a machine credential (proxy secret
     plus certificate fingerprint) and never with a session, so its blueprint is CSRF-exempt.
-    Its secrets come from CLINIC_AGENT_PROXY_SECRET and CLINIC_AGENT_MASTER_SECRET (at least
-    32 bytes each); when one is missing or too short a random per-process value is used, so
-    every agent request answers 401 until the secrets are configured (fail closed).
+    CLINIC_AGENT_PROXY_SECRET and CLINIC_AGENT_MASTER_SECRET need at least 32 bytes each.
+    The machine channel uses random per-process values for missing or invalid secrets.
+    Browser enrollment and rotation require the configured master secret.
     """
     import secrets
 
-    from src.clinic import routes_agent, routes_jobs, routes_recordings, routes_statistics, routes_training, startup
+    from src.clinic import (
+        routes_agent, routes_agent_admin, routes_jobs, routes_recordings, routes_statistics, routes_training, startup,
+    )
     from src.clinic.agent_channel import ChannelPolicy
     from src.clinic.ingest import IngestService
     from src.clinic.worklist_entries import load_entries
@@ -1531,22 +1533,25 @@ def register_clinic_operations(flask_app):
     def secret_from_env(name):
         value = os.environ.get(name, '').strip().encode('utf-8')
         if len(value) < routes_agent.MIN_PROXY_SECRET_BYTES:
-            flask_app.logger.warning('Clinic import agent: %s is not set or shorter than %d bytes; '
-                                     'agent requests are refused until it is configured',
+            flask_app.logger.warning('Clinic import agent: %s is not set or shorter than %d bytes',
                                      name, routes_agent.MIN_PROXY_SECRET_BYTES)
-            return secrets.token_bytes(routes_agent.MIN_PROXY_SECRET_BYTES)
+            return b''
         return value
 
     run_once = flask_app.extensions['clinic_run_once']
+    master_secret = secret_from_env('CLINIC_AGENT_MASTER_SECRET')
+    proxy_secret = secret_from_env('CLINIC_AGENT_PROXY_SECRET')
     agent_bp = routes_agent.create_agent_blueprint(
-        ChannelPolicy(master_secret=secret_from_env('CLINIC_AGENT_MASTER_SECRET')),
-        IngestService(startup.originals_root(flask_app)), secret_from_env('CLINIC_AGENT_PROXY_SECRET'))
+        ChannelPolicy(master_secret=master_secret or secrets.token_bytes(routes_agent.MIN_PROXY_SECRET_BYTES)),
+        IngestService(startup.originals_root(flask_app)),
+        proxy_secret or secrets.token_bytes(routes_agent.MIN_PROXY_SECRET_BYTES))
     flask_app.register_blueprint(routes_recordings.create_blueprint(load_entries))
     flask_app.register_blueprint(routes_jobs.create_blueprint(run_once=run_once))
     flask_app.register_blueprint(routes_statistics.blueprint)
     flask_app.register_blueprint(routes_training.blueprint)
     flask_app.register_blueprint(agent_bp)
     csrf.exempt(agent_bp)
+    flask_app.register_blueprint(routes_agent_admin.create_blueprint(master_secret))
 
     # --- v8-120: browser import reads ---
     from src.clinic import routes_imports_web
