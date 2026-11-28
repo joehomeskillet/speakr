@@ -56,6 +56,7 @@ describe('PAR-WF-006 Strg+I', () => {
         expect(isHistoryShortcut(key('i', { ctrlKey: true, shiftKey: true }))).toBe(false);
         expect(isHistoryShortcut(key('i', { ctrlKey: true, altKey: true }))).toBe(false);
         expect(isHistoryShortcut(key('i', { ctrlKey: true, repeat: true }))).toBe(false);
+        expect(isHistoryShortcut(key('i', { ctrlKey: true, defaultPrevented: true }))).toBe(false);
         expect(isHistoryShortcut(key('k', { ctrlKey: true }))).toBe(false);
         expect(isHistoryShortcut(key('i', { ctrlKey: true, target: { tagName: 'INPUT' } }))).toBe(false);
         expect(isHistoryShortcut(key('i', { ctrlKey: true, target: { tagName: 'DIV', isContentEditable: true } }))).toBe(false);
@@ -73,6 +74,7 @@ describe('PAR-WF-006 Strg+I', () => {
         const event = key('i', { ctrlKey: true });
         expect(c.onHistoryKey(event)).toBe(false);
         expect(c.panels.history).toBe(false);
+        expect(event.preventDefault).not.toHaveBeenCalled();
         c.select(c.worklist.rows.value[0]);
         expect(c.onHistoryKey(event)).toBe(true);
         expect(event.preventDefault).toHaveBeenCalled();
@@ -105,6 +107,16 @@ describe('PAR-WF-006 Strg+I', () => {
         expect(bound.message.value).toBe(translate('history_denied'));
         expect(history.template).toContain('{{ message }}');
         c.dispose();
+    });
+
+    it('shows the same denial when the server hides the dictation with a 404', async () => {
+        const client = clientWith([
+            { prefix: '/dictations/' + D + '/history', body: { outcome: 'UNKNOWN', status: 404 } },
+        ]);
+        const history = createHistoryComponent(vue).setup({ client, dictationId: D });
+        await history.load();
+        expect(history.status.value).toBe('denied');
+        expect(history.message.value).toBe(DENIED);
     });
 
     it('shows a confirmed assignment the next time the Verlauf is opened', async () => {

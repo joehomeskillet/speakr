@@ -9,7 +9,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[3]
 OUT = ROOT / '.wp' / 'artifacts'
@@ -22,6 +22,7 @@ HTML = r'''<!doctype html><html lang="de"><meta charset="utf-8">
 <link rel="stylesheet" href="/static/css/primitives.css">
 <link rel="stylesheet" href="/static/css/clinic-v8.css">
 <link rel="stylesheet" href="/static/css/clinic-lists.css">
+<link rel="stylesheet" href="/static/css/tailwind.css">
 <body class="v8-ui"><main id="app" style="padding:16px"></main>
 <script src="/static/vendor/js/vue.global.js"></script>
 <script type="module">
@@ -39,10 +40,11 @@ const row = {dictation_id:D, status:'zu_schreiben', priority:1, duration_seconds
   created_at:'2026-11-20T08:15:00Z', source_kind:'device'};
 const assigned = {kind:'routing', id:'r1', action:'work_state_transferred', at:'2026-11-20T09:00:00Z', actor_label:'A. Muster'};
 const events = state === 'empty' ? [] : [assigned];
+window.addConfirmedAssignment = () => events.push({kind:'routing', id:'r2', action:'assignment_changed', at:'2026-11-20T09:10:00Z'});
 const ok = (data) => ({outcome:'ok', status:200, data});
 const client = {dictationChanges:0, switchContext(){}, async request(path, options){
   if (path.includes('/history')) return state === 'denied'
-    ? {outcome:'permission', status:403} : ok({dictation_id:D, events});
+    ? {outcome:'UNKNOWN', status:404} : ok({dictation_id:D, events:events.slice()});
   if (path.includes('/detail')) return ok({dictation_id:D, revision:3, etag:'"d:3"',
     author:{display_name:'Dr. Synthetisch'}, staff_pools:[{name:'Schreibdienst Staging'}],
     recording_time:{at:'2026-11-20T08:15:00Z', source:'recorded'}, duration_seconds:95,
@@ -100,17 +102,46 @@ def main():
                             page.on('pageerror', lambda e: errors.append(str(e)))
                             page.goto(f'{base}/?view={view}&state={state}&theme={theme}')
                             page.locator('[data-testid="clinic-worklist-view"], [data-testid="clinic-detail-view"]').wait_for()
-                            if view == 'worklist' and state != 'empty':
-                                page.locator('[data-row]').first.click()
-                                page.locator('[data-testid="history-panel"]').wait_for()
+                            history = page.get_by_test_id('history-panel')
+                            denied = history.get_by_text('Keine Berechtigung für diesen Verlauf.', exact=True)
+                            if view == 'worklist' and state == 'empty':
+                                expect(page.get_by_text('Keine Diktate vorhanden.', exact=True)).to_be_visible()
+                                expect(history).to_have_count(0)
+                            else:
+                                if view == 'worklist':
+                                    page.locator('[data-row]').first.click()
+                                expect(history).to_be_visible()
                                 page.keyboard.press('Control+i')
-                            elif view == 'detail':
-                                page.locator('[data-testid="history-panel"]').wait_for()
-                                page.locator('body').click()
-                                page.keyboard.press('Control+i')
-                            page.wait_for_timeout(250)
+                                expect(history.locator('summary')).to_be_focused()
+                                expect(history.locator('summary')).to_be_in_viewport()
+                                if state == 'rows':
+                                    expect(history.get_by_text('Arbeitsstand weitergeleitet', exact=True)).to_be_visible()
+                                elif state == 'empty':
+                                    expect(history.get_by_text('Keine Ereignisse vorhanden.', exact=True)).to_be_visible()
+                                else:
+                                    expect(denied).to_be_visible()
                             name = f'history-{view}-{state}-{width}x{height}-{theme}.png'
                             page.screenshot(path=str(OUT / name), full_page=True)
+                            if view == 'worklist' and state != 'empty' and width == 1440:
+                                assert page.locator('.worktable').evaluate('''table => {
+                                    return Array.from(table.querySelectorAll('th[scope="col"], td[data-label]'))
+                                        .every(cell => cell.scrollWidth <= cell.clientWidth + 1);
+                                }'''), f'Overlapping worklist text: {name}'
+                                assert page.locator('.table-container').evaluate(
+                                    'el => el.scrollWidth <= el.clientWidth + 1'), f'Clipped worklist columns: {name}'
+                            if state == 'denied':
+                                summary = history.locator('summary')
+                                summary.click()
+                                expect(denied).to_be_hidden()
+                                summary.click()
+                                expect(denied).to_be_visible()
+                            if view == 'detail' and state == 'rows' and (width, height, theme) == (1440, 900, 'light'):
+                                history.locator('summary').click()
+                                expect(history.locator('.clinic-history')).to_have_count(0)
+                                page.evaluate('window.addConfirmedAssignment()')
+                                page.keyboard.press('Control+i')
+                                expect(history.get_by_text('Zuweisung geändert', exact=True)).to_be_visible()
+                                print('PASS detail reloads the history after a confirmed assignment')
                             overflow = page.evaluate('document.documentElement.scrollWidth > document.documentElement.clientWidth + 1')
                             if errors or overflow:
                                 failures.append(f'{name}: errors={errors} overflow={overflow}')

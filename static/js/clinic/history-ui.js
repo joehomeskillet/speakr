@@ -34,6 +34,7 @@ const TEXT = {
     'history_action_asr': 'Automatische Transkription',
     'history_action_human': 'Manuelle Korrektur',
     'history_action_transfer': 'Arbeitsstand weitergeleitet',
+    'history_action_assignment': 'Zuweisung geändert',
     'history_action_archive': 'Archiviert',
     'history_action_restore': 'Aus Archiv wiederhergestellt',
     'history_action_release': 'Freigegeben',
@@ -57,6 +58,7 @@ const ACTIONS = new Map([
     ['HUMAN', 'history_action_human'],
     ['correction', 'history_action_human'],
     ['work_state_transferred', 'history_action_transfer'],
+    ['assignment_changed', 'history_action_assignment'],
     ['recording.archived', 'history_action_archive'],
     ['recording.unarchived', 'history_action_restore'],
     ['released', 'history_action_release'],
@@ -74,7 +76,7 @@ const EDITABLE = /^(INPUT|TEXTAREA|SELECT)$/;
 
 /** Ctrl/Cmd+I opens the same Verlauf section as the menu. Typing targets are left alone. */
 export function isHistoryShortcut(event) {
-    if (!event || event.altKey || event.shiftKey || event.repeat || event.isComposing) return false;
+    if (!event || event.defaultPrevented || event.altKey || event.shiftKey || event.repeat || event.isComposing) return false;
     if (!(event.ctrlKey || event.metaKey) || String(event.key).toLowerCase() !== 'i') return false;
     const target = event.target;
     if (target && (target.isContentEditable === true || EDITABLE.test(target.tagName || ''))) return false;
@@ -177,8 +179,8 @@ export function buildPage(events, page, options) {
 }
 
 const STATE_MESSAGE = {
-    permission: 'history_denied',
-    conflict: 'history_stale',
+    denied: 'history_denied',
+    stale: 'history_stale',
 };
 
 /**
@@ -211,10 +213,10 @@ export function useDictationHistory(client, dictationId, vue, t) {
         // Never keep clinical rows after a refusal or a mismatching response.
         events.value = [];
         page.value = 1;
-        if (res.outcome === 'permission') status.value = 'denied';
+        if (res.outcome === 'permission' || res.status === 404) status.value = 'denied';
         else if (res.outcome === 'conflict' || res.outcome === 'ok') status.value = 'stale';
         else status.value = 'error';
-        message.value = tr(STATE_MESSAGE[res.outcome] || (res.outcome === 'ok' ? 'history_stale' : 'history_failed'));
+        message.value = tr(STATE_MESSAGE[status.value] || 'history_failed');
         return res;
     }
 
