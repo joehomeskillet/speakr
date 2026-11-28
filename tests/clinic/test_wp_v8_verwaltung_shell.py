@@ -259,6 +259,11 @@ def test_asr_settings_persist_and_render_in_both_views(live_server, browser, tmp
     def capture(view, state):
         panel = open_view(view)
         expect(panel.get_by_label("Speicherregel")).to_be_enabled()
+        if view == "admin":
+            status = admin.get_by_test_id("voice-status")
+            expect(status).to_be_visible()
+            expect(status).to_have_attribute("role", "status")
+            expect(admin.locator(".pagehead .eyebrow")).to_have_count(0)
         for theme in ("light", "dark"):
             admin.evaluate("dark => document.documentElement.classList.toggle('dark', dark)", theme == "dark")
             for width, height in ((1440, 900), (1280, 720), (390, 844)):
