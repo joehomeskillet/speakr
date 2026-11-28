@@ -1422,6 +1422,7 @@ def register_clinic_audio(flask_app):
     needs = {
         'play': ('play',), 'edit': ('edit',), 'export': ('export',), 'import': ('edit',),
         'correction_read': ('view',), 'correction_edit': ('edit',), 'clipboard': ('export',),
+        'audio_export': ('audio_export',),
     }
 
     def may(user_id, name, dictation):
