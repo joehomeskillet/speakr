@@ -1,4 +1,4 @@
-"""HTTP adapter for the audio-text session bundle (``.sdict``) and plain-text files.
+"""HTTP adapter for the audio-text session bundle (``.sdict``) and text files (RTF and TXT).
 
 Thin layer over ``sdict_bundle`` (ZIP, hash and size checks) and
 ``richtext_formats`` (canonical text round-trip). The actor always comes from
@@ -27,7 +27,7 @@ from flask_wtf.csrf import validate_csrf
 from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
-from src.clinic import output_rtf, richtext_formats as formats, startup
+from src.clinic import richtext_formats as formats, startup
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.parity_dispatch import _PROBLEMS, JSON, CommandProblem, RunOnce
 from src.clinic.rich_text_doc import RichTextError
@@ -57,7 +57,7 @@ class BundleSession:
     audio_synced: bool | None = None
 
 
-Load = Callable[[int, str], BundleSession | None]
+Load = Callable[[int, str, bool], BundleSession | None]  # (actor, dictation_id, include_audio)
 Authorize = Callable[[int, str, str], bool]  # (actor, dictation_id, 'export' | 'import')
 Persist = Callable[[int, str, CanonicalDocument, bytes | None, int], AbstractContextManager[int]]
 LoadGraphic = Callable[[int, str, str], bytes]
@@ -131,8 +131,9 @@ def create_blueprint(
 
     @blueprint.get('/<dictation_id>/export')
     def export(dictation_id: str):
+        kind = request.args.get('format', 'sdict')
         try:
-            current = load(current_user.id, target(dictation_id, 'export'))
+            current = load(current_user.id, target(dictation_id, 'export'), kind == 'sdict')
         except StaleVersion:
             return problem(409, 'REVISION_CONFLICT')
         except RichTextError:
@@ -142,7 +143,6 @@ def create_blueprint(
         wanted = request.args.get('version')
         if wanted is not None and (not wanted.isdigit() or int(wanted) != current.version):
             return problem(409, 'REVISION_CONFLICT')
-        kind = request.args.get('format', 'sdict')
         try:
             if kind == 'txt':
                 body, mime, ext = formats.to_plain_text(current.doc).encode('utf-8'), 'text/plain; charset=utf-8', 'txt'
@@ -158,14 +158,15 @@ def create_blueprint(
                             raise formats.FormatError('graphic_unavailable') from error
                 body = formats.web_html(current.doc, graphics).encode('utf-8')
                 mime, ext = 'text/html; charset=utf-8', 'html'
-            elif kind in ('sdict', 'rtf'):
+            elif kind == 'rtf':
+                body, mime, ext = formats.render_rtf(current.doc), 'application/rtf', 'rtf'
+            elif kind == 'sdict':
                 out = formats.export_document(current.doc, expected_version=SCHEMA_VERSION,
                                               allowed=True, audio=current.audio)
-                body, mime, ext = ((out.bundle, 'application/zip', 'sdict') if kind == 'sdict'
-                                   else (out.rtf, 'application/rtf', 'rtf'))
+                body, mime, ext = out.bundle, 'application/zip', 'sdict'
             else:
                 return problem(400, 'INVALID_PAYLOAD')
-        except (formats.FormatError, output_rtf.RTFValidationError):
+        except formats.FormatError:
             return problem(400, 'INVALID_PAYLOAD')
         response = Response(body, mimetype=mime.split(';')[0])
         response.headers['Content-Type'] = mime
@@ -187,7 +188,7 @@ def create_blueprint(
     def import_session(dictation_id: str):
         kind = request.args.get('format', 'sdict')
         limit = MAX_BUNDLE_BYTES if kind == 'sdict' else MAX_TEXT_BYTES
-        if kind not in ('sdict', 'txt'):
+        if kind not in ('sdict', 'txt', 'rtf'):
             return problem(400, 'INVALID_PAYLOAD')
         if (request.content_length or 0) > limit:
             return problem(413, 'TOO_LARGE')
@@ -209,6 +210,8 @@ def create_blueprint(
         try:
             if kind == 'txt':
                 doc, audio = text_to_document(data), None
+            elif kind == 'rtf':
+                doc, audio = formats.import_rtf(data), None
             else:
                 bundle = read_bundle(data)
                 if (set(bundle.files) != {'audio/a.wav', 'text/body.txt', 'text/document.json'}
