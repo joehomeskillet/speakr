@@ -82,7 +82,7 @@ def _guard():
     elif request.method not in ("GET", "HEAD"):
         token = request.headers.get("X-CSRF-Token")
     else:
-        return None
+        return
     try:
         validate_csrf(token)
     except ValidationError:
@@ -234,9 +234,9 @@ def register_live_commands(
             raise CommandProblem("INVALID_PAYLOAD")
         try:
             row = live_session.start(target.split(":", 1)[1], actor, now(), client_id=client_id)
+            _require_undiscarded(row.dictation_id)
             if client_id is not None:
                 row.holder_generation = 1
-            _require_undiscarded(row.dictation_id)
         except (live_session.LiveSessionError, DraftError) as error:
             raise CommandProblem(_code(error)) from error
         return result(envelope, row.ack_seq + 1)

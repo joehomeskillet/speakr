@@ -206,6 +206,18 @@ def test_inventory_outside_the_registered_root_is_refused(env):
     assert response.get_json()["code"] == "forbidden"
 
 
+def test_inventory_put_accepts_optional_root_scoped_device_reports(env):
+    body = {"items": [], "device_reports": [{"root_id": "usb-1", "devices": [{"device_id": "synthetic"}]}]}
+    response = _json(env, "put", "/inventory", body)
+    assert response.status_code == 200
+    assert response.json == {"accepted": 0}
+    report = ch.ClinicAgentDeviceReport.query.filter_by(agent_id=env["agent_id"], root_id="usb-1").one()
+    assert report.devices == [{"device_id": "synthetic", "capabilities": None, "driver_status": "unknown"}]
+    assert _json(env, "put", "/inventory", {"items": []}).status_code == 200
+    db.session.refresh(report)
+    assert report.devices[0]["device_id"] == "synthetic"
+
+
 def test_malformed_json_bodies_are_400(env):
     assert _json(env, "put", "/inventory", data="{").status_code == 400
     assert _json(env, "put", "/inventory", {"items": ["x"]}).status_code == 400
