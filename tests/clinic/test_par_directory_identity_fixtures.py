@@ -91,7 +91,7 @@ def test_pending_entra_link_does_not_authorize_login_or_disable_local(
     idp.overrides = {"email": email, "preferred_username": email}
     api = make_app(env, config if enabled else entra.EntraConfig(), idp)
     # Exercise the real local login handler alongside the configured provider.
-    api.add_url_rule("/login", view_func=app.view_functions["auth.login"], methods=["POST"])
+    api.add_url_rule("/login", endpoint="auth.login", view_func=app.view_functions["auth.login"], methods=["POST"])
     api.add_url_rule("/", endpoint="recordings.index", view_func=lambda: "")
     client, headers = anonymous(api)
     before = counts()
