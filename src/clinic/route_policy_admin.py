@@ -33,11 +33,11 @@ AUTH: tuple[str, ...] = (
     'clinic_grants.read',
     'clinic_preferences.recipient_default',
     'clinic_preferences.recipient_resolve',
+    'clinic_preferences.active_pool',
     'clinic_preferences.last_selection',
     'clinic_preferences.workstation_issue',
     'clinic_preferences.workstation',
     'clinic_preferences.correction_mode',
-    'clinic_preferences.active_pool',
     # Metadata field definitions (x28), mounted by register_clinic_identity in clinic mode only.
     # Reading is for any signed-in user; the handler lists inactive fields to admins only.
     'clinic_metadata_fields.list_fields',

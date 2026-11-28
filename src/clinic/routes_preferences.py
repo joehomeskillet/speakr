@@ -1,4 +1,4 @@
-"""HTTP surface for recipient, selection, workstation and active-pool preferences.
+"""HTTP surface for recipient, selection and workstation preferences.
 
 PAR-ADM-006, PAR-ADM-007, PAR-ADM-011, PAR-CFG-001. A thin layer over
 ``recipient_defaults``, ``last_selection`` and ``workstation_preferences``.
@@ -23,7 +23,7 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from sqlalchemy.exc import SQLAlchemyError
 from wtforms.validators import ValidationError
 
-from src.clinic import app_wiring, correction_modes, pools, recipient_defaults as rd
+from src.clinic import correction_modes, pools, recipient_defaults as rd
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.last_selection import (
     Allowed,
@@ -32,6 +32,7 @@ from src.clinic.last_selection import (
     SelectionStore,
     restore,
 )
+from src.clinic import app_wiring
 from src.database import db
 from src.clinic.workstation_preferences import (
     PreferenceError,
@@ -96,11 +97,11 @@ class PreferenceRoutes:
         for rule, name, view, methods in (
             ("/recipient-default", "recipient_default", self._recipient_default, ("GET", "PUT")),
             ("/recipient-default/resolve", "recipient_resolve", self._recipient_resolve, ("POST",)),
+            ("/active-pool", "active_pool", self._active_pool, ("GET", "PUT")),
             ("/last-selection", "last_selection", self._last_selection, ("GET", "PUT")),
             ("/workstations", "workstation_issue", self._workstation_issue, ("POST",)),
             ("/workstations/<workstation_id>", "workstation", self._workstation, ("GET", "PUT")),
             ("/correction-mode", "correction_mode", self._correction_mode, ("GET", "PUT")),
-            ("/active-pool", "active_pool", self._active_pool, ("GET", "PUT")),
         ):
             bp.add_url_rule(PREFIX + rule, name, self._wrap(view), methods=list(methods))
 
@@ -132,6 +133,31 @@ class PreferenceRoutes:
 
         run.__name__ = view.__name__
         return run
+
+    # -- active author pool (PAR-ADM-002) ----------------------------------
+    def _active_pool(self):
+        actor = current_user.id
+        is_write = request.method == "PUT"
+        try:
+            if is_write:
+                body = _body()
+                pool_id = body.get("pool_id")
+                if (body.keys() != {"pool_id"} or not isinstance(pool_id, str)
+                        or not 1 <= len(pool_id) <= 36):
+                    return _problem("invalid_payload")
+                result = app_wiring.set_active_author_pool(actor, pool_id)
+            else:
+                result = app_wiring.active_author_pool(actor)
+            return jsonify(
+                pool_id=result.pool_id,
+                reselection_required=result.reselection_required,
+                pools=[{"id": pool.id, "name": pool.name} for pool in result.pools],
+            )
+        except app_wiring.ActivePoolNotAllowed:
+            return _problem("author_pool_not_allowed", 403)
+        except SQLAlchemyError:
+            db.session.rollback()
+            return _problem("preference_write_failed" if is_write else "preference_read_failed")
 
     # -- recipient default --------------------------------------------------
     def _checked_default_targets(self, actor: int, mode: str, ids: list[str]) -> None:
@@ -233,27 +259,3 @@ class PreferenceRoutes:
         body = _body()
         mode, version = correction_modes.set_mode(actor, body.get("mode"), body.get("expected_version"))
         return jsonify(mode=mode, version=version)
-
-    def _active_pool(self):
-        actor = current_user.id
-        is_write = request.method == "PUT"
-        try:
-            if is_write:
-                body = _body()
-                pool_id = body.get("pool_id")
-                if (body.keys() != {"pool_id"} or not isinstance(pool_id, str)
-                        or not 1 <= len(pool_id) <= 36):
-                    return _problem("invalid_payload")
-                result = app_wiring.set_active_author_pool(actor, pool_id)
-            else:
-                result = app_wiring.active_author_pool(actor)
-            return jsonify(
-                pool_id=result.pool_id,
-                reselection_required=result.reselection_required,
-                pools=[{"id": pool.id, "name": pool.name} for pool in result.pools],
-            )
-        except app_wiring.ActivePoolNotAllowed:
-            return _problem("author_pool_not_allowed", 403)
-        except SQLAlchemyError:
-            db.session.rollback()
-            return _problem("preference_write_failed" if is_write else "preference_read_failed")
