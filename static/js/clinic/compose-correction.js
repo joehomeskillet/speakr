@@ -596,11 +596,12 @@ export function createCorrectionViewController(options) {
     }
 
     // --- load and revision follow-up (W10) -----------------------------------
-    async function load({ discard, readOnlyAlignment = false } = {}) {
+    async function load(loadOptions) {
         if (disposed) return { ok: false, code: 'cancelled', message: '' };
         closeMessage.value = '';
         if (documentLoading.value) return { ok: false, code: 'loading' };
         documentLoading.value = Boolean(doc);
+        const { discard, readOnlyAlignment } = loadOptions ?? {};
         let res;
         try {
             res = await editor.load({ discard });
