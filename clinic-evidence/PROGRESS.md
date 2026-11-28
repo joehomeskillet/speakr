@@ -1,5 +1,9 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## P-254 – Web-Alternative für PAR-OPS-004
+
+Im Klinikmodus bietet das App-Manifest die Schnellzugriffe **Neue Aufnahme**, **Aufnahmen** und **Arbeitsliste**. Sie öffnen bestehende Ansichten und setzen eine gültige Anmeldung voraus. Die [Browser-App-Anleitung](../docs/de/user-guide/pwa.md) erklärt auch Lesezeichen und Browserstart. `WG-OPS-004` bleibt offen; `BT-OPS-004` wurde nicht gegen das Referenzsystem ausgeführt. Kein nativer Autostart- oder Tray-Ersatz.
+
 ## P-062 – Versanddaten vor dem Einreichen
 
 Im lokalen Klinik-Browserlauf wurden Titel, Anmerkung, Priorität und ein Zürcher Tagesendtermin eines synthetischen P04-Entwurfs gespeichert und nach erneutem Öffnen geprüft. Die angezeigte Abnahmepflicht folgte einer separaten Admin-Änderung. Staging und Originalsystemvergleich stehen aus; die offenen Paritätslücken bleiben unverändert.
@@ -11,6 +15,10 @@ Die Klinik-API erlaubt berechtigten Bearbeitern nach Ablauf der Profilfrist den 
 ## Implementierung P-084
 
 Versionierte Importabsichten werden pro Datei in den bestehenden Klinik-Import übernommen. Synthetische HTTP-/DB-Tests prüfen Metadaten, Poolwahl, Empfänger, die drei ASR-Modi und den unveränderten nicht ausgewählten Inventareintrag. Staging- und Philips-Referenztests für BT-IMP-003 stehen noch aus.
+
+## P-216 – Lokale Inline-Grafiken
+
+Im Klinikbetrieb nimmt die Flask-API validierte PNGs pro Diktat auf und liefert sie nur nach erneuter Zugriffskontrolle über eine unveränderliche Inhalts-ID aus. Kein Abruf externer Quellen, keine aktive Grafik und keine Bildanhänge. Editoranschluss, Staging-Prüfung und BT-LIVE-005 bleiben offen.
 
 ## P-193 – DSS/DS2-Autorzuordnung beim Import (PAR-IMP-002)
 

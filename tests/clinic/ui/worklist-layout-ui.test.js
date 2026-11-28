@@ -97,6 +97,41 @@ describe('worklist layout ui', () => {
         expect(client.request.mock.calls.length).toBe(before);
     });
 
+    it('persists the standard order, visibility and sort only after a successful reset request', async () => {
+        const columns = [...COLUMNS, { key: 'station', label: 'Station', visible: false }];
+        const defaults = { version: 1, columns: [
+            { key: 'id', width: 140, visible: true },
+            { key: 'author', width: 140, visible: true },
+            { key: 'priority', width: 140, visible: false },
+        ], sort: [], group_by: [] };
+        const saved = { ...SERVER, layout: { ...SERVER.layout, columns: [...SERVER.layout.columns,
+            { key: 'station', width: 160, visible: true },
+        ] } };
+        const client = { request: vi.fn().mockResolvedValueOnce(ok(saved)).mockResolvedValueOnce(fail('network'))
+            .mockImplementationOnce(async (_path, { body }) => ok({ version: 4, layout: body }))
+            .mockImplementationOnce(async (_path, { body }) => ok({ version: 5, layout: body })) };
+        const layout = useWorklistLayout({ client, columns, defaults, newIdempotencyKey: () => 'reset-key' });
+        await layout.load();
+        layout.setPage(3);
+        expect(await layout.restoreDefaults()).toBe(false);
+        expect(layout.state.layout.sort).toEqual([['author', 'desc']]);
+        expect(layout.state.page).toBe(3);
+        expect(await layout.restoreDefaults()).toBe(true);
+        expect(client.request.mock.calls[2]).toEqual(['/worklist/layout', {
+            method: 'PUT', body: { ...defaults, columns: [...defaults.columns,
+                { key: 'station', width: 120, visible: false },
+            ] }, ifMatch: '"3"', idempotencyKey: 'reset-key',
+        }]);
+        expect(layout.orderedColumns().map(({ key }) => key)).toEqual(['id', 'author']);
+        expect(layout.state.page).toBe(1);
+        expect(layout.banner()).toMatchObject({ role: 'status', text: 'Standardspalten wurden wiederhergestellt.' });
+        expect(await layout.undoRestore()).toBe(true);
+        expect(client.request.mock.calls[3][1]).toMatchObject({ method: 'PUT', ifMatch: '"4"' });
+        expect(layout.orderedColumns().map(({ key }) => key)).toEqual(['priority', 'station', 'id']);
+        expect(layout.state.layout.sort).toEqual([['author', 'desc']]);
+        expect(layout.state.layout.group_by).toEqual(['priority']);
+    });
+
     it('keeps paging stable while filters change and sort adds an id tie-breaker', async () => {
         const { layout } = make([ok(SERVER)]);
         await layout.load();

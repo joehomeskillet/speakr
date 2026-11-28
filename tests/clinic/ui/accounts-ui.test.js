@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { createAccountsAdmin, changesOf, LABELS, AccountsAdminPanel } from '../../../static/js/clinic/accounts-ui.js';
+import { createAccountsAdmin, changesOf, validateDraft, LABELS, AccountsAdminPanel } from '../../../static/js/clinic/accounts-ui.js';
 
 const ok = (data) => ({ outcome: 'ok', status: 200, data });
 const bad = (outcome, status, code) => ({ outcome, status, code: code || null });
@@ -32,6 +32,17 @@ async function loaded(users, handler) {
 }
 
 describe('accounts admin', () => {
+    it('validates trimmed usernames from 2 to 120 characters', () => {
+        const draft = row(1);
+        for (const length of [2, 21, 120]) {
+            expect(validateDraft({ ...draft, username: ' ' + 'u'.repeat(length) + ' ' })).toBeNull();
+        }
+        expect(validateDraft({ ...draft, username: '😀'.repeat(120) })).toBeNull();
+        for (const length of [1, 121]) {
+            expect(validateDraft({ ...draft, username: 'u'.repeat(length) })).toBe('invalid_username_length');
+        }
+    });
+
     it('loads accounts and shows them', async () => {
         const { c } = await loaded([row(1), row(2)]);
         expect(c.state.accounts.map((a) => a.id)).toEqual([1, 2]);
@@ -170,6 +181,7 @@ describe('accounts admin', () => {
         expect(t).toContain('role="alert"');
         expect(t).toContain('@keydown.esc.prevent');
         expect(t).toContain('<label for="acc-username">');
+        expect(t.match(/<input id="acc-username"[^>]*>/)[0]).not.toContain('maxlength=');
         expect(t).toContain('scope="col"');
     });
 });
