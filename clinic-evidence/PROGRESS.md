@@ -1,12 +1,12 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
-## P-252 – Geltungsbereiche für Textbausteine (PAR-VOC-008)
-
-Lokale API- und Editor-Tests prüfen persönliche, Pool- und globale Textbausteine: Pool-Mitglieder können freigegebenen Text einfügen, fremde Pools erhalten keinen Zugriff, und Schreibrechte werden separat geprüft. Lokale PNG-Referenzen sind an den Geltungsbereich gebunden. Staging und der vollständige Referenzvergleich BT-VOC-008 bleiben offen.
-
 ## P-254 – Web-Alternative für PAR-OPS-004
 
 Im Klinikmodus bietet das App-Manifest die Schnellzugriffe **Neue Aufnahme**, **Aufnahmen** und **Arbeitsliste**. Sie öffnen bestehende Ansichten und setzen eine gültige Anmeldung voraus. Die [Browser-App-Anleitung](../docs/de/user-guide/pwa.md) erklärt auch Lesezeichen und Browserstart. `WG-OPS-004` bleibt offen; `BT-OPS-004` wurde nicht gegen das Referenzsystem ausgeführt. Kein nativer Autostart- oder Tray-Ersatz.
+
+## P-252 – Geltungsbereiche für Textbausteine (PAR-VOC-008)
+
+Lokale API- und Editor-Tests prüfen persönliche, Pool- und globale Textbausteine: Pool-Mitglieder können freigegebenen Text einfügen, fremde Pools erhalten keinen Zugriff, und Schreibrechte werden separat geprüft. Lokale PNG-Referenzen sind an den Geltungsbereich gebunden. Staging und der vollständige Referenzvergleich BT-VOC-008 bleiben offen.
 
 ## P-062 – Versanddaten vor dem Einreichen
 

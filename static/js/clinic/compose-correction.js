@@ -1115,7 +1115,6 @@ export const CorrectionBody = {
             vue: props.vue || undefined,
             contract: 'v8',
             document: props.openMode !== 'player',
-            openMode: props.openMode,
             recordingId: props.recordingId || undefined,
             get openMode() { return props.openMode; },
             hid: props.openMode === 'player' ? undefined : globalThis.navigator?.hid,
@@ -1203,7 +1202,6 @@ export const CorrectionBody = {
             });
         });
         const currentRun = V.computed(() => runRanges.value.find(({ run }) => run.id === doc?.selection.value.runId));
-        const insertionRun = () => currentRun.value || (runRanges.value.length === 1 ? runRanges.value[0] : null);
         const selectedNodeIndex = V.computed(() => doc?.doc.value.nodes.findIndex((node) => node.id === doc.selection.value.nodeId) ?? -1);
         const runField = (id) => runRoot.value?.querySelector('[data-run-id="' + id + '"]');
         const FORMAT_KEYS = Object.freeze({ b: 'bold', i: 'italic', u: 'underline' });
@@ -1244,7 +1242,7 @@ export const CorrectionBody = {
         const editorPort = {
             read() {
                 if (documentMode.value) {
-                    const selected = insertionRun();
+                    const selected = currentRun.value;
                     const el = selected && runField(selected.run.id);
                     return { text: rawDocumentText.value,
                         start: el ? selected.start + el.selectionStart : 0, end: el ? selected.start + el.selectionEnd : 0 };
@@ -1255,7 +1253,10 @@ export const CorrectionBody = {
             write(next) {
                 if (documentMode.value) return;
                 if (c.setText(next.text)) {
-                    later(() => textEl.value?.setSelectionRange(next.start, next.end, ...(next.direction ? [next.direction] : [])));
+                    later(() => {
+                        if (next.direction === undefined) textEl.value?.setSelectionRange(next.start, next.end);
+                        else textEl.value?.setSelectionRange(next.start, next.end, next.direction);
+                    });
                 }
             },
             select(start, end) {
@@ -1267,15 +1268,24 @@ export const CorrectionBody = {
                 el.setSelectionRange(Math.max(0, start - offset), end - offset);
             },
         };
+        const insertionTarget = () => {
+            if (!documentMode.value) return editorPort.read();
+            const target = currentRun.value || runRanges.value[0];
+            if (!target) return { text: '', start: 0, end: 0 };
+            const { node, run } = target;
+            const field = runField(run.id);
+            return { nodeId: node.id, runId: run.id, text: run.text,
+                start: field?.selectionStart ?? 0, end: field?.selectionEnd ?? 0, direction: field?.selectionDirection };
+        };
+        const editorField = () => documentMode.value ? runField(insertionTarget().runId) : textEl.value;
         const vocabulary = createVocabularyStore(c.client);
-        const activeEditor = () => documentMode.value ? runField(insertionRun()?.run.id) : textEl.value;
         const canAddPhrase = V.computed(() => canEdit.value && props.openMode !== 'player');
         const entryModal = useVocabularyEntryDialog(V, (draft) => canAddPhrase.value
             ? vocabulary.saveEntry(draft)
-            : { message: 'Zum Hinzufügen muss das Diktat bearbeitbar sein.' }, 'ccv-voc', () => activeEditor()?.focus());
+            : { message: 'Zum Hinzufügen muss das Diktat bearbeitbar sein.' }, 'ccv-voc', () => editorField()?.focus());
         const addSelectedPhrase = () => {
             if (!canAddPhrase.value) return;
-            const { text, start, end } = editorPort.read();
+            const { text, start, end } = insertionTarget();
             return entryModal.openSelectedEntry(text.slice(start, end));
         };
         const tb = createCorrectionToolbar({
@@ -1297,8 +1307,25 @@ export const CorrectionBody = {
             later(() => {
                 const field = runField(runId);
                 field?.focus();
-                if (start !== undefined) field?.setSelectionRange(start, end, direction);
+                if (start !== undefined) {
+                    if (direction === undefined) field?.setSelectionRange(start, end);
+                    else field?.setSelectionRange(start, end, direction);
+                }
             });
+        }
+        function insertAt(value, target, offset = value.length) {
+            if (!canEdit.value) return false;
+            if (!target.runId) return !documentMode.value && tb.insertText(value, target, offset);
+            if (!documentMode.value) return false;
+            const { nodeId, runId, text, start, end, direction } = target;
+            const run = runRanges.value.find((range) => range.run.id === runId && range.node.id === nodeId)?.run;
+            const next = text.slice(0, start) + value + text.slice(end);
+            if (run?.text !== text || sanitizePaste(next).text !== next) return false;
+            const before = { runId, start, end, direction };
+            const after = { runId, start: start + offset, end: start + offset };
+            if (!doc.editRun(nodeId, runId, next, { before, after })) return false;
+            restoreRunSelection(after);
+            return true;
         }
         function historyAction(action) {
             if (!documentMode.value) return tb[action]();
@@ -1307,26 +1334,6 @@ export const CorrectionBody = {
             const { nodeId, runId } = doc.selection.value;
             const target = runId || doc.doc.value.nodes.find((node) => node.id === nodeId)?.runs[0]?.id;
             if (selection || target) restoreRunSelection(selection || { runId: target });
-            return true;
-        }
-        function insertionTarget() {
-            return documentMode.value ? insertionRun()?.run.id : null;
-        }
-        function insertEditorText(value, range, offset = value.length) {
-            if (!documentMode.value) return tb.insertText(value, range, offset);
-            const selected = insertionRun();
-            if (!canEdit.value || !selected || selected.run.id !== range.runId || !runField(range.runId)) return false;
-            const { node, run, start: base } = selected;
-            const start = range.start - base;
-            const end = range.end - base;
-            if (start < 0 || end > run.text.length) return false;
-            const next = run.text.slice(0, start) + value + run.text.slice(end);
-            if (sanitizePaste(next).text !== next) return false;
-            const before = { runId: run.id, start, end };
-            const after = { runId: run.id, start: start + offset, end: start + offset };
-            doc.select(node.id, run.id);
-            if (!doc.editRun(node.id, run.id, next, { before, after })) return false;
-            restoreRunSelection(after);
             return true;
         }
         function editSelection(text) {
@@ -1453,7 +1460,7 @@ export const CorrectionBody = {
             && (event.key?.toLowerCase() === 'p' || (event.metaKey && event.code === 'KeyP'));
         const onSectionKeydown = (event) => {
             if (event.defaultPrevented || !event.currentTarget.ownerDocument.hasFocus()) return;
-            if (event.target === activeEditor() && isAddPhraseShortcut(event)) return;
+            if (event.target === editorField() && isAddPhraseShortcut(event)) return;
             if (event.key === 'F5' && !event.isComposing && event.keyCode !== 229
                     && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
                 onFinishKeydown(event);
@@ -1466,7 +1473,7 @@ export const CorrectionBody = {
                 const mod = event.ctrlKey !== event.metaKey;
                 const helpKey = key === 'f1' && !event.ctrlKey && !event.metaKey && !event.shiftKey;
                 const editKey = mod && (key === 'z' || key === 'f' || (!event.shiftKey && ['y', 'h', 'enter'].includes(key)));
-                if (documentMode.value && event.target === activeEditor() && mod
+                if (documentMode.value && event.target === editorField() && mod
                         && (FORMAT_KEYS[key] || ['z', 'y', 'enter'].includes(key))) return;
                 if ((helpKey || (event.target === textEl.value && editKey)) && tb.shortcut(event)) {
                     event.preventDefault();
@@ -1597,7 +1604,7 @@ export const CorrectionBody = {
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(closeBlocks);
         if (typeof V.watch === 'function') V.watch(() => props.currentUser.id, closeBlocks);
         const requestBlock = async (suffix, apply) => {
-            if (!blocksOpen.value || blocksBusy.value || !e.canEdit.value) return;
+            if (!blocksOpen.value || blocksBusy.value || !canEdit.value) return;
             const generation = ++blocksGeneration;
             blocksBusy.value = true;
             blocksError.value = '';
@@ -1617,24 +1624,26 @@ export const CorrectionBody = {
             return loadBlocks();
         };
         const pickBlock = (id) => {
-            const selection = { ...editorPort.read(), runId: insertionTarget() };
+            const selection = insertionTarget();
+            const document = doc?.doc.value;
+            const load = c.loadGeneration.value;
+            const generation = e.lease.value.generation;
             return requestBlock('/' + encodeURIComponent(id), (block) => {
                 if (typeof block.insert_text !== 'string' || !block.insert_text) {
                     blocksError.value = TEXT.blocksFailed;
                     return;
                 }
-                const current = editorPort.read();
-                if (selection.runId !== insertionTarget() || selection.text !== current.text
-                        || selection.start !== current.start || selection.end !== current.end) {
+                const current = insertionTarget();
+                if (document !== doc?.doc.value || load !== c.loadGeneration.value || generation !== e.lease.value.generation
+                    || selection.runId !== current.runId || selection.text !== current.text
+                    || selection.start !== current.start || selection.end !== current.end) {
                     blocksError.value = TEXT.blockSelectionChanged;
                     return;
                 }
-                if (insertEditorText(block.insert_text, selection)) {
+                if (insertAt(block.insert_text, selection)) {
                     closeBlocks();
-                    later(() => activeEditor()?.focus());
-                } else {
-                    blocksError.value = TEXT.blocksFailed;
-                }
+                    if (!selection.runId) later(() => textEl.value?.focus());
+                } else blocksError.value = TEXT.blocksFailed;
             });
         };
         const choice = V.shallowRef(null);
@@ -1642,7 +1651,6 @@ export const CorrectionBody = {
         const previewHeading = V.shallowRef(null);
         const choiceNotice = V.ref('');
         let choiceOpener;
-        let insertingChoice = false;
         const staleChoice = 'Der Text oder die Bearbeitung hat sich geändert. Bitte öffnen Sie die Vorschau erneut.';
         const closeChoice = (message = 'Nicht eingefügt. Der Text wurde nicht geändert.', focusEditor = false) => {
             if (!choice.value) return;
@@ -1651,26 +1659,26 @@ export const CorrectionBody = {
             choice.value = null;
             choiceNotice.value = message;
             if (focusEditor || restoreFocus) {
-                later(() => (focusEditor || choiceOpener?.disabled ? activeEditor() : choiceOpener)?.focus());
+                later(() => (focusEditor || choiceOpener?.disabled ? editorField() : choiceOpener)?.focus());
             }
         };
         const toggleChoice = async (opener) => {
             if (choice.value) return closeChoice();
             if (!canEdit.value || !e.leaseController.canWrite()) return;
-            if (documentMode.value && !insertionTarget()) return;
+            if (documentMode.value && !insertionTarget().runId) return;
             closeBlocks();
             choiceOpener = opener;
             choiceNotice.value = '';
             shortcutsOpen.value = false;
-            choice.value = { draft: { ...editorPort.read(), runId: insertionTarget() }, revision: e.textRevisionId.value,
+            choice.value = { draft: insertionTarget(), document: doc?.doc.value, revision: e.textRevisionId.value,
                 generation: e.lease.value.generation, load: c.loadGeneration.value };
             later(() => choiceHeading.value?.focus());
             await e.loadTemplates();
         };
         const sameDraft = (current) => canEdit.value && e.leaseController.canWrite()
             && current.generation === e.lease.value.generation && current.revision === e.textRevisionId.value
-            && current.load === c.loadGeneration.value && current.draft.text === editorPort.read().text
-            && current.draft.runId === insertionTarget();
+            && current.load === c.loadGeneration.value && current.document === doc?.doc.value
+            && (current.draft.runId ? documentMode.value : !documentMode.value && current.draft.text === e.text.value);
         async function chooseSource(source) {
             const current = choice.value;
             if (!current || !sameDraft(current)) return closeChoice(staleChoice);
@@ -1713,22 +1721,21 @@ export const CorrectionBody = {
             const next = text.slice(0, start) + current.preview + text.slice(end);
             if (next === text) return closeChoice('Der ausgewählte Text ist bereits im Diktat.');
             // The 2 MiB save limit covers the JSON body, including revision and position fields.
-            if (new TextEncoder().encode(JSON.stringify(next)).length > 2 * 1024 * 1024 - 512) {
+            const combined = current.draft.runId ? e.text.value + current.preview : next;
+            if (new TextEncoder().encode(JSON.stringify(combined)).length > 2 * 1024 * 1024 - 512) {
                 choice.value = { ...current, preview: null, error: 'Der Text wäre zu lang zum Speichern. Wählen Sie eine kürzere Datei oder Vorlage.' };
                 return;
             }
-            insertingChoice = true;
-            let inserted;
-            try {
-                inserted = insertEditorText(current.preview, current.draft, current.caret);
-            } finally {
-                insertingChoice = false;
+            choice.value = null;
+            if (!insertAt(current.preview, current.draft, current.caret)) {
+                choice.value = { ...current, preview: null, error: 'Der Text kann an dieser Stelle nicht eingefügt werden.' };
+                return;
             }
-            if (!inserted) return closeChoice(staleChoice);
-            closeChoice('Text eingefügt. Mit «Rückgängig» stellen Sie den vorherigen Text wieder her.', true);
+            choiceNotice.value = 'Text eingefügt. Mit «Rückgängig» stellen Sie den vorherigen Text wieder her.';
+            if (!current.draft.runId) later(() => textEl.value?.focus());
         }
-        V.watch?.([canEdit, e.text, e.textRevisionId, e.lease, c.loadGeneration], () => {
-            if (!insertingChoice && choice.value && !sameDraft(choice.value)) closeChoice(staleChoice);
+        V.watch?.([canEdit, e.text, e.textRevisionId, e.lease, c.loadGeneration, () => doc?.doc.value], () => {
+            if (choice.value && !sameDraft(choice.value)) closeChoice(staleChoice);
         }, { flush: 'sync' });
         V.onBeforeUnmount?.(() => { choice.value = null; });
         const toggleShortcuts = () => {

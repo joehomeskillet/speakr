@@ -581,7 +581,10 @@ export function createRecordingViewController(options) {
         if (!isAudioFile(file)) return localResult(denied('invalid_file'), TEXT.fileInvalid);
         try {
             const result = machine.openFile(file);
-            if (result.ok) usedLocalFile = true;
+            if (result.ok) {
+                usedLocalFile = true;
+                clientUploadId = null;
+            }
             return localResult(result, result.ok ? TEXT.localOpened : TEXT.localOpenFailed);
         } catch {
             return localResult(denied('local_open_failed'), TEXT.localOpenFailed);

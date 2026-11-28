@@ -99,10 +99,10 @@ function controllerFor(client, extra = {}) {
 
 const count = (client, method, suffix) => client.calls.filter((c) => c.method === method && c.path.endsWith(suffix)).length;
 
-it('inserts an eligible text block at the selection as one undoable edit', async () => {
+it.each(['plain', 'document'])('inserts an eligible text block at the %s selection as one undoable edit', async (mode) => {
     let detail = ok({ insert_text: 'Praxis' });
     const client = fakeClient(base({
-        'GET /dictations/d1/correction': ok(plainCorrection()),
+        'GET /dictations/d1/correction': ok(correction({ links: [] })),
         'GET /resources/text-blocks': ok({ items: [{ id: 'block-1', title: 'Testbaustein' }], next_cursor: null }),
         'GET /resources/text-blocks/block-1': () => detail,
     }));
@@ -114,14 +114,20 @@ it('inserts an eligible text block at the selection as one undoable edit', async
         await view.c.editor.acquire();
         expect(view.canEdit.value).toBe(true);
         const editor = { selectionStart: 6, selectionEnd: 10, setSelectionRange: vi.fn(), focus: vi.fn() };
-        view.setTextEl(editor);
+        if (mode === 'plain') {
+            view.doc.available.value = false;
+            view.setTextEl(editor);
+        } else {
+            expect(view.documentMode.value).toBe(true);
+            view.setRunRoot({ querySelector: () => editor });
+        }
         await view.toggleBlocks();
         expect(view.blocks.value.items).toEqual([{ id: 'block-1', title: 'Testbaustein' }]);
         await view.pickBlock('block-1');
         expect(view.text.value).toBe('Hallo Praxis heute');
         expect(editor.setSelectionRange).toHaveBeenCalledWith(12, 12);
         expect(editor.focus).toHaveBeenCalled();
-        expect(view.tb.undo()).toBe(true);
+        expect(view.historyAction('undo')).toBe(true);
         expect(view.text.value).toBe('Hallo Welt heute');
         detail = fail('http', 404, 'nicht gefunden');
         await view.toggleBlocks();
@@ -153,7 +159,7 @@ it('inserts a scoped text block into the selected document run and undoes it in 
     const ref = (value) => ({ value });
     const vue = { ref, shallowRef: ref, computed: (read) => ({ get value() { return read(); } }) };
     const view = CorrectionBody.setup({ client, dictationId: 'd1', currentUser: user, vue });
-    const field = { selectionStart: 6, selectionEnd: 10, setSelectionRange: vi.fn(), focus: vi.fn() };
+    const field = { selectionStart: 6, selectionEnd: 10, selectionDirection: 'backward', setSelectionRange: vi.fn(), focus: vi.fn() };
     try {
         await view.c.start();
         await view.c.editor.acquire();
@@ -164,10 +170,10 @@ it('inserts a scoped text block into the selected document run and undoes it in 
         await view.toggleBlocks();
         await view.pickBlock('block-1');
         expect(view.doc.doc.value.nodes[0].runs[0].text).toBe('Hallo Praxis heute');
-        expect(field.setSelectionRange).toHaveBeenCalledWith(12, 12, undefined);
+        expect(field.setSelectionRange).toHaveBeenCalledWith(12, 12);
         expect(view.historyAction('undo')).toBe(true);
         expect(view.doc.doc.value.nodes[0].runs[0].text).toBe('Hallo Welt heute');
-        expect(field.setSelectionRange).toHaveBeenLastCalledWith(6, 10, undefined);
+        expect(field.setSelectionRange).toHaveBeenLastCalledWith(6, 10, 'backward');
     } finally {
         view.c.dispose();
     }
@@ -181,8 +187,8 @@ async function openForEdit(client, extra = {}) {
 }
 
 describe('compose-correction contract', () => {
-    it('opens a local editable draft for the selection hotkey and writes only on dialog submit', async () => {
-        const client = fakeClient(base({ 'GET /dictations/d1/correction': ok(plainCorrection()) }));
+    it.each(['plain', 'document'])('opens a local draft from the %s selection hotkey and writes only on submit', async (mode) => {
+        const client = fakeClient(base({ 'GET /dictations/d1/correction': ok(correction({ links: [] })) }));
         const vue = {
             ref: (value) => ({ value }), shallowRef: (value) => ({ value }),
             computed: (fn) => ({ get value() { return fn(); } }), nextTick: async () => {},
@@ -190,9 +196,17 @@ describe('compose-correction contract', () => {
         const ui = CorrectionBody.setup({ client, vue, dictationId: 'd1', currentUser: { id: 9 } });
         await ui.c.start();
         await ui.c.editor.acquire();
-        ui.c.editor.setText('Hallo   Welt heute');
         const area = { selectionStart: 0, selectionEnd: 0, focus: vi.fn() };
-        ui.setTextEl(area);
+        if (mode === 'plain') {
+            ui.doc.available.value = false;
+            ui.c.editor.setText('Hallo   Welt heute');
+            ui.setTextEl(area);
+        } else {
+            expect(ui.documentMode.value).toBe(true);
+            const [node] = ui.doc.doc.value.nodes;
+            ui.doc.editRun(node.id, node.runs[0].id, 'Hallo   Welt heute');
+            ui.setRunRoot({ querySelector: () => area });
+        }
         const press = (extra = {}) => ui.onTextKeydown({ ctrlKey: true, altKey: true, key: 'p', preventDefault: vi.fn(), ...extra });
         press();
         expect(ui.entryDraft.value).toBeNull();
