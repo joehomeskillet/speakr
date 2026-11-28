@@ -57,6 +57,7 @@ from src.clinic.models import (
 )
 from src.clinic.parity_dispatch import JSON, CommandProblem, ParityDispatch, RunOnce
 from src.clinic.pool_policy import author_pool_ids
+from src.clinic.recording_type import REPORT
 from src.clinic.release import _heads as release_heads, current_audio_id
 from src.database import db
 from src.models import Recording
@@ -71,9 +72,10 @@ PERM_VIEW = 'history'
 Authorize = Callable[[int, str, ClinicDictation], bool]
 _CONFLICT = frozenset({'stale_version', 'stale_revision'})
 _SEND_CONFLICTS = {
+    'recording_type_cannot_send': 'Nur Berichte können an den Schreibdienst gesendet werden.',
     'not_draft': 'Nur neu angelegte Diktate können eingereicht werden.',
     'audio_required': 'Keine Audiorevision vorhanden.',
-    'no_staff_pool': 'Kein Schreibkräfte-Pool zugeordnet.',
+    'no_staff_pool': 'Das Diktat wurde nicht gesendet. Es ist kein Schreibdienst zugeordnet.',
 }
 _STATUS = {'forbidden': 403, 'unauthorized': 403, 'not_found': 404, 'clinic_disabled': 404,
            'audit_unavailable': 503}
@@ -514,12 +516,15 @@ def create_blueprint(
         def apply(row, expected, _key, now):
             if row.version_counter != expected:
                 raise workflow.WorkflowError('stale_version')
+            if row.recording_type != REPORT:
+                raise workflow.WorkflowError('recording_type_cannot_send')
             item = db.session.get(workflow.ClinicWorkflowDictation, row.id, with_for_update=True)
             if item is None or item.status != workflow.DRAFT:
                 raise workflow.WorkflowError('not_draft')
             if db.session.query(ClinicAudioRevision.id).filter_by(dictation_id=row.id).first() is None:
                 raise workflow.WorkflowError('audio_required')
-            if not pools.routable_staff_pool_ids(row.pool_id, now):
+            staff_pools = pools.routable_staff_pools(row.pool_id, now)
+            if not staff_pools:
                 raise workflow.WorkflowError('no_staff_pool')
             check_submission(current_user.id, selections)
             note = selection_notes(current_user.id, selections)
@@ -542,7 +547,8 @@ def create_blueprint(
                                   details={'fields': fields}) is None:
                 raise workflow.WorkflowError('audit_unavailable')
             return {'dictation_id': row.id, 'status': settled.status,
-                    'version': row.version_counter, 'etag': _etag(row)}
+                    'version': row.version_counter, 'etag': _etag(row),
+                    'staff_service_names': pools.staff_service_names(staff_pools)}
 
         return command(dictation_id, 'send', 'clinic.dictate', body, apply, author_only=True)
 
