@@ -322,7 +322,7 @@ export const RequiredCategories = {
     emits: ['select'],
     template: `
 <section class="panel mb-3 text-left" aria-labelledby="crv-categories-title">
-  <h2 id="crv-categories-title">Pflichtkategorien</h2>
+  <h2 id="crv-categories-title" class="min-w-0 break-words">Pflichtkategorien</h2>
   <div v-for="item in items" :key="item.id" class="field">
     <label :for="'crv-category-' + item.id" class="break-words">{{ item.name }}</label>
     <select :id="'crv-category-' + item.id" class="!border-ui-text-muted" :value="item.value" required :disabled="disabled"
