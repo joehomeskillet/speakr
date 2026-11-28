@@ -196,7 +196,7 @@ const ASR_TEMPLATE = `
       <div v-if="view.profile"><dt>Version</dt><dd>{{ view.profile.version }}</dd></div>
       <div><dt>{{ view.labels.engine }}</dt><dd>{{ view.engine.label }} · Lokal</dd></div>
       <div><dt>{{ view.labels.prompts }}</dt><dd>{{ view.prompts.label }}</dd></div>
-      <div v-if="view.output"><dt>{{ view.labels.format }}</dt><dd>{{ view.output.container }} · {{ view.output.codec }} · {{ view.output.sampleRate }} Hz</dd></div>
+      <div v-if="view.output"><dt>{{ view.labels.format }}</dt><dd>{{ view.output.container }}, {{ view.output.codec }}, {{ view.output.sampleRate }} Hz</dd></div>
       <div><dt>Cloudumleitung</dt><dd>Nicht vorgesehen</dd></div>
     </dl>
     <p v-if="view.engine.fallback" class="note warning" role="status">{{ view.engine.fallbackLabel }}</p>
