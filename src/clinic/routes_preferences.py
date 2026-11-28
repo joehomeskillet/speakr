@@ -1,6 +1,6 @@
-"""HTTP surface for recipient, selection, workstation, key-binding and output preferences.
+"""HTTP surface for recipient, selection, workstation, active-pool, key-binding and output preferences.
 
-PAR-ADM-006, PAR-ADM-007, PAR-ADM-011, PAR-CFG-001, PAR-OPS-003, PAR-EXP-001.
+PAR-ADM-002, PAR-ADM-006, PAR-ADM-007, PAR-ADM-011, PAR-CFG-001, PAR-OPS-003, PAR-EXP-001.
 A thin layer over ``recipient_defaults``, ``last_selection``,
 ``workstation_preferences``, ``key_bindings`` and ``output_preferences``.
 The actor is always ``current_user``. A body never names an actor, user or
@@ -27,6 +27,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from wtforms.validators import ValidationError
 
 from src.clinic import (
+    app_wiring,
     correction_modes,
     key_bindings,
     notification_preferences,
@@ -264,10 +265,6 @@ class PreferenceRoutes:
 
     # -- active author pool (PAR-ADM-002) ----------------------------------
     def _active_pool(self):
-        from sqlalchemy.exc import SQLAlchemyError
-
-        from src.clinic import app_wiring
-
         actor = current_user.id
         is_write = request.method == "PUT"
         try:

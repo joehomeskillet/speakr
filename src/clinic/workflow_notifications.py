@@ -9,16 +9,18 @@ routing, visibility and in-app preferences, builds fixed German text with
 
 The event key is ``clinic.wf:<event>:<dictation>:<transition_id>``. The caller
 passes a durable per-transition id (for example the audit event id of the
-accept or reject). Two accept/reject cycles can share a version counter. A repeated or
-retried call for the same transition finds the stored row per recipient and skips it, so there are no
-duplicates and a dismissed notice is not revived. A missing notice is stored
-only if the recipient currently enables the event. The in-app path needs no SMTP.
+accept or reject). Two accept/reject cycles can share a version counter. A
+repeated or retried call skips stored rows, including dismissed notices.
+A missing notice is stored only if the recipient currently enables the event.
+The local in-app path needs no SMTP.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
+
+from sqlalchemy import select
 
 from src.clinic import notification_preferences, notification_rules, workflow
 from src.clinic.config import clinic_mode_enabled
@@ -57,8 +59,6 @@ def event_key(event: str, dictation_id: str, transition_id: str) -> str:
 
 
 def _committed_params(session, dictation, event, transition_id, actor_user_id, expected_version):
-    from sqlalchemy import select
-
     intent = ClinicParityReceipt.result["_workflow_notice"]
     params = intent["params"]
     return session.execute(select(params).where(

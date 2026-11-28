@@ -21,6 +21,7 @@ without them they error. Rendered-page and import-graph cases need no browser.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
 import re
@@ -134,15 +135,14 @@ def _render(tmp_path: Path, clinic: bool) -> str:
     return done.stdout.split("BODY:", 1)[1]
 
 
-@pytest.fixture(scope="module")
-def live_server(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("w213")
+@contextmanager
+def _live_correction_server(tmp, source):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     log = tmp / "server.log"  # a file, not a pipe: nobody drains a pipe while the browser runs
     with open(log, "w") as out:
-        proc = subprocess.Popen([sys.executable, "-c", SERVER, str(port), PASSWORD, TYPIST, STRANGER], cwd=ROOT,
+        proc = subprocess.Popen([sys.executable, "-c", source, str(port), PASSWORD, TYPIST, STRANGER], cwd=ROOT,
                                 env=_env(tmp, True), stdout=out, stderr=subprocess.STDOUT, text=True)
         try:
             deadline = time.time() + 180
@@ -155,6 +155,12 @@ def live_server(tmp_path_factory):
         finally:
             proc.terminate()
             proc.wait(timeout=20)
+
+
+@pytest.fixture(scope="module")
+def live_server(tmp_path_factory):
+    with _live_correction_server(tmp_path_factory.mktemp("w213"), SERVER) as server:
+        yield server
 
 
 def _login(browser, base, email):

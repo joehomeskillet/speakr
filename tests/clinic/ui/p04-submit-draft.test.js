@@ -80,7 +80,8 @@ describe('P04 draft submission', () => {
         expect(request).not.toHaveBeenCalled();
         expect(controller.model()).toMatchObject({ canSubmit: true, created: { dictationId: id } });
         expect(RECORDING_TEMPLATE).toContain(':dictation-id="m.created.dictationId"');
-        expect(RECORDING_TEMPLATE).toContain('v-if="m.canSubmit"');
+        expect(RECORDING_TEMPLATE).toContain('v-if="m.canSubmit && !m.directSend && !m.retryingTake && m.phase !== \'retryPending\'"');
+        expect(RECORDING_TEMPLATE).toContain(':disabled="protecting()"');
 
         request.mockResolvedValueOnce(detail).mockResolvedValueOnce(sent);
         const pending = controller.submit();

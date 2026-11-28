@@ -57,9 +57,16 @@ export function receiptDictationId(value) {
     return Number.isInteger(id) && id >= 0 ? String(id) : null;
 }
 
+export function formatRecordingDuration(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return '';
+    const whole = Math.floor(seconds);
+    return [Math.floor(whole / 60), whole % 60].map((part) => String(part).padStart(2, '0')).join(':');
+}
+
 /** Use the stock capture controls and send the finished microphone take through the clinic file upload. */
 export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = () => null) {
     let samples;
+    const takes = new WeakMap();
     const retained = new WeakMap();
     let takeVoxEnabled = false;
     let gatedTake = null;
@@ -92,6 +99,16 @@ export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = (
         URL.revokeObjectURL(originalUrl);
     }
 
+    function recordedFile() {
+        const chunks = state.audioChunks.value;
+        if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
+        if (chunks.length === 1 && chunks[0] instanceof File) return chunks[0];
+        const gated = gatedTake?.chunks === chunks ? gatedTake.blob : null;
+        if (gated) return new File([gated], 'aufnahme.wav', { type: gated.type });
+        const type = state.mediaRecorder.value.mimeType.split(';')[0];
+        return new File(chunks, 'aufnahme.webm', { type });
+    }
+
     return {
         startRecording,
         pauseRecording: audio.pauseRecording,
@@ -109,6 +126,16 @@ export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = (
         },
         stopRecording,
         reviewSource: () => state.audioBlobURL.value,
+        canUseLocalFiles: () => offlineDrafts()?.canUseLocalFiles === true,
+        recordedFile,
+        openRecordedFile(file) {
+            if (offlineDrafts()?.canUseLocalFiles !== true) throw new Error('local_denied');
+            const url = URL.createObjectURL(file);
+            if (state.audioBlobURL.value) URL.revokeObjectURL(state.audioBlobURL.value);
+            gatedTake = null;
+            state.audioChunks.value = [file];
+            state.audioBlobURL.value = url;
+        },
         async discardRecording() {
             await stopRecording();
             gatedTake = null;
@@ -116,22 +143,23 @@ export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = (
         },
         async uploadRecordedAudio({ title, ...uploadOptions }) {
             const chunks = state.audioChunks.value;
-            if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
-            const gated = gatedTake?.chunks === chunks ? gatedTake.blob : null;
-            const file = gated
-                ? new File([gated], 'aufnahme.wav', { type: gated.type })
-                : new File(chunks, 'aufnahme.webm', { type: state.mediaRecorder.value.mimeType.split(';')[0] });
+            const file = recordedFile();
+            const previous = takes.get(chunks);
+            const take = previous || { id: globalThis.crypto.randomUUID(), title, uploadOptions };
+            takes.set(chunks, take);
             const drafts = offlineDrafts();
             let binding = retained.get(chunks);
             let receipt;
             try {
-                receipt = await uploadFile(file, title, uploadOptions);
+                receipt = await uploadFile(file, take.title, {
+                    ...take.uploadOptions, id: take.id, retry: Boolean(previous),
+                });
                 if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
             } catch (error) {
                 if (drafts && (globalThis.navigator?.onLine === false || error instanceof TypeError)) {
                     try {
                         binding ||= { dictationId: crypto.randomUUID(), sequence: 0 };
-                        if (await drafts.saveTake(binding, file, title)) retained.set(chunks, binding);
+                        if (await drafts.saveTake(binding, file, take.title)) retained.set(chunks, binding);
                     } catch (e) { /* the original upload failure still owns the retry state */ }
                 }
                 if (retained.has(chunks)) throw new Error('offline_retained');
@@ -225,6 +253,16 @@ export function createRecorderPhases(options) {
             capturePending = false;
             set({});
         }
+    }
+
+    function openFile(file) {
+        const blocked = guard(['title', 'ready', 'review', 'failed']);
+        if (blocked) return blocked;
+        if (capturePending) return denied('capture_pending');
+        media?.pause?.();
+        recorder.openRecordedFile(file);
+        set({ phase: 'review', title: state.title.trim() || localDictationTitle(), error: null });
+        return { ok: true };
     }
 
     function pause() {
@@ -411,7 +449,7 @@ export function createRecorderPhases(options) {
             listeners.add(listener);
             return () => listeners.delete(listener);
         },
-        setTitle, start, pause, resume, stop, rewind, play, send, cancel, reset,
+        setTitle, start, openFile, pause, resume, stop, rewind, play, send, cancel, reset,
         beginning: rewind, end, skip, stopPlayback, pauseActiveMedia, isPlaying: playing, setPlayer, syncPlayback, playbackFailed,
         controls, announcement, surface,
     };

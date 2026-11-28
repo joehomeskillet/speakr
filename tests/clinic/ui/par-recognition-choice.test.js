@@ -44,8 +44,10 @@ describe('P04 speech recognition choice', () => {
 
         expect(uploadFile).toHaveBeenCalledTimes(2);
         const [, , firstOptions] = uploadFile.mock.calls[0];
-        expect(firstOptions).toEqual({ useSpeechRecognition: false, clientUploadId: expect.any(String) });
-        expect(uploadFile.mock.calls[1][2]).toEqual(firstOptions);
+        expect(firstOptions).toEqual({
+            useSpeechRecognition: false, clientUploadId: expect.any(String), id: expect.any(String), retry: false,
+        });
+        expect(uploadFile.mock.calls[1][2]).toEqual({ ...firstOptions, retry: true });
         expect(client.request).toHaveBeenNthCalledWith(2, '/dictations/synthetic-draft/send', {
             method: 'POST', body: {}, ifMatch: '"v1"', idempotencyKey: expect.any(String),
         });

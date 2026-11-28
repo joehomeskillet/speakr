@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+    CorrectionBody,
     CorrectionView,
     STEP_SECONDS,
     TEXT,
@@ -104,6 +105,53 @@ async function openForEdit(client, extra = {}) {
 }
 
 describe('compose-correction contract', () => {
+    it.each([false, true])('opens a local editable draft for the selection hotkey and writes only on submit (document mode: %s)', async (documentMode) => {
+        const text = 'Hallo   Welt heute';
+        const nodes = documentMode ? [{ id: 'p1', kind: 'paragraph', level: 0,
+            runs: [{ id: 'run1', text: 'Hallo Welt heute' }] }] : [{ kind: 'graphic' }];
+        const client = fakeClient(base({
+            'GET /dictations/d1/correction': ok(correction({
+                text: documentMode ? 'Hallo Welt heute' : text,
+                document_version: 1, document: { schema_version: 1, nodes },
+            })),
+        }));
+        const vue = {
+            ref: (value) => ({ value }), shallowRef: (value) => ({ value }),
+            computed: (fn) => ({ get value() { return fn(); } }), nextTick: async () => {},
+        };
+        const ui = CorrectionBody.setup({ client, vue, dictationId: 'd1', currentUser: { id: 9 } });
+        await ui.c.start();
+        await ui.c.editor.acquire();
+        expect(ui.documentMode.value).toBe(documentMode);
+        const area = { value: text, selectionStart: 0, selectionEnd: 0, focus: vi.fn() };
+        if (documentMode) {
+            ui.setRunRoot({ querySelector: (selector) => ['[data-run-id]', '[data-run-id="run1"]'].includes(selector) ? area : null });
+            ui.onRunInput({ target: area }, 'p1', ui.doc.doc.value.nodes[0].runs[0]);
+            ui.onRunSelection({ type: 'focus' }, 'p1', 'run1');
+        } else {
+            ui.setTextEl(area);
+        }
+        const press = (extra = {}) => ui.onTextKeydown({ ctrlKey: true, altKey: true, key: 'p', preventDefault: vi.fn(), ...extra });
+        press();
+        expect(ui.entryDraft.value).toBeNull();
+        area.selectionEnd = 12;
+        press({ repeat: true });
+        press({ isComposing: true });
+        expect(ui.entryDraft.value).toBeNull();
+        press({ ctrlKey: false, metaKey: true, key: 'π', code: 'KeyP' });
+        expect(ui.entryDraft.value).toMatchObject({ entry: null, written: 'Hallo Welt', spoken: '' });
+        expect(client.calls.some(({ path }) => path === '/vocabulary/additions')).toBe(false);
+        ui.entryDraft.value.written = 'Hallo Erde';
+        ui.entryDraft.value.spoken = 'hallo er de';
+        await ui.saveEntry();
+        expect(client.calls.find(({ path }) => path === '/vocabulary/additions').options.body).toEqual({
+            scope: 'user', create_only: true, written: 'Hallo Erde', spoken: 'hallo er de',
+        });
+        expect(ui.c.editor.text.value).toBe(text);
+        expect(area.focus).toHaveBeenCalledOnce();
+        await ui.c.dispose();
+    });
+
     it('exports the view and registers it as clinic-correction-view', () => {
         const app = { component: vi.fn() };
         expect(registerCorrectionView(app)).toBe(app);
@@ -117,11 +165,21 @@ describe('compose-correction contract', () => {
             'correction-editor-ui', 'correction-alignment-ui', 'correction-waveform-ui', 'playback-tempo-ui',
             'correction-modes-ui', 'correction-save-ui', 'audio-markers-ui', 'playback-gain-ui',
             'correction-toolbar-ui', 'richtext-editor-ui', 'finish-options-ui', 'workflow-actions-ui',
-            'correction-player-position', 'worklist-ui', 'tokens', 'api-client', 'compose-settings',
+            'correction-player-position', 'worklist-ui', 'tokens', 'api-client',
+            'compose-settings', 'handmic-webhid', 'vocabulary-ui',
         ].map((mod) => `./${mod}.js`).sort();
-        const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
+        for (const path of expected) expect(source).toContain(path);
+        expect(source).toContain("from './tokens.js'");
+        expect(source).toContain("from './api-client.js'");
+        const allImports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
+        const additions = ['./compose-settings.js', './handmic-webhid.js', './correction-player-position.js'];
+        for (const path of additions) expect(allImports.filter((entry) => entry === path)).toHaveLength(1);
+        const imports = allImports.filter((path) => !additions.includes(path));
         expect(imports).toHaveLength(new Set(imports).size);
-        expect(imports.sort()).toEqual(expected);
+        expect(imports).toContain('./vocabulary-ui.js');
+        expect(imports).toHaveLength(16);
+        expect(allImports).toHaveLength(new Set(allImports).size);
+        expect(allImports.sort()).toEqual(expected);
     });
 
     it('uses German labels, tokens only, keyboard-operable native controls and no browser storage', () => {
@@ -209,6 +267,44 @@ describe('loading and shared state', () => {
         expect(bare.recordingId()).toBeNull();
         c.dispose();
         bare.dispose();
+    });
+});
+
+describe('document preview', () => {
+    it('ignores a cancelled response after another source opens and rejects a changed revision', async () => {
+        let finishOld;
+        const old = new Promise((resolve) => { finishOld = resolve; });
+        const client = fakeClient(base({
+            'GET /templates/old/preview': () => old,
+            'GET /templates/current/preview': ok({ text: 'Aktuelle Vorlage', text_revision_id: 'r1' }),
+            'GET /templates/stale/preview': ok({ text: 'Veraltete Vorlage', text_revision_id: 'r2' }),
+        }));
+        const vue = {
+            ref: (value) => ({ value }), shallowRef: (value) => ({ value }),
+            computed: (fn) => ({ get value() { return fn(); } }),
+        };
+        const view = CorrectionView.components.CorrectionBody.setup(
+            { client, dictationId: 'd1', currentUser: user, vue }, { emit() {} },
+        );
+        try {
+            await view.c.start();
+            await view.c.editor.acquire();
+            await view.toggleChoice();
+            const pending = view.chooseSource({ templateId: 'old' });
+            view.closeChoice();
+            await view.toggleChoice();
+            await view.chooseSource({ templateId: 'current' });
+            finishOld(ok({ text: 'Überholte Antwort', text_revision_id: 'r1' }));
+            await pending;
+            expect(view.choice.value.preview).toBe('Aktuelle Vorlage');
+
+            await view.chooseSource({ templateId: 'stale' });
+            expect(view.choice.value).toBeNull();
+            expect(view.text.value).toBe('Hallo Welt heute');
+            expect(view.dirty.value).toBe(false);
+        } finally {
+            view.c.dispose();
+        }
     });
 });
 

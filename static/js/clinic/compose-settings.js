@@ -10,9 +10,9 @@
  * The view adds only what the children do not show: the origin of each workstation value
  * (personal, centrally fixed, or centrally limited; the API sends workstation, central, ceiling). The origins are
  * read from the workstation answer the preferences child already requests (a tap on the shared client, no second
- * request). A refused request (403) hides the whole page content and shows only the denial, so no
- * system area is disclosed. A change of the current user switches the client context (aborting
- * in-flight calls) and remounts the children. Leaving the view aborts in-flight calls. The server is
+ * request). A refused child request (403) hides the whole page. The active-pool picker uses the
+ * client directly so a refused selection only updates that panel. Changing users switches the client
+ * context (aborting in-flight calls) and remounts the children. Leaving the view aborts in-flight calls. The server is
  * authoritative for every value; colours come from tokens.js. The only values kept in the browser are the
  * workstation pedal key settings, written exclusively through pedal-ui.js (keys and seconds, no clinical data).
  *
@@ -28,9 +28,28 @@ import { surfaceFor } from './tokens.js';
 import {
     CONFIGURABLE_ACTIONS as ACTIONS, TEXT as PEDAL_TEXT, createKeyCapture, loadSettings, normalizeSettings, saveSettings,
 } from './pedal-ui.js';
+import { getPedalWebHid } from './pedal-webhid.js';
 import { createSampleRecorder, createVoiceConsentController } from './voice-consent-ui.js';
 
 const WORKSTATION_PATH = /^\/preferences\/workstations\/[^/]+$/;
+const ACTIVE_POOL_PATH = '/preferences/active-pool';
+
+const ACTIVE_POOL_LABELS = Object.freeze({
+    title: 'Gemeinsame Wörter und Vorlagen',
+    ready: 'Hier wählen Sie, welche gemeinsamen Wörter und Vorlagen Sie verwenden.',
+    loading: 'Auswahl wird geladen …',
+    saving: 'Auswahl wird gespeichert …',
+    saved: 'Auswahl gespeichert.',
+    empty: 'Für Sie sind keine gemeinsamen Wörter und Vorlagen verfügbar. Wenn Sie eine Gruppe vermissen, wenden Sie sich an die Verwaltung.',
+    reselection: 'Ihre bisherige Auswahl ist nicht mehr verfügbar. Bitte wählen Sie neu.',
+    readError: 'Die Auswahl konnte nicht geladen werden.',
+    writeError: 'Auswahl nicht gespeichert. Bitte versuchen Sie es erneut.',
+    unavailable: 'Diese Auswahl ist nicht mehr verfügbar.',
+});
+
+function emptyActivePool() {
+    return { pools: [], poolId: '', selected: '', status: 'loading' };
+}
 
 export const SessionTransportNotice = {
     props: { client: { type: Object, default: null }, vue: { type: Object, default: null } },
@@ -100,6 +119,17 @@ export const PEDAL_LABELS = Object.freeze({
     }),
 });
 
+const PEDAL_WEBHID_MESSAGES = Object.freeze({
+    unavailable: 'Dieser Browser kann das Fußpedal nicht direkt verbinden. Sie können den Tastaturmodus verwenden.',
+    idle: 'Kein Fußpedal direkt verbunden.',
+    connecting: 'Das Fußpedal wird verbunden …',
+    connected: 'Fußpedal verbunden.',
+    disconnecting: 'Das Fußpedal wird getrennt …',
+    disconnected: 'Fußpedal wurde getrennt. Sie können es erneut verbinden.',
+    unsupported: 'Dieses Fußpedal wird nicht direkt unterstützt. Sie können den Tastaturmodus verwenden.',
+    error: 'Die Verbindung ist fehlgeschlagen. Versuchen Sie es erneut oder verwenden Sie den Tastaturmodus.',
+});
+
 export const CONSENT_LABELS = Object.freeze({
     embeddings: 'Gespeicherte Stimmprofile',
     history: 'Verlauf',
@@ -132,6 +162,7 @@ export function createSettingsController(deps) {
     const client = deps.client;
     const state = (deps.makeState || ((o) => o))({
         userId: null, epoch: 0, denied: true, forbidden: false, origins: {},
+        activePool: emptyActivePool(), recipientRevision: 0,
     });
     let disposed = false;
 
@@ -165,8 +196,53 @@ export function createSettingsController(deps) {
         state.denied = id === null;
         state.forbidden = false;
         state.origins = {};
+        state.activePool = emptyActivePool();
         state.epoch += 1;
         client.switchContext({ accountId: id, dictationId: null });
+    }
+
+    function applyActivePool(result, status) {
+        const data = result?.data;
+        if (result?.outcome !== 'ok' || !Array.isArray(data?.pools)) return false;
+        const pool = state.activePool;
+        pool.pools = data.pools;
+        pool.poolId = pool.selected = data.pool_id ?? '';
+        pool.status = !pool.pools.length ? 'empty' : data.reselection_required ? 'reselection' : status;
+        return true;
+    }
+
+    async function loadActivePool(rejectedId = '') {
+        if (disposed || state.denied || state.forbidden) return;
+        const pool = state.activePool;
+        pool.status = 'loading';
+        const result = await client.request(ACTIVE_POOL_PATH);
+        if (disposed || pool !== state.activePool) return;
+        const previous = pool.poolId;
+        if (!applyActivePool(result, rejectedId ? 'writeError' : 'ready')) {
+            pool.pools = [];
+            pool.selected = '';
+            pool.status = 'readError';
+            return;
+        }
+        const revoked = rejectedId && !pool.pools.some((entry) => entry.id === rejectedId);
+        if (revoked && pool.status === 'writeError') pool.status = 'unavailable';
+        if (revoked || (previous !== pool.poolId && (previous || rejectedId))) state.recipientRevision += 1;
+    }
+
+    async function saveActivePool(poolId) {
+        const pool = state.activePool;
+        if (disposed || state.denied || state.forbidden || pool.status === 'loading' || pool.status === 'saving'
+            || poolId === pool.poolId || !pool.pools.some((entry) => entry.id === poolId)) return;
+        pool.status = 'saving';
+        const result = await client.request(ACTIVE_POOL_PATH, { method: 'PUT', body: { pool_id: poolId } });
+        if (disposed || pool !== state.activePool) return;
+        if (applyActivePool(result, 'saved')) {
+            state.recipientRevision += 1;
+        } else {
+            pool.selected = pool.poolId;
+            if (result?.status === 403) await loadActivePool(poolId);
+            else pool.status = 'writeError';
+        }
     }
 
     function originRows() {
@@ -185,7 +261,7 @@ export function createSettingsController(deps) {
     }
 
     setUser(deps.currentUser);
-    return { state, client: tapped, setUser, originRows, dispose };
+    return { state, client: tapped, setUser, originRows, loadActivePool, saveActivePool, dispose };
 }
 
 const HISTORY_STATUS = Object.freeze({ granted: 'Einwilligung erteilt', revoked: 'Einwilligung widerrufen' });
@@ -215,6 +291,14 @@ export function createPedalSettingsComponent(Vue, options = {}) {
         setup() {
             const settings = Vue.ref(loadSettings(store));
             const saveError = Vue.ref(false);
+            const webHid = options.webHid || getPedalWebHid();
+            const webHidStatus = Vue.ref('unavailable');
+            const unsubscribeHid = webHid.subscribe({ onStatus: (status) => { webHidStatus.value = status; } });
+
+            function toggleWebHid(event) {
+                if (!event.isTrusted) return;
+                return webHidStatus.value === 'connected' ? webHid.disconnect() : webHid.connect();
+            }
 
             function persist(next) {
                 const clean = normalizeSettings(next);
@@ -247,10 +331,11 @@ export function createPedalSettingsComponent(Vue, options = {}) {
                 persist(Object.assign({}, settings.value, { [field]: raw === '' ? NaN : Number(raw) }));
                 if (input) input.value = settings.value[field]; // a refused value shows the kept one
             }
-            Vue.onBeforeUnmount(() => capture.stop());
+            Vue.onBeforeUnmount(() => { capture.stop(); unsubscribeHid(); });
             return {
                 settings, saveError, rows, capture, capturing: capture.capturing, message: capture.message,
                 setAction, removeKey, setSeconds, labels: PEDAL_LABELS, actions: ACTIONS, text: PEDAL_TEXT,
+                webHidStatus, toggleWebHid, webHidMessages: PEDAL_WEBHID_MESSAGES,
             };
         },
     };
@@ -309,6 +394,21 @@ const CHOICES = '[&_legend]:mb-2 [&_legend]:text-[12px] [&_legend]:font-bold [&_
     + '[&_label.block]:flex [&_label.block]:items-center [&_label.block]:gap-2 [&_label.block]:text-[13px] [&_label.block]:font-medium';
 
 const PEDAL_TEMPLATE = `
+<section class="panel col-span-full" aria-labelledby="clinic-settings-webhid-title">
+  <h2 id="clinic-settings-webhid-title">Direkte Pedalverbindung</h2>
+  <div class="actions">
+    <button v-if="webHidStatus !== 'unavailable'" type="button" class="!min-h-12"
+            :disabled="webHidStatus === 'connecting' || webHidStatus === 'disconnecting'"
+            data-testid="clinic-settings-pedal-webhid" @click="toggleWebHid">
+      {{ webHidStatus === 'connected' || webHidStatus === 'disconnecting' ? 'Fußpedal trennen' : 'Fußpedal verbinden' }}
+    </button>
+    <span role="status" data-testid="clinic-settings-pedal-webhid-status">{{ webHidMessages[webHidStatus] }}</span>
+  </div>
+  <p v-if="webHidStatus === 'connected'" class="hint mt-3 mb-0">
+    Halten Sie die mittlere Pedaltaste zum Aufnehmen oder Abspielen.
+    Links spulen Sie zurück, rechts springen Sie bei der Wiedergabe vor.
+  </p>
+</section>
 <section class="panel col-span-full" role="region" :aria-label="labels.title" data-testid="clinic-settings-pedal"
          style="--v8-input-line: var(--ui-text-muted)">
   <h2>{{ labels.title }}</h2>
@@ -574,7 +674,22 @@ export const SETTINGS_TEMPLATE = `
     <SessionTransportNotice :key="state.epoch" :client="client" :vue="vue" />
     <div class="grid equal">
       <div class="space-y-5 min-w-0">
-        <section class="panel clinic-settings-prefs ${CHILD_BUTTONS} ${CHOICES}"><component :is="preferences" :key="'p:' + state.epoch"></component></section>
+        <section class="panel" aria-labelledby="active-pool-title" data-testid="active-pool-settings">
+          <div class="space-y-2">
+            <h2 id="active-pool-title"><label for="active-pool-select">{{ activePoolLabels.title }}</label></h2>
+            <select id="active-pool-select" data-testid="active-pool-select" style="min-height: 48px; border-color: var(--v8-muted)"
+                    aria-describedby="active-pool-status" v-model="state.activePool.selected"
+                    :disabled="!state.activePool.pools.length || ['loading', 'saving'].includes(state.activePool.status)"
+                    @change="saveActivePool($event.target.value)">
+              <option value="" disabled>{{ state.activePool.status === 'empty' ? 'Keine Gruppe verfügbar' : 'Bitte wählen' }}</option>
+              <option v-for="pool in state.activePool.pools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
+            </select>
+            <p id="active-pool-status" data-testid="active-pool-status" class="hint" role="status">{{ activePoolLabels[state.activePool.status] }}</p>
+            <button v-if="state.activePool.status === 'readError'" type="button" class="secondary" style="min-height: 48px"
+                    @click="loadActivePool()">Erneut laden</button>
+          </div>
+        </section>
+        <section class="panel clinic-settings-prefs ${CHILD_BUTTONS} ${CHOICES}"><component :is="preferences" :key="'p:' + state.epoch + ':' + state.recipientRevision"></component></section>
         <section role="region" :aria-label="labels.origins" class="panel" data-testid="clinic-settings-origins">
           <h2>{{ labels.origins }}</h2>
           <p v-if="!rows().length" class="hint" role="status" aria-live="polite" data-testid="clinic-settings-empty">{{ labels.empty }}</p>
@@ -625,11 +740,15 @@ export const SettingsView = {
         const notifications = Vue.markRaw(createNotificationSettingsComponent(Vue, ctrl.client, ctrl.state));
         const s = surfaceFor('error');
         const errorStyle = { background: s.background, color: s.color, borderColor: s.border };
-        Vue.watch(() => userIdOf(props.currentUser), () => ctrl.setUser(props.currentUser));
+        Vue.watch(() => userIdOf(props.currentUser), () => {
+            ctrl.setUser(props.currentUser);
+            return ctrl.loadActivePool();
+        }, { immediate: true });
         Vue.onBeforeUnmount(() => ctrl.dispose());
         return {
             state: ctrl.state, labels: LABELS, rows: ctrl.originRows, client: ctrl.client, vue: props.vue,
             audio: NO_AUDIO, preferences, correction, pedal, handmic, consent, notifications, errorStyle,
+            activePoolLabels: ACTIVE_POOL_LABELS, loadActivePool: ctrl.loadActivePool, saveActivePool: ctrl.saveActivePool,
         };
     },
 };

@@ -98,10 +98,14 @@ function scopeKey(row) {
 }
 
 /**
- * @param {{client?: object, reactive?: Function}} [options]
+ * @param {{client?: object, reactive?: Function, dictationId?: string, listQuery?: string, scopeQuery?: string}} [options]
  */
 export function createTemplatesManager(options) {
     const client = (options && options.client) || createClinicApiClient();
+    const scopeQuery = options?.scopeQuery || '';
+    const dictationQuery = options?.dictationId == null ? '' : '?dictation_id=' + encodeURIComponent(options.dictationId);
+    const detailQuery = scopeQuery || dictationQuery;
+    const listQuery = options?.listQuery || detailQuery;
     const wrap = (options && options.reactive) || ((value) => value);
     const state = wrap({
         loaded: false,
@@ -110,6 +114,7 @@ export function createTemplatesManager(options) {
         stale: false,
         status: 'normal',
     });
+    let listRequest = 0;
     let pending = null; // { digest, key } of the draft that is being (re)tried
 
     function setStatus(status) {
@@ -169,8 +174,15 @@ export function createTemplatesManager(options) {
     }
 
     async function load() {
+        const request = ++listRequest;
         setStatus('processing');
-        const row = await client.request(TEMPLATES);
+        if (dictationQuery) {
+            state.items = [];
+            state.selectedId = null;
+            state.loaded = false;
+        }
+        const row = await client.request(TEMPLATES + listQuery);
+        if (dictationQuery && request !== listRequest) return refuse('cancelled');
         if (row.outcome !== 'ok') return failure(row, 'permission');
         const rows = (row.data && row.data.items) || [];
         for (const item of state.items) if (!rows.some((next) => next.id === item.id)) item.active = false;
@@ -193,7 +205,8 @@ export function createTemplatesManager(options) {
         const loaded = await load();
         if (!loaded.ok) return loaded;
         setStatus('processing');
-        const details = await Promise.all(state.items.filter((row) => row.active).map((row) => client.request(TEMPLATES + '/' + encodeURIComponent(row.id))));
+        const details = await Promise.all(state.items.filter((row) => row.active)
+            .map((row) => client.request(TEMPLATES + '/' + encodeURIComponent(row.id) + detailQuery)));
         const failed = details.find((row) => row.outcome !== 'ok');
         if (failed) return failure(failed, 'permission');
         merge(details.map((row) => row.data));
@@ -206,7 +219,7 @@ export function createTemplatesManager(options) {
         const item = find(id);
         if (!item || !item.active) return refuse('unknown_template');
         setStatus('processing');
-        const row = await client.request(TEMPLATES + '/' + encodeURIComponent(id), { method: 'DELETE' });
+        const row = await client.request(TEMPLATES + '/' + encodeURIComponent(id) + scopeQuery, { method: 'DELETE' });
         if (row.outcome !== 'ok') return failure(row, 'permission');
         item.active = false;
         setStatus('success');
@@ -295,7 +308,8 @@ export function createTemplatesManager(options) {
         const target = { scope: scope };
         if (scopeId != null) target.scope_id = scopeId;
         setStatus('processing');
-        const res = await client.request(TEMPLATES + '/' + encodeURIComponent(id) + '/assign', { method: 'POST', body: { scope: target } });
+        const res = await client.request(TEMPLATES + '/' + encodeURIComponent(id) + '/assign' + scopeQuery,
+            { method: 'POST', body: { scope: target } });
         if (res.outcome !== 'ok') return failure(res, 'scope_error');
         const data = res.data || {};
         merge([Object.assign({}, data, { scope_id: scopeId == null ? null : scopeId, insertion_mark: row.marker })]);
@@ -398,7 +412,7 @@ export function templatesComponent(vue, options) {
             reload();
             return { manager, form, selected, reload, upload, assign, preview, reasons: REASONS,
                 onKey: (event) => { if (manager.onKey(event).ok) event.preventDefault(); },
-                contentUrl: (id) => '/api/clinic/v1/templates/' + encodeURIComponent(id) + '/content',
+                contentUrl: (id) => '/api/clinic/v1/templates/' + encodeURIComponent(id) + '/content' + (options?.scopeQuery || ''),
                 deactivate: () => run(() => manager.deactivate(manager.state.selectedId), 'Vorlage deaktiviert.') };
         },
         template: `

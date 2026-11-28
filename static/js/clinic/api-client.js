@@ -126,8 +126,10 @@ function headersFor(method, token, options) {
     if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
     if (options.ifMatch) headers['If-Match'] = options.ifMatch;
     if (options.caseView) headers['X-Clinic-Case-View'] = options.caseView;
-    if (options.body !== undefined && method !== 'GET' && method !== 'HEAD') {
-        headers['Content-Type'] = 'application/json';
+    if (options.liveClientId) headers['X-Live-Client-Id'] = options.liveClientId;
+    if (method !== 'GET' && method !== 'HEAD') {
+        if (options.png !== undefined) headers['Content-Type'] = 'image/png';
+        else if (options.body !== undefined) headers['Content-Type'] = 'application/json';
     }
     return headers;
 }
@@ -186,12 +188,17 @@ export function createClinicApiClient() {
         const method = String(opts.method || 'GET').toUpperCase();
         const seen = generation;
         const controller = new AbortController();
+        const signal = opts.timeoutMs ? AbortSignal.any([controller.signal, AbortSignal.timeout(opts.timeoutMs)]) : controller.signal;
         inflight.add(controller);
         const unsafe = method !== 'GET' && method !== 'HEAD';
         try {
             const token = unsafe ? await getUploadCsrfToken() : null;
             if (seen !== generation || controller.signal.aborted) return result('cancelled', { code: 'CANCELLED' });
-            let body = unsafe ? opts.formData : undefined;
+            if (opts.png !== undefined && (!unsafe || !(opts.png instanceof Blob)
+                || opts.png.type !== 'image/png' || opts.body !== undefined || opts.formData !== undefined)) {
+                return result('validation', { code: 'INVALID_PAYLOAD' });
+            }
+            let body = unsafe ? (opts.png ?? opts.formData) : undefined;
             if (unsafe && opts.body !== undefined) {
                 try {
                     body = JSON.stringify(opts.body);
@@ -204,7 +211,7 @@ export function createClinicApiClient() {
                 credentials: 'same-origin',
                 cache: 'no-store',
                 headers: headersFor(method, token, opts),
-                signal: controller.signal,
+                signal,
             };
             if (body !== undefined) init.body = body;
             let sent = await exchange(url, init, !unsafe, seen);
@@ -236,7 +243,9 @@ export function createClinicApiClient() {
                 const expiresAt = sent.response.headers?.get('X-Offline-Grant-Expires-At');
                 if (expiresAt) response.grantExpiresAt = Number(expiresAt);
             }
-            if (unsafe && response.outcome === 'ok' && (url.startsWith(ROOT + '/dictations/') || url === PARITY_COMMANDS)) {
+            const readOnlyPreview = method === 'POST' && /^\/dictations\/[^/?]+\/documents\/preview(?:\?.*)?$/.test(url.slice(ROOT.length));
+            if (unsafe && response.outcome === 'ok' && !readOnlyPreview
+                && (url.startsWith(ROOT + '/dictations/') || url === PARITY_COMMANDS)) {
                 dictationChanges += 1;
             }
             return response;
@@ -256,6 +265,7 @@ export function createClinicApiClient() {
             body: body,
             idempotencyKey: key,
             ifMatch: opts.ifMatch,
+            liveClientId: opts.liveClientId,
         });
     }
 
@@ -263,6 +273,7 @@ export function createClinicApiClient() {
         request: request,
         command: command,
         switchContext: switchContext,
+        supportsLiveCapture: true,
         get dictationChanges() { return dictationChanges; },
     };
 }

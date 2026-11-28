@@ -26,6 +26,7 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from wtforms.validators import ValidationError
 
 from src.clinic import policy, pool_policy, presets
+from src.clinic.app_wiring import active_author_pool, choose_author_pool
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
 from src.clinic.workflow import ClinicWorkflowDictation
@@ -109,9 +110,15 @@ def validate_marker(marker: str | None) -> None:
         raise TemplateError("invalid_marker", 422)
 
 
-def visible_templates(user_id: int, include_system: bool = True) -> list[presets.ClinicTemplate]:
-    """Active templates the user may read: system, own author pools, own user templates."""
-    pool_ids = list(pool_policy.author_pool_ids(user_id))
+def visible_templates(
+    user_id: int, include_system: bool = True, *, management: bool = False,
+) -> list[presets.ClinicTemplate]:
+    """List effective templates, or all current member scopes for explicit management."""
+    if management:
+        pool_ids = list(pool_policy.author_pool_ids(user_id))
+    else:
+        pool_id = choose_author_pool(user_id)
+        pool_ids = [pool_id] if pool_id is not None else []
     return presets.list_templates(
         user_id=str(user_id),
         pool_ids=pool_ids,
@@ -179,12 +186,10 @@ def _can_read_template(actor_id: int, row: presets.ClinicTemplate) -> bool:
     user = db.session.get(User, actor_id)
     if user is None or not user.is_active:
         return False
-    if user.is_admin:
-        return True
-    if row.scope == "system":
-        return True
     if row.scope == "user":
         return row.scope_id == str(actor_id)
+    if user.is_admin or row.scope == "system":
+        return True
     if row.scope == "pool":
         allowed_pools = {str(p) for p in pool_policy.author_pool_ids(actor_id)}
         return str(row.scope_id) in allowed_pools
@@ -192,7 +197,7 @@ def _can_read_template(actor_id: int, row: presets.ClinicTemplate) -> bool:
 
 
 def _requested_dictation_id() -> str | None:
-    """Optional case the template menu is opened for. Empty means the admin list."""
+    """Optional case the template menu is opened for."""
     raw = request.args.get("dictation_id")
     if raw is None or str(raw).strip() == "":
         return None
@@ -226,7 +231,11 @@ def _authorized_dictation_scope(actor_id: int, dictation_id: str) -> tuple[int, 
         ))
     if not pool_policy.decide(subject, "view", row).allowed:
         raise TemplateError("not_found", 404)
-    return row.author_user_id, row.pool_id
+    pool_id = row.pool_id
+    if row.author_user_id == actor_id and pool_id is not None:
+        if not any(pool.id == pool_id for pool in active_author_pool(actor_id).pools):
+            pool_id = None
+    return row.author_user_id, pool_id
 
 
 def _belongs_to_dictation_author(
@@ -255,11 +264,23 @@ def templates_for_dictation(actor_id: int, dictation_id: str) -> list[presets.Cl
     )
 
 
+def _management_scope_requested() -> bool:
+    return request.args.get("scope") == "management"
+
+
+def _can_read_scoped_template(actor_id: int, row: presets.ClinicTemplate, *, management: bool = False) -> bool:
+    if row.scope == "pool":
+        pool_ids = pool_policy.author_pool_ids(actor_id) if management else (choose_author_pool(actor_id),)
+        if row.scope_id not in pool_ids:
+            return False
+    return _can_read_template(actor_id, row)
+
+
 def _can_read_requested(actor_id: int, row: presets.ClinicTemplate) -> bool:
     """Own-scope read, or the author's template while the caller holds that case."""
     dictation_id = _requested_dictation_id()
     if dictation_id is None:
-        return _can_read_template(actor_id, row)
+        return _can_read_scoped_template(actor_id, row, management=_management_scope_requested())
     try:
         author_id, pool_id = _authorized_dictation_scope(actor_id, dictation_id)
     except TemplateError:
@@ -273,6 +294,7 @@ def assign_template(
     target_scope_id: str | int | None = None,
     *,
     actor_id: int,
+    management: bool = False,
     session=None,
 ) -> presets.ClinicTemplate:
     """Assign an existing server template to another authorized scope (pool or user)."""
@@ -280,7 +302,7 @@ def assign_template(
     source = s.get(presets.ClinicTemplate, str(template_id))
     if source is None or not source.is_active:
         raise TemplateError("unknown_template", 404)
-    if not _can_read_template(actor_id, source):
+    if not _can_read_scoped_template(actor_id, source, management=management):
         raise TemplateError("unknown_template", 404)
 
     target_sid = _check_scope_permission(actor_id, target_scope, str(target_scope_id) if target_scope_id else None)
@@ -375,7 +397,7 @@ def list_templates():
     try:
         dictation_id = _requested_dictation_id()
         if dictation_id is None:
-            rows = visible_templates(current_user.id)
+            rows = visible_templates(current_user.id, management=_management_scope_requested())
         else:
             rows = templates_for_dictation(current_user.id, dictation_id)
     except TemplateError as err:
@@ -561,6 +583,7 @@ def assign_template_route(template_id: uuid.UUID):
             target_scope=scope_obj["scope"],
             target_scope_id=scope_obj.get("scope_id"),
             actor_id=current_user.id,
+            management=_management_scope_requested(),
             session=db.session,
         )
         db.session.commit()
@@ -582,10 +605,8 @@ def delete_template(template_id: uuid.UUID):
         return _problem("not_found", 404)
 
     # Permission check for deactivation
-    if not _can_read_template(current_user.id, row):
+    if not _can_read_scoped_template(current_user.id, row, management=_management_scope_requested()):
         return _problem("not_found", 404)
-    if row.scope == "user" and row.scope_id != str(current_user.id):
-        return _problem("unauthorized", 403)
     if row.scope == "system":
         user = db.session.get(User, current_user.id)
         if not (user and getattr(user, "is_admin", False)):

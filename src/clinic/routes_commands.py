@@ -18,9 +18,11 @@ from typing import Any
 from flask import Blueprint, abort, current_app, jsonify, request, session
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
+from sqlalchemy.exc import OperationalError
 from wtforms.validators import ValidationError
 
-from src.clinic import policy, vocabulary, voice_command_runtime
+from src.clinic import policy, pool_policy, vocabulary, voice_command_runtime
+from src.clinic.app_wiring import choose_author_pool
 from src.clinic.asr_capabilities import (
     AsrCapability,
     AsrCapabilityRegistry,
@@ -72,13 +74,26 @@ def _require_csrf() -> bool:
 
 
 def _resolve_actor_pools(actor_id: int, requested_pools: list[str] | None = None) -> list[str]:
-    from src.clinic.pools import ClinicAuthorPoolMember
-
     try:
-        member_pools = {m.pool_id for m in ClinicAuthorPoolMember.query.filter_by(user_id=actor_id).all()}
-    except Exception:
-        member_pools = set()
-    return [p for p in requested_pools if p in member_pools] if requested_pools else sorted(member_pools)
+        if requested_pools is None:
+            pool_id = choose_author_pool(actor_id)
+            return [pool_id] if pool_id is not None else []
+        member_pools = pool_policy.author_pool_ids(actor_id)
+        return [pool_id for pool_id in requested_pools if pool_id in member_pools]
+    except OperationalError as error:
+        # Standalone SQLite vocabulary databases may lack the pool schema.
+        if db.engine.dialect.name == "sqlite" and str(error.orig) in {
+            "no such table: clinic_author_pool", "no such table: clinic_author_pool_member",
+        }:
+            return []
+        raise
+
+
+def _active_command_pools(actor_id: int, requested_pools: list[str] | None) -> list[str]:
+    pool_id = choose_author_pool(actor_id)
+    if pool_id is None or (requested_pools and pool_id not in requested_pools):
+        return []
+    return [pool_id]
 
 
 @commands_blueprint.route("/resources/commands", methods=["GET"])
@@ -88,10 +103,10 @@ def list_commands():
     if actor_id is None:
         return _problem("UNAUTHORIZED")
 
-    pool_ids = _resolve_actor_pools(actor_id, request.args.getlist("pool_id"))
+    pool_ids = _active_command_pools(actor_id, request.args.getlist("pool_id"))
     etag = catalog_version(actor_id, pool_ids)
     if request.headers.get("If-None-Match") == etag:
-        return "", 304
+        return "", 304, {"Cache-Control": "no-store"}
 
     commands = vocabulary.get_effective_voice_commands(actor_id, pool_ids)
     limit = min(max(int(request.args.get("limit", 50)), 1), 100)
@@ -101,6 +116,7 @@ def list_commands():
     ]
     resp = jsonify({"revision": 1, "next_cursor": None, "items": items})
     resp.headers["ETag"] = etag
+    resp.headers["Cache-Control"] = "no-store"
     return resp
 
 
@@ -115,7 +131,7 @@ def list_pronunciations(target_user_id: int | None = None):
     if target_user_id is not None and target_user_id != actor_id:
         return _problem("FORBIDDEN")
 
-    pool_ids = _resolve_actor_pools(actor_id, request.args.getlist("pool_id"))
+    pool_ids = _resolve_actor_pools(actor_id, request.args.getlist("pool_id") or None)
     hints = vocabulary.get_effective_pronunciation_hints(actor_id, pool_ids)
     items = [
         {"id": h["id"], "written_form": h["written_form"], "phonetic_hint": h["phonetic_hint"],
@@ -199,7 +215,12 @@ def execute_command_endpoint():
     if not phrase or not isinstance(recording_id, int) or recording_id <= 0 or not expected_version:
         return _problem("INVALID_PAYLOAD")
 
-    pool_ids = _resolve_actor_pools(actor_id, data.get("pool_ids"))
+    requested_pools = data.get("pool_ids")
+    if requested_pools is not None and (
+        not isinstance(requested_pools, list) or not all(isinstance(pid, str) for pid in requested_pools)
+    ):
+        return _problem("INVALID_PAYLOAD")
+    pool_ids = _active_command_pools(actor_id, requested_pools)
     subject = policy.build_subject(actor_id)
     recording = policy.build_facts(recording_id, data.get("owner_id", actor_id))
 

@@ -274,15 +274,17 @@ export function createCorrectionToolbar(options) {
             applyEntry(e); recount(); state.message = ''; emit();
             return true;
         },
-        insertParagraph() {
+        insertText(value, range = editor.read(), offset = value.length) {
             if (blocked()) return false;
-            const cur = sync();
-            const caret = Math.min(cur.start, cur.end);
-            const text = cur.text.slice(0, caret) + PARAGRAPH_BREAK + cur.text.slice(Math.max(cur.start, cur.end));
-            const next = caret + PARAGRAPH_BREAK.length;
-            commit(text, next, next);
+            sync();
+            const start = Math.min(range.start, range.end);
+            const end = Math.max(range.start, range.end);
+            history.syncSelection(start, end, range.direction);
+            const caret = start + offset;
+            commit(range.text.slice(0, start) + value + range.text.slice(end), caret, caret);
             return true;
         },
+        insertParagraph() { return api.insertText(PARAGRAPH_BREAK); },
         changeSelectionCase(mode) {
             if (blocked()) return false;
             const next = transformSelectionCase(sync(), mode);

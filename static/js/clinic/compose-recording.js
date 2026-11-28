@@ -23,18 +23,19 @@
  *   createRecordingViewController(options)  the controller behind the view.
  *
  * Injected `uploadFile(file, title, options)` resolves with the server receipt (id or
- * dictation_id); it is supplied by the mount package together with the recorder.
+ * dictation_id); options carry recognition choice and, for recorder takes, retry identity.
  */
 
-import { DictationProtectionComponent } from './dictation-protection-ui.js';
-import { createRecorderPhases, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
+import { createRecorderPhases, formatRecordingDuration, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
 import { createRecordLevelController, RECORD_LEVEL_TEMPLATE } from './record-level-ui.js';
+import { SessionTransportNotice } from './compose-settings.js';
+import { createHandmicView } from './handmic-webhid.js';
+import { DictationProtectionComponent } from './dictation-protection-ui.js';
 import { createPedalController } from './pedal-ui.js';
 import { CATEGORIES, RequiredCategories } from './categories-ui.js';
 import { PRIORITY_OPTIONS } from './dictation-properties-ui.js';
 import { surfaceFor } from './tokens.js';
 import { CorrectionView } from './compose-correction.js';
-import { SessionTransportNotice } from './compose-settings.js';
 
 function microphoneChoices(microphone) {
     return (microphone?.inputs || []).filter(({ deviceId }) => deviceId && deviceId !== 'default')
@@ -58,15 +59,27 @@ export const TEXT = Object.freeze({
     file: 'Audiodatei',
     fileSelected: 'Ausgewählte Datei',
     fileInvalid: 'Bitte eine nicht leere Audiodatei wählen.',
+    localFileHint: 'Nur auf einem freigegebenen Gerät speichern. Die Datei ist nicht verschlüsselt.',
+    localSaveStarted: 'Dateispeicherung im Browser gestartet. Prüfen Sie, ob die Datei gespeichert wurde.',
+    localSaveFailed: 'Die Dateispeicherung konnte nicht gestartet werden.',
+    localOpened: 'Datei geöffnet. Sie können sie anhören und bei Verbindung senden.',
+    localOpenFailed: 'Die Datei konnte nicht geöffnet werden.',
+    localDenied: 'Dateien auf diesem Gerät zu speichern oder hier zu öffnen ist nicht freigegeben.',
     upload: LABELS.send,
     uploading: LABELS.sending,
     recordingControls: 'Aufnahmesteuerung',
+    pairHandmic: 'Handmikrofon koppeln',
     startFailed: 'Prüfen Sie Ihr Mikrofon oder wählen Sie „oder Datei hochladen“.',
+    noCaptureFormat: 'Dieser Browser kann hier keine Aufnahme starten. Sie können eine Audiodatei hochladen.',
     microphoneDenied: 'Erlauben Sie den Mikrofonzugriff in den Website-Einstellungen Ihres Browsers und starten Sie die Aufnahme erneut.',
     routingPending: 'Berechtigung wird geprüft …',
     routingMissing: 'Ihr Konto ist noch keinem Autorenpool zugeordnet. Bitte wenden Sie sich an die Verwaltung.',
     routingError: 'Die Berechtigung konnte nicht geprüft werden. Bitte laden Sie die Seite neu.',
     recordFailed: 'Senden fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Aufnahme wird nicht lokal gespeichert.',
+    takeNotConfirmed: 'Senden fehlgeschlagen. Die Aufnahme ist weiterhin in diesem Browser verfügbar.',
+    takeSendFailed: 'Aufnahme gespeichert. Senden hat nicht geklappt.',
+    retryPending: 'Sie müssen nichts tun – es wird automatisch erneut gesendet.',
+    recordRetry: 'Senden fehlgeschlagen. Der Entwurf wurde nicht gesendet. Sie können es erneut versuchen.',
     recordRetained: 'Die Aufnahme liegt verschlüsselt unter „Offline und Wiederherstellung“. Der Server hat den Entwurf nicht bestätigt.',
     fileFailed: 'Hochladen fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Audiodatei wird nicht lokal gespeichert.',
     sent: 'Gespeichert. Noch nicht an den Schreibdienst gesendet.',
@@ -74,6 +87,8 @@ export const TEXT = Object.freeze({
     retrySave: 'Erneut sichern',
     submitting: 'Diktat wird eingereicht …',
     submitted: 'Eingereicht.',
+    localVisibility: 'Noch nicht gesendet. Die Aufnahme ist nur in diesem Browser auf diesem Gerät.',
+    submittedVisibility: 'Die Standortverwaltung kann die Aufnahme anhören und den Text lesen, sobald er vorliegt. Für alle anderen gelten getrennte Zugriffsrechte für Aufnahme und Text.',
     submitUnknown: 'Einreichung nicht bestätigt. Bitte erneut versuchen.',
     recognition: 'Spracherkennung',
     recognitionOn: 'ein',
@@ -160,7 +175,7 @@ function displayName(user) {
 /**
  * Framework-free controller. Subscribers are called after every state change.
  * @param {{client?: object, currentUser: {id: *}, recorder: object, uploadFile: Function,
- *   player?: object, authorized?: () => boolean, onOpen?: Function, onWorklist?: Function}} options
+ *   player?: object, hid?: object, authorized?: () => boolean, onOpen?: Function, onWorklist?: Function}} options
  */
 export function createRecordingViewController(options) {
     const opts = options || {};
@@ -186,6 +201,22 @@ export function createRecordingViewController(options) {
     let submission = null;
     let submitError = '';
     let pendingSend = null;
+    let savingTakeAsDraft = false;
+    let retryTimer = null;
+    let retriedAutomatically = false;
+    let plannedServices = [];
+    let plannedDirectDestination = '';
+    let confirmedServices = [];
+    let confirmedDirectDestination = '';
+    const serviceNames = (names) => Array.isArray(names)
+        ? names.filter((name) => typeof name === 'string' && name.trim()) : [];
+    const singleService = (name) => /\bSchreibdienst\b/i.test(name) ? name : 'Schreibdienst ' + name;
+    const directDestination = (data) => typeof data?.direct_destination === 'string' ? data.direct_destination : '';
+    let pendingMicrophone = null;
+    let microphoneSwitch = null;
+    let microphoneNotice = '';
+    let localMessage = '';
+    let localTakeState = null;
     let draft = null;
     let resumedDraftId = opts.draftId || null;
     let pendingMetadata = null;
@@ -200,8 +231,13 @@ export function createRecordingViewController(options) {
     let voxEnabled = false;
     let takeVoxEnabled = false;
 
-    const notify = () => { for (const listener of listeners) listener(); };
-    machine.subscribe(({ phase }) => {
+    const notifyUi = () => { for (const listener of listeners) listener(); };
+    const handmic = createHandmicView(opts.hid, { feedback: handmicFeedback, onCommand: onHandmicCommand, onChange: notifyUi });
+    const notify = () => {
+        handmic.sync();
+        notifyUi();
+    };
+    const unsubscribeMachine = machine.subscribe(({ phase }) => {
         if (!['title', 'ready', 'recording'].includes(phase)) releasePedalCapture = null;
         if (phase !== 'review' || !machine.isPlaying()) pedalPlayback = false;
         notify();
@@ -236,23 +272,29 @@ export function createRecordingViewController(options) {
     async function checkRouting() {
         routing = 'routingPending';
         notify();
-        let available;
+        let preflight;
         try {
-            const response = await (opts.fetchPreflight || globalThis.fetch)('/api/config?recording_preflight=1', { cache: 'no-store' });
-            if (response.ok) available = (await response.json()).routable;
+            const path = opts.preflightPath || '/api/config?recording_preflight=1';
+            const response = await (opts.fetchPreflight || globalThis.fetch)(path, { cache: 'no-store' });
+            if (response.ok) preflight = await response.json();
         } catch {
             // A failed preflight must never enable capture.
         }
         if (state.disposed) return;
+        const available = preflight?.routable;
+        plannedServices = available === true ? serviceNames(preflight.staff_service_names) : [];
+        plannedDirectDestination = available === true ? directDestination(preflight) : '';
         routing = available === true ? null : available === false ? 'routingMissing' : 'routingError';
         notify();
     }
 
     function setMode(mode) {
         if (!allowed()) return denied('unauthorized');
+        if (routing && mode === 'file') return denied('invalid_phase');
         if (!MODES.includes(mode)) return denied('invalid_mode');
         if (recorderBusy() || state.filePhase === 'sending' || state.filePhase === 'sent') return denied('invalid_phase');
         if (mode !== state.mode) {
+            localMessage = '';
             state.mode = mode;
             notify();
         }
@@ -430,14 +472,19 @@ export function createRecordingViewController(options) {
         }
     }
 
+    const draftForReopenedTake = () => opts.draftMetadata && localTakeState === 'reopened';
+
     // The numeric recording id on older upload receipts is not a workflow target.
     function canSubmit() {
         const id = receipt()?.dictation_id;
         // A read-only draft already has a durable ETag from detail and has no local changes to save.
         const confirmed = draft?.canSend && draft.fields && !draft.loading && !draft.stale
             && (draft.saved || !draft.editActions.length);
+        const confirmationRequired = draft || resumedDraftId || opts.draftMetadata && (state.mode === 'file' || savingTakeAsDraft)
+            || draftForReopenedTake();
         return typeof id === 'string' && !!id.trim() && typeof client?.request === 'function'
-            && allowed() && !state.disposed && !submission && (!opts.draftMetadata || Boolean(confirmed));
+            && allowed() && !state.disposed && !submission
+            && (!confirmationRequired || Boolean(confirmed));
     }
 
     async function loadCategories() {
@@ -471,8 +518,18 @@ export function createRecordingViewController(options) {
         notify();
     }
 
+    function scheduleRetry() {
+        if (retriedAutomatically || state.disposed || !allowed() || globalThis.navigator?.onLine === false) return;
+        retriedAutomatically = true;
+        retryTimer = setTimeout(() => {
+            retryTimer = null;
+            if (state.disposed || !allowed()) return notify();
+            void submit();
+        }, 750);
+    }
+
     async function submit() {
-        if (!canSubmit()) return denied('invalid_phase');
+        if (retryTimer !== null || !canSubmit()) return denied('invalid_phase');
         if (categoryLoad === 'loading') return denied('categories_loading');
         if (categoryLoad === 'failed' && !(await loadCategories())) return denied('categories_unavailable');
         if (!canSubmit()) return denied('invalid_phase');
@@ -484,6 +541,8 @@ export function createRecordingViewController(options) {
         }
         const id = receipt().dictation_id;
         const path = '/dictations/' + encodeURIComponent(id);
+        const takeId = opts.oneButton && state.mode === 'record' ? receipt().take_id : null;
+        const deadline = takeId ? { timeoutMs: 20_000 } : {};
         submission = 'submitting';
         submitError = '';
         notify();
@@ -491,20 +550,22 @@ export function createRecordingViewController(options) {
             if (!pendingSend) {
                 const categories = categorySets.map((set) => ({ set_id: set.id, version: set.version, value: categoryValues[set.id] }));
                 const detail = draft ? { outcome: 'ok', data: { dictation_id: id, etag: draft.etag } }
-                    : await client.request(path + '/detail');
+                    : await (takeId ? client.request(path + '/detail', deadline) : client.request(path + '/detail'));
                 if (detail.outcome !== 'ok' || detail.data?.dictation_id !== id || !detail.data.etag) {
                     submitError = detail.message || 'Der aktuelle Diktatstand konnte nicht geladen werden.';
                     return denied('detail_unavailable');
                 }
                 pendingSend = {
-                    body: categories.length ? { categories } : {},
-                    idempotencyKey: globalThis.crypto.randomUUID(), ifMatch: detail.data.etag,
+                    body: { ...(categories.length && { categories }), ...(takeId && { take_id: takeId }) },
+                    idempotencyKey: takeId || globalThis.crypto.randomUUID(), ifMatch: detail.data.etag,
                 };
             }
             if (state.disposed || !allowed()) return denied('cancelled');
-            const res = await client.request(path + '/send', { method: 'POST', ...pendingSend });
+            const res = await client.request(path + '/send', { method: 'POST', ...pendingSend, ...deadline });
             if (state.disposed) return denied('cancelled');
             if (res.outcome === 'ok' && res.data?.dictation_id === id && res.data.status) {
+                confirmedServices = serviceNames(res.data.staff_service_names);
+                confirmedDirectDestination = directDestination(res.data);
                 submission = 'submitted';
                 return { ok: true };
             }
@@ -521,8 +582,10 @@ export function createRecordingViewController(options) {
                     draft.stale = true;
                 }
             }
+            if (takeId && ['network', 'UNKNOWN'].includes(res.outcome)) scheduleRetry();
             return denied(res.code || 'unconfirmed');
         } catch {
+            if (takeId && pendingSend) scheduleRetry();
             return denied('unconfirmed');
         } finally {
             if (submission === 'submitting') {
@@ -533,44 +596,105 @@ export function createRecordingViewController(options) {
         }
     }
 
-    function send() {
+    const localReady = () => allowed() && !state.disposed && state.mode === 'record' && !created()
+        && opts.recorder.canUseLocalFiles?.() === true;
+    const canOpenLocal = () => localReady() && ['title', 'ready', 'review', 'failed'].includes(phase());
+    const canSaveLocal = () => localReady() && ['review', 'failed'].includes(phase());
+    function localResult(result, text) {
+        localMessage = text;
+        notify();
+        return result;
+    }
+
+    function saveLocal() {
+        if (!canSaveLocal()) return localResult(denied('local_denied'), TEXT.localDenied);
+        try {
+            const take = opts.recorder.recordedFile();
+            const link = document.createElement('a');
+            link.href = opts.recorder.reviewSource();
+            link.download = take.name;
+            link.click();
+            localTakeState ||= 'saved';
+            return localResult({ ok: true }, TEXT.localSaveStarted);
+        } catch {
+            return localResult(denied('local_save_failed'), TEXT.localSaveFailed);
+        }
+    }
+
+    function openLocal(file) {
+        if (!canOpenLocal()) return localResult(denied('local_denied'), TEXT.localDenied);
+        if (!isAudioFile(file)) return localResult(denied('invalid_file'), TEXT.fileInvalid);
+        try {
+            const result = machine.openFile(file);
+            if (result.ok) {
+                localTakeState = 'reopened';
+                clientUploadId = null;
+                savingTakeAsDraft = false;
+            }
+            return localResult(result, result.ok ? TEXT.localOpened : TEXT.localOpenFailed);
+        } catch {
+            return localResult(denied('local_open_failed'), TEXT.localOpenFailed);
+        }
+    }
+
+    function uploadRecording() {
         return machine.send(opts.oneButton || opts.draftMetadata || !useSpeechRecognition ? uploadOptions() : undefined);
     }
 
+    function send() {
+        return draftForReopenedTake() ? saveRecording() : uploadRecording();
+    }
+
     async function start() {
-        if (routing || created() || state.mode !== 'record' || state.disposed) return denied('invalid_phase');
-        rememberAttemptedMicrophone();
+        if (routing || created() || state.mode !== 'record' || state.disposed || noCaptureFormat()) return denied('invalid_phase');
+        localMessage = '';
+        if (opts.microphone && machine.controls().some(({ id, disabled }) => id === 'start' && !disabled)) {
+            clearMicrophoneChoice();
+            microphoneNotice = '';
+            attemptedMicrophone = microphoneLabel(selectedMicrophone());
+        }
         const forTake = voxEnabled;
         const result = await machine.start({ voxEnabled: forTake });
         if (result.ok) {
+            localTakeState = null;
             takeVoxEnabled = forTake;
             notify();
         }
         return result;
     }
 
-    function saveRecording() {
-        if (state.mode !== 'record' || routing || state.disposed) return denied('invalid_phase');
-        return send();
+    const separateSubmit = () => draftForReopenedTake() || categorySets.length > 0 || ['loading', 'failed'].includes(categoryLoad);
+
+    async function saveRecording() {
+        if (state.mode !== 'record' || routing || state.disposed || !allowed() || !['review', 'failed'].includes(phase())) {
+            return denied('invalid_phase');
+        }
+        localMessage = '';
+        savingTakeAsDraft = true;
+        const uploaded = await uploadRecording();
+        if (uploaded.ok && opts.draftMetadata) await loadDraft();
+        return uploaded;
     }
 
     async function sendRecording() {
-        if (state.mode !== 'record' || routing || state.disposed) return denied('invalid_phase');
+        if (state.mode !== 'record' || routing || retryTimer !== null || state.disposed) return denied('invalid_phase');
+        if (!allowed()) return denied('unauthorized');
+        localMessage = '';
         if (!receipt()) {
-            const uploaded = await saveRecording();
-            if (!uploaded.ok) return uploaded;
-            if (!opts.draftMetadata && (categorySets.length || ['loading', 'failed'].includes(categoryLoad))) return uploaded;
-        }
-        if (opts.draftMetadata) {
-            await loadDraft();
-            return { ok: true };
+            if (savingTakeAsDraft || (separateSubmit() && opts.draftMetadata)
+                || (opts.draftMetadata && !opts.oneButton)) return saveRecording();
+            const uploaded = await uploadRecording();
+            if (!uploaded.ok || separateSubmit()) return uploaded;
         }
         return submit();
     }
 
     async function cancelRecording() {
+        localMessage = '';
         const result = await machine.cancel();
         if (result.ok) {
+            savingTakeAsDraft = false;
+            localTakeState = null;
             resetUploadChoice();
             notify();
         }
@@ -597,6 +721,14 @@ export function createRecordingViewController(options) {
         submission = null;
         submitError = '';
         pendingSend = null;
+        clearTimeout(retryTimer);
+        retryTimer = null;
+        retriedAutomatically = false;
+        savingTakeAsDraft = false;
+        localMessage = '';
+        localTakeState = null;
+        confirmedServices = [];
+        confirmedDirectDestination = '';
         pendingMetadata = null;
         draft = null;
         resumedDraftId = null;
@@ -616,6 +748,43 @@ export function createRecordingViewController(options) {
         return state.mode === 'file' ? state.filePhase : machine.getState().phase;
     }
 
+    const canUseRecorder = () => !state.disposed && state.mode === 'record' && !routing && allowed()
+        && !(opts.draftMetadata && created());
+    const enabled = (id) => (id !== 'start' || !noCaptureFormat())
+        && machine.controls().some((control) => control.id === id && !control.disabled);
+    const { pause, resume, play, skip, stopPlayback } = machine;
+
+    function handmicFeedback() {
+        if (!canUseRecorder()) return { message: 'Handmikrofon inaktiv.', led: 'off' };
+        const p = phase();
+        if (p === 'recording') return { message: 'Aufnahme läuft.', led: 'recording' };
+        if (p === 'paused') return { message: 'Aufnahme pausiert.', led: 'standby' };
+        if (enabled('start')) return { message: 'Bereit zur Aufnahme.', led: 'standby' };
+        if (p === 'review' || p === 'failed') return { message: 'Aufnahme beendet.', led: 'off' };
+        return { message: 'Handmikrofon inaktiv.', led: 'off' };
+    }
+
+    function onHandmicCommand(command, fromSlide) {
+        if (!canUseRecorder()) return;
+        const p = phase();
+        switch (command) {
+            case 'record':
+                if (enabled('start')) return start();
+                if (!fromSlide && enabled('stop')) return stop();
+                return fromSlide && p === 'paused' ? resume() : undefined;
+            case 'play':
+                if (p === 'recording') return pause();
+                if (p === 'paused') return resume();
+                return enabled('play') ? play() : undefined;
+            case 'stop':
+                if (enabled('stop')) return stop();
+                return enabled('play') ? stopPlayback() : undefined;
+            case 'eol': return (p === 'sent' ? canSubmit() : enabled('send')) ? sendRecording() : undefined;
+            case 'rewind': return enabled('rewind') ? skip(-REVIEW_SKIP_SECONDS) : undefined;
+            case 'forward': return enabled('play') ? skip(REVIEW_SKIP_SECONDS) : undefined;
+        }
+    }
+
     function microphoneOptions() {
         const deviceId = opts.microphone?.deviceId;
         const choices = microphoneChoices(opts.microphone);
@@ -627,15 +796,72 @@ export function createRecordingViewController(options) {
         return choices;
     }
 
-    function rememberAttemptedMicrophone() {
-        if (!opts.microphone || !machine.controls().some(({ id, disabled }) => id === 'start' && !disabled)) return;
-        const deviceId = opts.microphone.deviceId;
-        attemptedMicrophone = microphoneOptions().find((device) => device.deviceId === deviceId)?.label || 'Standardmikrofon';
+    const selectedMicrophone = () => opts.microphone?.deviceId === 'default' ? '' : (opts.microphone?.deviceId || '');
+    const microphoneLabel = (id) => microphoneOptions().find(device => device.deviceId === id)?.label || 'Standardmikrofon';
+    const canSwitchMicrophone = () => allowed() && !state.disposed && state.mode === 'record'
+        && ['recording', 'paused'].includes(phase()) && typeof opts.microphone?.switchInput === 'function';
+    const noCaptureFormat = () => opts.microphone?.formats?.length === 0;
+
+    function chooseMicrophone(id) {
+        if (!opts.microphone || !allowed() || state.disposed || microphoneSwitch) return;
+        if (id && !microphoneOptions().some(device => device.deviceId === id)) return;
+        if (canSwitchMicrophone()) {
+            pendingMicrophone = id === selectedMicrophone() ? null : { id, label: microphoneLabel(id) };
+            microphoneNotice = '';
+        } else if (!recorderBusy()) {
+            opts.microphone.select(id);
+        }
+        notify();
+    }
+
+    function cancelMicrophone() {
+        if (pendingMicrophone === null || microphoneSwitch) return;
+        pendingMicrophone = null;
+        microphoneNotice = `„${microphoneLabel(selectedMicrophone())}“ bleibt ausgewählt.`;
+        notify();
+    }
+
+    async function confirmMicrophone() {
+        if (!canSwitchMicrophone() || pendingMicrophone === null || microphoneSwitch) return denied('invalid_phase');
+        const { id, label } = pendingMicrophone;
+        const attempt = Symbol();
+        microphoneSwitch = attempt;
+        notify();
+        try {
+            if (!await opts.microphone.switchInput(id) || microphoneSwitch !== attempt || !canSwitchMicrophone()) return denied('stale');
+            opts.microphone.select(id);
+            microphoneNotice = `Neuer Abschnitt mit „${label}“.`;
+            return { ok: true };
+        } catch {
+            if (microphoneSwitch === attempt) {
+                microphoneNotice = `Wechsel fehlgeschlagen. Die Aufnahme bleibt bei „${microphoneLabel(selectedMicrophone())}“.`;
+            }
+            return denied('microphone_unavailable');
+        } finally {
+            if (microphoneSwitch === attempt) {
+                clearMicrophoneChoice();
+                notify();
+            }
+        }
+    }
+
+    function clearMicrophoneChoice() {
+        pendingMicrophone = null;
+        microphoneSwitch = null;
+    }
+
+    function stop() {
+        clearMicrophoneChoice();
+        return machine.stop();
     }
 
     function message() {
         if (!allowed()) return TEXT.denied;
+        if (retryTimer !== null) return TEXT.retryPending;
+        if (retryingTake()) return TEXT.takeSendFailed;
         if (submitError) return submitError;
+        if (state.mode === 'record' && machine.getState().error === 'playback_failed') return LABELS.playbackFailed;
+        if (localMessage) return routing ? `${localMessage} ${TEXT[routing]}` : localMessage;
         if (routing && !draft) return TEXT[routing];
         if (submission) return TEXT[submission];
         if (created() && categoryLoad === 'failed') return TEXT.categoriesFailed;
@@ -647,9 +873,13 @@ export function createRecordingViewController(options) {
             if (state.filePhase === 'failed') return TEXT.fileFailed;
             return state.fileError === 'invalid_file' ? TEXT.fileInvalid : '';
         }
+        if (!recorderBusy() && noCaptureFormat()) return TEXT.noCaptureFormat;
+        if (canSwitchMicrophone() && microphoneNotice) return microphoneNotice;
         if (s.phase === 'sent' && editableDraftId()) return TEXT.sent;
         if (s.phase === 'failed') {
             if (s.error === 'offline_retained') return TEXT.recordRetained;
+            if (localTakeState) return TEXT.recordRetry;
+            if (opts.oneButton && globalThis.navigator?.onLine !== false) return TEXT.takeNotConfirmed;
             return opts.oneButton || s.title.trim() ? TEXT.recordFailed : LABELS.titleHint;
         }
         if (s.error === 'microphone_unavailable' && attemptedMicrophone) {
@@ -679,19 +909,33 @@ export function createRecordingViewController(options) {
         return canEditAudio ? receipt().dictation_id : null;
     }
 
+    function retryingTake() {
+        return opts.oneButton && state.mode === 'record' && !!receipt()?.take_id && !!pendingSend && !!submitError && !submission;
+    }
+
     /** Plain snapshot for rendering. */
     function model() {
         const s = machine.getState();
         const fileBusy = state.filePhase === 'sending' || state.filePhase === 'sent';
-        const separateSubmit = categorySets.length > 0 || ['loading', 'failed'].includes(categoryLoad);
+        const oneButtonRecording = opts.oneButton && state.mode === 'record' && allowed();
+        const saved = oneButtonRecording && created() ? s.receipt : null;
+        const retry = s.phase === 'failed' || (s.phase === 'sent' && canSubmit() && (!draft || retryingTake()));
+        const destination = plannedDirectDestination || (plannedServices.length === 1 ? singleService(plannedServices[0])
+            : plannedServices.length ? 'Schreibdienste ' + plannedServices.join(', ') : '');
         let recordActionLabel = s.phase === 'review' ? 'Senden' : 'Erneut senden';
-        if (separateSubmit) recordActionLabel = created() ? TEXT.submit : s.phase === 'review' ? TEXT.upload : TEXT.retrySave;
-        if (opts.draftMetadata) recordActionLabel = s.phase === 'review' ? 'Entwurf sichern' : TEXT.retrySave;
+        if (separateSubmit() && !pendingSend) recordActionLabel = created() ? TEXT.submit : s.phase === 'review' ? TEXT.upload : TEXT.retrySave;
+        if (opts.draftMetadata && (savingTakeAsDraft || !opts.oneButton || separateSubmit()) && !created()) {
+            recordActionLabel = s.phase === 'review' ? 'Entwurf sichern' : TEXT.retrySave;
+        }
         return {
             mode: state.mode,
-            phase: submission || phase(),
+            phase: retryTimer !== null ? 'retryPending' : submission || phase(),
             routing,
             canSubmit: canSubmit(),
+            retryingTake: retryingTake(),
+            directSend: Boolean(saved && !draft && !savingTakeAsDraft && !separateSubmit()),
+            canOpenLocal: canOpenLocal(),
+            canSaveLocal: canSaveLocal(),
             draft: draft && { ...draft, fields: draft.fields && { ...draft.fields } },
             canEditDraft: Boolean(editableDraft()),
             recordActionLabel,
@@ -701,16 +945,33 @@ export function createRecordingViewController(options) {
             author: displayName(user),
             authorId: String(user.id),
             title: s.title,
+            plannedDestination: oneButtonRecording && (s.phase === 'review' || retry) && destination
+                ? (retry || plannedDirectDestination ? 'Vorgesehen: ' : 'Wird gesendet an: ') + destination : '',
+            localVisibility: oneButtonRecording && !state.disposed && s.phase === 'review' ? TEXT.localVisibility : '',
+            submittedVisibility: !state.disposed && submission === 'submitted' && saved ? TEXT.submittedVisibility : '',
+            recordingReceipt: saved ? {
+                title: typeof saved.title === 'string' && /^Diktat \d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/.test(saved.title) ? saved.title : '',
+                duration: formatRecordingDuration(saved.audio_duration),
+                arrived: confirmedDirectDestination || (confirmedServices.length === 1 ? 'Beim ' + singleService(confirmedServices[0]) + ' angekommen'
+                    : confirmedServices.length ? 'Bei den Schreibdiensten ' + confirmedServices.join(', ') + ' angekommen' : ''),
+            } : null,
             titleLocked: !isTitleEditable(s.phase),
+            handmic: handmic.model(),
+            authorized: allowed(),
             microphoneOptions: microphoneOptions(),
-            selectedMicrophoneId: opts.microphone?.deviceId === 'default' ? '' : opts.microphone?.deviceId || '',
+            selectedMicrophoneId: selectedMicrophone(),
+            pendingMicrophone: pendingMicrophone?.id ?? null,
+            pendingMicrophoneLabel: pendingMicrophone?.label || '',
+            canSwitchMicrophone: canSwitchMicrophone(),
+            microphoneSwitching: microphoneSwitch !== null,
             needsMicrophoneAccess: !opts.microphone?.inputs?.some(({ deviceId, label }) => deviceId && deviceId !== 'default' && label),
             voxEnabled,
             voxStatus: ['recording', 'paused', 'review', 'failed'].includes(s.phase) && takeVoxEnabled
                 ? (voxEnabled ? TEXT.voxActive : TEXT.voxActiveNextOff)
                 : (voxEnabled ? TEXT.voxNext : TEXT.voxOff),
             canToggleVox: allowed() && !state.disposed,
-            controls: machine.controls(),
+            controls: machine.controls().map(control =>
+                control.id === 'start' && noCaptureFormat() ? { ...control, disabled: true } : control),
             file: state.file ? { name: String(state.file.name || ''), size: Number(state.file.size) || 0 } : null,
             canSelectFile: allowed() && !fileBusy,
             canUpload: allowed() && (state.filePhase === 'selected' || state.filePhase === 'failed'),
@@ -722,9 +983,9 @@ export function createRecordingViewController(options) {
                 ?? (created() && !clientUploadId ? null : useSpeechRecognition),
             created: created(),
             editableDraftId: editableDraftId(),
-            canSaveRecording: !opts.draftMetadata && !routing && state.mode === 'record' && !separateSubmit
-                && !s.receipt && ['review', 'failed'].includes(s.phase),
-            message: message() || (created() && s.phase === 'sent' ? TEXT.sent : ''),
+            canSaveRecording: (!opts.draftMetadata || opts.oneButton === true) && !routing && state.mode === 'record'
+                && !separateSubmit() && !s.receipt && !savingTakeAsDraft && ['review', 'failed'].includes(s.phase),
+            message: message(),
             surface: surface(),
         };
     }
@@ -781,22 +1042,25 @@ export function createRecordingViewController(options) {
     async function dispose() {
         if (state.disposed) return;
         state.disposed = true;
+        clearMicrophoneChoice();
+        clearTimeout(retryTimer);
+        retryTimer = null;
         pedal?.detach();
         fileGeneration += 1;
+        unsubscribeMachine();
         listeners.clear();
+        const releasingHandmic = handmic.dispose();
         const p = machine.getState().phase;
-        if (p !== 'sending' && p !== 'sent') {
-            try {
-                await machine.cancel();
-            } catch (e) {
-                // The managed offline view owns any encrypted copy.
-            }
-        }
+        const discard = p !== 'sending' && p !== 'sent' ? machine.cancel().catch(() => {
+            // The managed offline view owns any encrypted copy.
+        }) : undefined;
+        await Promise.all([releasingHandmic, discard]);
     }
 
     const controller = {
         text: TEXT,
         machine,
+        handmic,
         model,
         saveRecording,
         subscribe(listener) {
@@ -805,11 +1069,11 @@ export function createRecordingViewController(options) {
         },
         setMode, setTitle: (value) => machine.setTitle(value),
         toggleVox,
-        start,
-        pause: () => machine.pause(), resume: () => machine.resume(),
-        stop: () => machine.stop(), rewind: () => machine.rewind(), play: () => machine.play(),
+        start, chooseMicrophone, cancelMicrophone, confirmMicrophone,
+        pause, resume, stop, rewind: machine.rewind, play,
         beginning: machine.beginning, end: machine.end,
         send, cancel: cancelRecording, toggleSpeechRecognition,
+        canOpenLocal, saveLocal, openLocal,
         selectFile, sendFile, cancelFile, submit, sendRecording, checkRouting, loadCategories, selectCategory,
         loadDraft, setDraftField, saveDraft, openCreated, toWorklist, another, dispose,
         attachPedal,
@@ -842,11 +1106,13 @@ const DraftSendFields = {
           <textarea class="!border-ui-text-muted" maxlength="4000" rows="2" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.notes" @input="c.setDraftField('notes', $event.target.value)"></textarea>
         </label>
         <div class="field-grid">
-          <label style="${DRAFT_FIELD}"><span>Priorität</span>
-            <select class="!border-ui-text-muted" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.priority" @change="c.setDraftField('priority', Number($event.target.value))">
-              <option v-for="p in priorities" :key="p.value" :value="p.value">{{ p.label }}</option>
-            </select>
-          </label>
+          <fieldset style="${DRAFT_FIELD}" :disabled="!m.draft.editActions.includes('priority')">
+            <legend>Priorität</legend>
+            <label v-for="p in priorities" :key="p.value">
+              <input type="radio" name="draft-priority" :value="p.value" :checked="m.draft.fields.priority === p.value"
+                     @change="c.setDraftField('priority', p.value)" /> {{ p.label }}
+            </label>
+          </fieldset>
           <label style="${DRAFT_FIELD}"><span>Frist</span>
             <input class="!border-ui-text-muted" type="date" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.deadline_date" @input="c.setDraftField('deadline_date', $event.target.value)" />
             <small>Tagesende (Europe/Zurich)</small>
@@ -887,9 +1153,16 @@ export const RECORDING_TEMPLATE = `
     </p>
     <p v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
        :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}</p>
-    <template v-if="!m.routing || m.created">
+    <div v-if="m.recordingReceipt" role="status" style="margin-bottom: var(--ui-space-4); overflow-wrap: anywhere">
+      <p v-if="m.message !== c.text.takeSendFailed" data-testid="receipt-saved" style="margin: 0; font-weight: 650">Aufnahme gespeichert</p>
+      <p v-if="m.recordingReceipt.title || m.recordingReceipt.duration" style="margin: var(--ui-space-2) 0 0">
+        <span v-if="m.recordingReceipt.title" data-testid="receipt-title">{{ m.recordingReceipt.title }}</span><template v-if="m.recordingReceipt.title && m.recordingReceipt.duration"> · </template><span v-if="m.recordingReceipt.duration" data-testid="receipt-duration" :aria-label="'Aufnahmedauer ' + m.recordingReceipt.duration">{{ m.recordingReceipt.duration }}</span>
+      </p>
+      <p v-if="m.recordingReceipt.arrived" data-testid="receipt-arrived" style="margin: var(--ui-space-2) 0 0">{{ m.recordingReceipt.arrived }}</p>
+    </div>
+    <template v-if="!m.routing || m.created || m.canOpenLocal">
       <template v-if="!m.created && m.mode === 'record'">
-        <div class="vox-control" style="display: grid; justify-items: center; gap: var(--ui-space-2); margin: 0 auto var(--ui-space-4); max-width: 100%">
+        <div v-if="!m.routing" class="vox-control" style="display: grid; justify-items: center; gap: var(--ui-space-2); margin: 0 auto var(--ui-space-4); max-width: 100%">
           <button type="button" role="switch" class="button" :class="{ accent: m.voxEnabled }" data-testid="vox-toggle"
                   aria-label="Stimmsteuerung" aria-describedby="vox-status" :aria-checked="m.voxEnabled"
                   :disabled="!m.canToggleVox" @click="c.toggleVox()" style="${TOUCH}; font-size: .875rem">
@@ -897,9 +1170,10 @@ export const RECORDING_TEMPLATE = `
           </button>
           <small id="vox-status" class="hint" data-testid="vox-status" style="text-align: center">{{ m.voxStatus }}</small>
         </div>
-        <div v-if="m.phase === 'title' || m.phase === 'ready'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
+        <div v-if="!m.routing && (m.phase === 'title' || m.phase === 'ready')" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
           <button type="button" class="button accent" data-testid="rec-start" :aria-keyshortcuts="shortcuts.start" :disabled="!enabled('start')" @click="c.start()"
-                  style="width: 10rem; height: 10rem; border-radius: 50%; flex-direction: column; gap: var(--ui-space-2); padding-inline: var(--ui-space-2); font-size: 1rem; white-space: nowrap">
+                  style="width: 10rem; height: 10rem; border-radius: 50%; flex-direction: column; gap: var(--ui-space-2);
+                         padding-inline: var(--ui-space-1); font-size: 1rem; white-space: nowrap">
             <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true"><path :d="icons.start"></path></svg>
             Aufnahme starten
           </button>
@@ -917,7 +1191,6 @@ export const RECORDING_TEMPLATE = `
               Mikrofonzugriff erlauben
             </button>
           </div>
-          <a href="#/neu" data-testid="mode-file" @click.prevent="c.setMode('file')" style="${LINK}; font-size: .875rem">oder Datei hochladen</a>
         </div>
         <div v-else-if="m.phase === 'recording' || m.phase === 'paused'" style="display: grid; justify-items: center; gap: var(--ui-space-4)">
           <p role="status" data-testid="capture-status" style="margin: 0">{{ captureCaption[m.phase] }}</p>
@@ -926,13 +1199,13 @@ export const RECORDING_TEMPLATE = `
           <div class="actions" style="justify-content: center">
             <button v-if="m.phase === 'recording'" type="button" class="button" style="${TOUCH}" data-testid="rec-pause" :aria-keyshortcuts="shortcuts.pause" @click="c.pause()">Pause</button>
             <button v-else type="button" class="button" style="${TOUCH}" data-testid="rec-resume" :aria-keyshortcuts="shortcuts.resume" @click="c.resume()">Fortsetzen</button>
-            <button type="button" class="button accent" style="${TOUCH}" data-testid="rec-stop" :aria-keyshortcuts="shortcuts.stop" @click="c.stop()">Stopp</button>
+            <button type="button" class="button" :class="{ accent: m.pendingMicrophone === null }" style="${TOUCH}" data-testid="rec-stop" :aria-keyshortcuts="shortcuts.stop" @click="c.stop()">Stopp</button>
           </div>
         </div>
         <div v-else-if="m.phase === 'review' || m.phase === 'failed'"
              style="display: grid; justify-items: center; gap: var(--ui-space-3)">
-          <span v-if="m.created" class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
-          <audio v-if="!m.created && previewUrl" :ref="bindReview" controls preload="metadata" :src="previewUrl" aria-label="Aufnahme anhören"
+          <audio v-if="previewUrl" :key="previewUrl" :ref="bindReview" controls controlslist="nodownload" preload="metadata" :src="previewUrl" aria-label="Aufnahme anhören"
+                 @contextmenu.prevent
                  @loadedmetadata="loadReview" @durationchange="c.machine.syncPlayback()" @seeked="finishDurationProbe"
                  @play="c.machine.syncPlayback()" @pause="c.machine.syncPlayback()" @ended="c.machine.syncPlayback()"
                  @error="c.machine.playbackFailed()" style="width: 100%; min-height: 3rem"></audio>
@@ -947,12 +1220,63 @@ export const RECORDING_TEMPLATE = `
             </div>
             <p v-if="!outputSupported" data-testid="rec-output-note" style="margin: 0; color: var(--ui-text-muted, var(--ui-text))">Dieser Browser verwendet für die Wiedergabe immer den Systemausgang.</p>
           </div>
-          <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.sendRecording()">
+          <p v-if="m.plannedDestination" data-testid="send-destination" style="margin: 0; overflow-wrap: anywhere">{{ m.plannedDestination }}</p>
+          <p v-if="m.localVisibility" data-testid="local-visibility" style="margin: 0">{{ m.localVisibility }}</p>
+          <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" :disabled="!!m.routing" @click="c.sendRecording()">
             {{ m.recordActionLabel }}
           </button>
-          <button type="button" class="button quiet" style="${TOUCH}; font-size: .875rem"
+          <button v-if="m.phase === 'review'" type="button" class="button quiet" style="${TOUCH}; font-size: .875rem"
                   data-testid="rec-cancel" @click="discard">Neu aufnehmen</button>
         </div>
+        <div v-if="microphone && m.canSwitchMicrophone"
+             style="display: grid; gap: var(--ui-space-2); width: 100%; max-width: 20rem; margin: var(--ui-space-4) auto 0; text-align: left">
+          <div ref="microphonePicker" role="group" aria-labelledby="crv-active-microphone-label"
+               style="display: grid; gap: var(--ui-space-2)">
+            <span id="crv-active-microphone-label">Mikrofon</span>
+            <button v-for="device in [{ deviceId: '', label: 'Standardmikrofon' }, ...m.microphoneOptions]" :key="device.deviceId"
+                    type="button" class="button" :class="{ accent: device.deviceId === m.selectedMicrophoneId }"
+                    :aria-pressed="device.deviceId === m.selectedMicrophoneId"
+                    :disabled="m.microphoneSwitching" @click="c.chooseMicrophone(device.deviceId)"
+                    style="${TOUCH}; white-space: normal; overflow-wrap: anywhere">
+              {{ device.label }}
+            </button>
+          </div>
+          <div v-if="m.canSwitchMicrophone && m.pendingMicrophone !== null" role="group" aria-labelledby="crv-microphone-prompt"
+               @keydown.esc.stop="finishMicrophoneChoice(false)">
+            <p id="crv-microphone-prompt" role="status" style="margin: 0 0 var(--ui-space-2)">
+              Zu „{{ m.pendingMicrophoneLabel }}“ wechseln? Der bisherige Ton bleibt erhalten.
+            </p>
+            <div class="actions">
+              <button type="button" class="button primary" :disabled="m.microphoneSwitching" @click="finishMicrophoneChoice(true)" style="${TOUCH}">
+                {{ m.microphoneSwitching ? 'Mikrofon wird geöffnet …' : 'Mikrofon wechseln' }}
+              </button>
+              <button type="button" class="button quiet" :disabled="m.microphoneSwitching" @click="finishMicrophoneChoice(false)" style="${TOUCH}">Abbrechen</button>
+            </div>
+          </div>
+        </div>
+        <details v-if="!m.routing && (m.phase === 'title' || m.phase === 'ready') && microphone?.formats?.length > 1"
+                 data-testid="capture-format" style="width: 100%; max-width: 20rem; margin: var(--ui-space-4) auto 0; text-align: left">
+          <summary class="focus-visible:outline-ui-text" style="${TOUCH}; align-content: center; cursor: pointer">
+            Aufnahmeformat ({{ microphone.formats.find(format => format.mimeType === microphone.mimeType)?.label || 'Automatisch' }})
+          </summary>
+          <div class="actions" role="group" aria-label="Aufnahmeformat" style="margin-top: var(--ui-space-2)">
+            <button type="button" class="button" :aria-pressed="!microphone.mimeType" :disabled="!enabled('start')"
+                    @click="microphone.selectFormat('')" style="${TOUCH}">Automatisch</button>
+            <button v-for="format in microphone.formats" :key="format.mimeType" type="button" class="button"
+                    :aria-pressed="format.mimeType === microphone.mimeType" :disabled="!enabled('start')"
+                    @click="microphone.selectFormat(format.mimeType)" style="${TOUCH}">{{ format.label }}</button>
+          </div>
+        </details>
+        <a v-if="!m.routing && (m.phase === 'title' || m.phase === 'ready')" href="#/neu" data-testid="mode-file" @click.prevent="c.setMode('file')"
+           style="${LINK}; font-size: .875rem">oder Datei hochladen</a>
+        <div v-if="m.canOpenLocal || m.canSaveLocal" class="actions" style="justify-content: center; margin-top: var(--ui-space-3)">
+          <button v-if="m.canSaveLocal" type="button" class="button" style="${TOUCH}" data-testid="rec-save-file"
+                  aria-describedby="crv-local-hint" @click="c.saveLocal()">Als Datei speichern</button>
+          <button v-if="m.canOpenLocal" type="button" class="button quiet" style="${TOUCH}" data-testid="rec-open-file"
+                  @click="chooseLocal">Aufnahmedatei öffnen</button>
+          <input v-if="m.canOpenLocal" ref="localPicker" type="file" accept="audio/*,.webm" hidden @change="pickLocal" />
+        </div>
+        <p v-if="m.canSaveLocal" id="crv-local-hint" style="margin-top: var(--ui-space-2); font-size: .875rem">{{ c.text.localFileHint }}</p>
       </template>
       <div v-else-if="!m.created" style="display: grid; gap: var(--ui-space-3); text-align: left">
         <label for="crv-file">{{ c.text.file }}</label>
@@ -965,32 +1289,52 @@ export const RECORDING_TEMPLATE = `
         </div>
       </div>
       <div v-if="m.created" data-testid="created">
-        <draft-send-fields v-if="m.draft && !['submitted', 'notDraft'].includes(m.phase)" :m="m" :c="c" @reload="reloadDraft" />
-        <required-categories v-if="m.categories.length && (m.canSubmit || m.phase === 'submitting')"
-                             :items="m.categories" :disabled="!m.canSelectCategory" @select="c.selectCategory" />
-        <details v-if="m.canSubmit" class="draft-protection" style="margin-bottom: var(--ui-space-3); text-align: left">
+        <draft-send-fields v-if="m.draft && !m.retryingTake && !['retryPending', 'submitted', 'notDraft'].includes(m.phase)" :m="m" :c="c" :inert="protecting()" @reload="reloadDraft" />
+        <required-categories v-if="!m.retryingTake && m.phase !== 'retryPending' && m.categories.length && (m.canSubmit || m.phase === 'submitting')"
+                             :items="m.categories" :disabled="protecting() || !m.canSelectCategory" button-options @select="c.selectCategory" />
+        <details v-if="m.canSubmit && !m.directSend && !m.retryingTake && m.phase !== 'retryPending'"
+                 class="draft-protection" style="margin-bottom: var(--ui-space-3); text-align: left">
           <summary style="${TOUCH}; cursor: pointer; align-content: center">Diktat-Schutz (optional)</summary>
           <component :is="Protection" ref="protection" :key="m.created.dictationId"
                      :client="client" :dictation-id="m.created.dictationId" />
         </details>
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
-        <fieldset class="actions" :disabled="protecting()" style="justify-content: center; border: 0; padding: 0; margin: 0; min-inline-size: 0">
+        <div v-if="!m.routing && m.canSubmit && (m.retryingTake || m.directSend) && m.phase !== 'retryPending'"
+             style="display: grid; justify-items: center; gap: var(--ui-space-3)">
+          <p v-if="m.plannedDestination" data-testid="send-destination" style="margin: 0; overflow-wrap: anywhere">{{ m.plannedDestination }}</p>
+          <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" :disabled="protecting()" @click="c.submit()">{{ m.recordActionLabel }}</button>
+        </div>
+        <div v-else-if="m.mode === 'record' && m.phase === 'submitted'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
+          <button type="button" class="button primary" data-testid="open-created" style="${TOUCH}; width: 100%; font-size: 1rem"
+                  :disabled="protecting()" @click="c.openCreated()">Diktat öffnen</button>
+          <p v-if="m.submittedVisibility" role="status" data-testid="submitted-visibility" style="margin: var(--ui-space-2) 0 0">{{ m.submittedVisibility }}</p>
+          <a :href="protecting() ? null : '#/neu'" :aria-disabled="protecting() || null" data-testid="another"
+             style="${LINK}" @click.prevent="!protecting() && c.another()">{{ c.text.title }}</a>
+        </div>
+        <fieldset v-else-if="!m.directSend && m.phase !== 'retryPending'" class="actions" :disabled="protecting()"
+                  style="justify-content: center; border: 0; padding: 0; margin: 0; min-inline-size: 0">
           <button v-if="!['submitted', 'notDraft'].includes(m.phase)" type="button" class="button primary" style="${TOUCH}"
                   :disabled="!m.canSubmit || m.categoriesLoading" data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
-          <a href="#/diktat" data-testid="open-created" style="${LINK}" @click.prevent="c.openCreated()">{{ m.mode === 'file' ? c.text.open : 'Diktat öffnen' }}</a>
+          <a :href="protecting() ? null : '#/diktat'" :aria-disabled="protecting() || null" data-testid="open-created"
+             style="${LINK}" @click.prevent="!protecting() && c.openCreated()">{{ m.mode === 'file' ? c.text.open : 'Diktat öffnen' }}</a>
           <button v-if="m.mode === 'file'" type="button" class="button" style="${TOUCH}" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
           <button type="button" class="button" style="${TOUCH}" data-testid="another" :disabled="m.draft?.saving || m.draft?.loading || m.phase === 'submitting'" @click="c.another()">{{ c.text.title }}</button>
         </fieldset>
       </div>
     </template>
+    <div v-if="m.mode === 'record'" style="margin-block-start: var(--ui-space-3); font-size: .875rem">
+      <button v-if="!m.created && m.handmic.available" type="button" class="button quiet" style="${TOUCH}" data-testid="handmic-pair"
+              :disabled="!m.authorized || !m.handmic.canPair" @click="c.handmic.pair()">{{ c.text.pairHandmic }}</button>
+      <p role="status" aria-live="polite" data-testid="handmic-status" style="margin: 0">{{ m.handmic.message }}</p>
+    </div>
     <div v-if="m.canSaveRecording" style="margin-top: var(--ui-space-3)">
       <button type="button" class="button" style="${TOUCH}; width: 100%" data-testid="rec-save-draft" @click="c.saveRecording()">
-        {{ m.phase === 'review' ? c.text.upload : c.text.retrySave }}
+        {{ m.phase === 'review' ? 'Entwurf sichern' : c.text.retrySave }}
       </button>
     </div>
     <div v-if="m.editableDraftId" class="actions" style="justify-content: center; margin-top: var(--ui-space-3)">
       <button ref="audioEditButton" type="button" class="button" style="${TOUCH}"
-              data-testid="edit-created-audio" @click="openAudioEdits">Audio bearbeiten</button>
+              data-testid="edit-created-audio" :disabled="protecting()" @click="openAudioEdits">Audio bearbeiten</button>
     </div>
   </div>
 </section>`;
@@ -1014,6 +1358,8 @@ export const RecordingView = {
         const V = props.vue || (typeof window !== 'undefined' ? window.Vue : null);
         if (!V) throw new Error('Vue is required to mount the recording view');
         const emit = (name, payload) => { if (ctx && typeof ctx.emit === 'function') ctx.emit(name, payload); };
+        const accountId = props.currentUser.id;
+        const authorized = () => props.currentUser?.id === accountId && props.authorized?.() !== false;
         const history = globalThis.window?.history;
         const c = createRecordingViewController({
             client: props.client,
@@ -1021,13 +1367,15 @@ export const RecordingView = {
             recorder: props.recorder,
             uploadFile: props.uploadFile,
             player: props.player,
+            authorized,
+            hid: globalThis.navigator?.hid,
             microphone: props.microphone,
-            authorized: props.authorized || undefined,
             oneButton: true,
             draftMetadata: true,
             draftId: history?.state?.recordingDraftId,
             onDraft: (id) => history?.replaceState({ ...history.state, recordingDraftId: id }, ''),
             preflightOnMount: true,
+            preflightPath: '/api/clinic/v1/recording-takes/preflight',
             onOpen: (payload) => emit('open', payload),
             onWorklist: () => emit('worklist'),
         });
@@ -1042,10 +1390,22 @@ export const RecordingView = {
             recordLevel.sync(c.machine.getState().phase);
         });
         const m = V.computed(() => (tick.value, c.model()));
+        V.watch?.(authorized, () => c.handmic.sync());
         const root = V.ref(null);
+        const microphonePicker = V.ref(null);
+        async function finishMicrophoneChoice(confirm) {
+            if (confirm) await c.confirmMicrophone();
+            else c.cancelMicrophone();
+            await V.nextTick();
+            microphonePicker.value?.querySelector('[aria-pressed="true"]')?.focus();
+        }
+        const localPicker = V.ref(null);
         const protection = V.ref(null);
         const Protection = { ...DictationProtectionComponent(V), mounted() { void this.model.load(); } };
-        const protecting = () => protection.value?.model.state.status === 'busy';
+        const protecting = () => {
+            const state = protection.value?.model.state;
+            return state?.status === 'busy' && (state.lastAction === 'enable' || state.lastAction === 'disable');
+        };
         const editingDraft = V.ref(null);
         const audioEditButton = V.ref(null);
         function openAudioEdits() {
@@ -1125,7 +1485,7 @@ export const RecordingView = {
             if (!doc || editingDraft.value || event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || !event.altKey || !event.shiftKey) return;
             if (event.target !== doc.body && !root.value.contains(event.target)) return;
             const { mode, phase, controls, created } = m.value;
-            if (created || mode !== 'record' || props.authorized?.() === false) return;
+            if (created || mode !== 'record' || !authorized()) return;
             const review = phase === 'review' && controls.some(b => b.id === 'play' && !b.disabled);
             let action;
             switch (event.key.toLowerCase()) {
@@ -1140,11 +1500,11 @@ export const RecordingView = {
             if (!event.repeat) return action();
         }
         const enabled = (id) => m.value.controls.some((control) => control.id === id && !control.disabled);
-        const elapsed = V.computed(() => {
-            const seconds = props.recorder.elapsedSeconds || 0;
-            return [Math.floor(seconds / 60), seconds % 60].map((part) => String(part).padStart(2, '0')).join(':');
-        });
-        const previewUrl = V.computed(() => props.recorder.previewUrl);
+        const elapsed = V.computed(() => formatRecordingDuration(props.recorder.elapsedSeconds || 0));
+        const previewUrl = V.computed(() => (tick.value, props.recorder.previewUrl));
+        function recheckRouting() {
+            if (m.value.routing) void c.checkRouting();
+        }
         const space = (event) => {
             if (event.code !== 'Space' || event.repeat || event.defaultPrevented
                 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
@@ -1162,6 +1522,7 @@ export const RecordingView = {
             doc?.addEventListener('keydown', onKeydown);
             if (doc) c.attachPedal(doc);
             globalThis.window?.addEventListener('keydown', space);
+            globalThis.window?.addEventListener('online', recheckRouting);
         });
         V.onMounted?.(() => {
             void c.checkRouting();
@@ -1173,6 +1534,7 @@ export const RecordingView = {
             recordLevel.stop();
             doc?.removeEventListener('keydown', onKeydown);
             globalThis.window?.removeEventListener('keydown', space);
+            globalThis.window?.removeEventListener('online', recheckRouting);
             return c.dispose();
         });
         return {
@@ -1180,6 +1542,7 @@ export const RecordingView = {
             c,
             m,
             root,
+            microphonePicker, finishMicrophoneChoice,
             Protection, protection, protecting,
             editingDraft, audioEditButton, openAudioEdits, closeAudioEdits,
             reviewSource,
@@ -1190,10 +1553,20 @@ export const RecordingView = {
             shortcuts,
             captureCaption: PHASE_CAPTIONS,
             icons: ICON_PATHS,
+            enabled, level, elapsed, previewUrl, localPicker,
+            chooseLocal() {
+                if (!c.canOpenLocal()) return;
+                if (m.value.canSaveLocal && !window.confirm('Die aktuelle Aufnahme durch eine Datei ersetzen?')) return;
+                localPicker.value?.click();
+            },
+            pickLocal({ target }) {
+                const file = target.files?.[0];
+                target.value = '';
+                if (file) c.openLocal(file);
+            },
             reloadDraft: () => {
                 if (window.confirm('Ungespeicherte Änderungen verwerfen und den gespeicherten Stand laden?')) void c.loadDraft();
             },
-            enabled, level, elapsed, previewUrl,
             act: (id) => { if (RECORDER_ACTIONS.includes(id)) c[id](); },
             discard: () => {
                 if (window.confirm('Diese Aufnahme verwerfen und neu aufnehmen?')) void c.cancel();

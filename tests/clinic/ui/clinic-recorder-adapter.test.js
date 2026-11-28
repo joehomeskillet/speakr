@@ -71,7 +71,11 @@ describe('clinic recorder upload', () => {
         await expect(recorder.uploadRecordedAudio(take)).rejects.toThrow('offline_retained');
         expect(drafts.removeTake).not.toHaveBeenCalled();
         expect(await recorder.uploadRecordedAudio(take)).toEqual({ id: 1 });
-        expect(upload.mock.calls.map(([, , sentOptions]) => sentOptions)).toEqual([options, options, options]);
+        const id = upload.mock.calls[0][2].id;
+        expect(id).toEqual(expect.any(String));
+        expect(upload.mock.calls.map(([, , sentOptions]) => sentOptions)).toEqual([
+            { ...options, id, retry: false }, { ...options, id, retry: true }, { ...options, id, retry: true },
+        ]);
         expect(drafts.removeTake).toHaveBeenCalledOnce();
         expect(drafts.removeTake).toHaveBeenCalledWith(binding);
         expect(stock.clearRecording).toHaveBeenCalledOnce();
