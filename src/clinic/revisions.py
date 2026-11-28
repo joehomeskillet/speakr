@@ -86,11 +86,13 @@ def add_human_revision(
     author_user_id: int,
     *,
     original_version: ClinicOriginal | None = None,
+    force_new: bool = False,
 ) -> ClinicTranscriptRevision:
     """Append a human correction, or return the tip when the text is unchanged.
 
     A new row is flushed, so its ID is available to other writes in the same
-    session. The caller owns the commit or rollback.
+    session. The caller owns the commit or rollback. Bundle imports use
+    ``force_new`` because audio and formatting can differ with identical text.
 
     ``author_user_id`` must be an existing user. It is stored as
     ``revision_author_user_id``, separate from the dictating person.
@@ -105,6 +107,7 @@ def add_human_revision(
         original_version=original_version,
         model_ref=None,
         author_user_id=author_user_id,
+        force_new=force_new,
     )
 
 
@@ -175,14 +178,16 @@ def is_flagged(dictation: ClinicDictation, revision: ClinicTranscriptRevision) -
 
 
 def _append(dictation, *, kind, text, explicit_parent, original_version, model_ref,
-            author_user_id=None, reuse_unchanged=True):
+            author_user_id=None, reuse_unchanged=True, force_new=False):
     digest = text_hash(text)
     normalised = normalise_text(text)
     if reuse_unchanged:
         rows = _load(dictation.id)
         existing, parent = _link(dictation, explicit_parent, rows, kind, digest)
         if existing is not None:
-            return existing
+            if not force_new:
+                return existing
+            parent = existing
     else:
         parent = explicit_parent
     if kind == KIND_HUMAN:

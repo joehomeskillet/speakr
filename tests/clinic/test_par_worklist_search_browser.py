@@ -5,8 +5,9 @@ services or production data. Capture the required viewport/theme/state matrix.
 """
 
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 
+from flask import request
 from playwright.sync_api import expect, sync_playwright
 from werkzeug.serving import make_server
 
@@ -47,6 +48,14 @@ def test_search_marks_authorized_metadata_and_excludes_other_users(endpoint):
     entries[2].row.update(title='Fremdes Suchwort', notes='Nicht sichtbar Suchwort')
     app.static_folder = str(ROOT / 'static')
     app.add_url_rule('/proof', 'proof', lambda: HTML)
+    release_nord = Event()
+
+    @app.after_request
+    def hold_nord_response(response):
+        if request.args.get('search') == 'Nord':
+            assert release_nord.wait(timeout=30)
+        return response
+
     server = make_server('127.0.0.1', 0, app, threaded=True)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -88,7 +97,14 @@ def test_search_marks_authorized_metadata_and_excludes_other_users(endpoint):
                             expect(rows.locator('[data-search-field="recipient"] mark')).to_have_text('Nord')
                             expect(rows.locator('[data-search-field="title"]')).to_have_count(0)
                             search.fill('')
-                            search.press('Enter')
+                            expect(search).to_have_value('')
+                            # Finish the previous refresh while the clear is still unsubmitted.
+                            release_nord.set()
+                            expect(page.get_by_test_id('refresh-button')).to_be_enabled()
+                            expect(search).to_have_value('')
+                            with page.expect_response(base + '/api/clinic/v1/worklist/rows') as cleared:
+                                search.press('Enter')
+                            assert cleared.value.ok
                             expect(rows).to_have_count(2)
                             expect(page.locator('mark')).to_have_count(0)
 
@@ -111,6 +127,7 @@ def test_search_marks_authorized_metadata_and_excludes_other_users(endpoint):
             finally:
                 browser.close()
     finally:
+        release_nord.set()
         server.shutdown()
         thread.join(timeout=5)
         server.server_close()
