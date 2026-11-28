@@ -18,6 +18,7 @@ import v8_browser_support as support
 
 MOUNTED = [(p, role, size, theme) for p in support.PAGES if p.mounted
            for role in p.roles for size in support.VIEWPORTS for theme in support.THEMES]
+PROFILE_VIEWPORTS = {**support.VIEWPORTS, "320x700": (320, 700)}
 
 
 @pytest.fixture(scope="module")
@@ -194,10 +195,30 @@ def test_axe_core_available(axe_js):
         raise pytest.skip.Exception("no local axe-core (set AXE_CORE_JS or install axe-core in node_modules); nothing is downloaded")
 
 
+def _capture_profile(page, proof):
+    # Freeze the rendered DOM and keep local styles available for Hallmark's file render.
+    proof.parent.mkdir(parents=True, exist_ok=True)
+    page.screenshot(path=proof.with_suffix(".png"), full_page=True, animations="disabled", caret="hide")
+    document = page.evaluate(r"""(root) => {
+        const snapshot = document.documentElement.cloneNode(true);
+        snapshot.querySelectorAll('script, meta[name="csrf-token"]').forEach(node => node.remove());
+        snapshot.querySelectorAll('link[href], img[src]').forEach(node => {
+            const attr = node.matches('link') ? 'href' : 'src';
+            const url = new URL(node.getAttribute(attr), location.href);
+            if (url.origin === location.origin && url.pathname.startsWith('/static/')) {
+                node.setAttribute(attr, root + url.pathname);
+                node.removeAttribute('srcset');
+            } else if (node.matches('link[rel="stylesheet"]')) node.remove();
+        });
+        return '<!doctype html>\n' + snapshot.outerHTML;
+    }""", support.ROOT.as_uri())
+    proof.with_suffix(".html").write_text(document, encoding="utf-8")
+
+
 @pytest.mark.parametrize("state", ["empty", "populated"])
-@pytest.mark.parametrize("size,theme", [(size, theme) for size in support.VIEWPORTS for theme in support.THEMES])
+@pytest.mark.parametrize("size,theme", [(size, theme) for size in PROFILE_VIEWPORTS for theme in support.THEMES])
 def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
-    width, height = support.VIEWPORTS[size]
+    width, height = PROFILE_VIEWPORTS[size]
     with browser.new_context(viewport={"width": width, "height": height}, storage_state=role_states["admin"],
                              **support.theme_context_options(theme)) as context:
         context.add_init_script(support.theme_init_script(theme))
@@ -217,24 +238,49 @@ def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
         expect(view.get_by_text("Ausgabeformat", exact=True)).to_be_attached()
         assert page.locator("html").evaluate("(html) => html.classList.contains('dark')") == (theme == "dark")
 
-        # Freeze the rendered DOM and keep local styles available for Hallmark's file render.
         proof = support.OUT_DIR / f"P15-{size}-{theme}-{state}"
-        proof.parent.mkdir(parents=True, exist_ok=True)
-        page.screenshot(path=proof.with_suffix(".png"), full_page=True, animations="disabled", caret="hide")
-        document = page.evaluate(r"""(root) => {
-            const snapshot = document.documentElement.cloneNode(true);
-            snapshot.querySelectorAll('script, meta[name="csrf-token"]').forEach(node => node.remove());
-            snapshot.querySelectorAll('link[href], img[src]').forEach(node => {
-                const attr = node.matches('link') ? 'href' : 'src';
-                const url = new URL(node.getAttribute(attr), location.href);
-                if (url.origin === location.origin && url.pathname.startsWith('/static/')) {
-                    node.setAttribute(attr, root + url.pathname);
-                    node.removeAttribute('srcset');
-                } else if (node.matches('link[rel="stylesheet"]')) node.remove();
-            });
-            return '<!doctype html>\n' + snapshot.outerHTML;
-        }""", support.ROOT.as_uri())
-        proof.with_suffix(".html").write_text(document, encoding="utf-8")
+        _capture_profile(page, proof)
+        nav = page.get_by_test_id("clinic-v8-nav")
+        toggle = page.get_by_test_id("clinic-admin-nav-toggle")
+        if width == 1440:
+            nav.screenshot(path=proof.with_name(proof.name + "-sidebar").with_suffix(".png"),
+                           animations="disabled", caret="hide")
+        if width <= 390:
+            expect(toggle).to_have_text("Bereich: Sprachprofile")
+            expect(toggle).to_have_attribute("aria-expanded", "false")
+            expect(toggle).to_be_in_viewport(ratio=1)
+            assert toggle.bounding_box()["height"] >= 48
+            expect(nav).to_be_hidden()
+            toggle.press("Enter")
+            expect(toggle).to_have_attribute("aria-expanded", "true")
+            expect(nav.get_by_role("button", name="Sprachprofile", exact=True)).to_have_attribute("aria-current", "page")
+            assert nav.locator(".cadm-nav__label").all_text_contents() == [
+                "Konten und Pools", "Inhalte", "Richtlinien", "Betrieb", "System",
+            ]
+            assert nav.evaluate("""nav => {
+                const bounds = nav.getBoundingClientRect();
+                return nav.scrollWidth <= nav.clientWidth && bounds.left >= 0 && bounds.right <= innerWidth &&
+                    [...nav.querySelectorAll('.cadm-nav__item, .cadm-nav__label')].every(node => {
+                        const range = document.createRange();
+                        range.selectNodeContents(node);
+                        const text = range.getBoundingClientRect();
+                        const item = node.getBoundingClientRect();
+                        return text.width > 0 && text.left >= item.left && text.right <= item.right &&
+                            (!node.matches('.cadm-nav__item') || item.height >= 48);
+                    });
+            }""")
+            _capture_profile(page, proof.with_name(proof.name + "-navigation"))
+            nav.get_by_role("group", name="Richtlinien").evaluate(
+                "node => node.scrollIntoView({block: 'start', behavior: 'instant'})"
+            )
+            page.screenshot(path=proof.with_name(proof.name + "-navigation-bottom").with_suffix(".png"),
+                            animations="disabled", caret="hide")
+            nav.get_by_role("button", name="Sprachprofile", exact=True).press("Escape")
+            expect(toggle).to_be_focused()
+            expect(toggle).to_have_attribute("aria-expanded", "false")
+        else:
+            expect(toggle).to_be_hidden()
+            expect(nav).to_be_visible()
 
         config = view.get_by_role("region", name="Profilkonfiguration")
         current = view.get_by_role("region", name="Profilstand")
@@ -242,7 +288,7 @@ def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
         for region in (config, current, evidence):
             expect(region).to_be_visible()
         left, right, table = [region.bounding_box() for region in (config, current, evidence)]
-        if width == 390:
+        if width <= 390:
             assert left["x"] == right["x"] == table["x"]
             assert left["width"] == right["width"] == table["width"]
             assert left["y"] + left["height"] <= right["y"]
@@ -264,16 +310,22 @@ def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
         expect(primary).to_be_visible()
         expect(view.locator(".primary:visible")).to_have_count(1)
         assert primary.bounding_box()["height"] >= 48
-        if width == 390:
+        if width <= 390:
             assert primary.bounding_box()["width"] == config.locator(".asr-save-actions").bounding_box()["width"]
+        if width == 390:
             expect(primary).to_be_in_viewport(ratio=1)
         expect(view.get_by_text("Ihr Gerät sendet Aufnahmen an Speakr.", exact=False)).to_be_visible()
         if state == "empty":
             expect(config.get_by_text("Für Ihr Konto ist noch kein Sprachprofil gespeichert.", exact=True)).to_be_visible()
             expect(config.locator("#res-asr-live, #res-asr-batch")).to_have_count(0)
+            settings = config.get_by_text("Quellen und Speichern einstellen", exact=True)
+            expect(config.get_by_role("combobox")).to_have_count(0)
+            settings.press("Enter")
             expect(config.get_by_role("combobox")).to_have_count(2)
             expect(config.get_by_label("Quellenzuordnung", exact=True)).to_have_value("shared")
             expect(config.get_by_label("Speicherregel", exact=True)).to_have_value("never")
+            _capture_profile(page, proof.with_name(proof.name + "-settings"))
+            settings.press("Enter")
             expect(primary).to_be_enabled()
         else:
             expect(view.get_by_label("Profil beim Diktieren (live)", exact=True)).to_have_value("p")
@@ -330,11 +382,20 @@ def test_p15_first_profile_uses_existing_save_and_vocabulary_link(browser, app_b
         assert response.value.ok
         assert response.value.request.post_data_json["source"] == "recorder"
         expect(page.get_by_role("status").filter(has_text="Profilvorgabe gespeichert.")).to_be_visible()
-        page.get_by_label("Quellenzuordnung", exact=True).select_option("separate")
-        batch_source = page.get_by_label("Quelle für Hintergrund-Erkennung", exact=True)
+
+        config = page.get_by_role("region", name="Profilkonfiguration")
+        settings = config.get_by_text("Quellen und Speichern einstellen", exact=True)
+        settings.click()
+        mode = config.get_by_label("Quellenzuordnung", exact=True)
+        expect(mode).to_have_value("shared")
+        mode.select_option("separate")
+        batch_source = config.get_by_label("Quelle für Hintergrund-Erkennung", exact=True)
+        expect(batch_source).to_have_value("recorder")
         batch_source.select_option("headset")
-        rule = page.get_by_label("Speicherregel", exact=True)
+        rule = config.get_by_label("Speicherregel", exact=True)
         rule.select_option("ask")
+        feedback = config.locator('.asr-save-feedback[role="status"]')
+        expect(feedback).not_to_contain_text("Profilvorgabe gespeichert.")
         expect(page.get_by_role("status").filter(has_text="Ungespeicherte Änderungen")).to_be_visible()
         expect(page.get_by_role("status").filter(has_text="Profilvorgabe gespeichert.")).to_have_count(0)
         with page.expect_response(lambda res: res.url.endswith("/asr-profiles/selection")) as response:
@@ -342,11 +403,43 @@ def test_p15_first_profile_uses_existing_save_and_vocabulary_link(browser, app_b
         assert response.value.ok
         payload = response.value.request.post_data_json
         assert (payload["profile_mode"], payload["batch_source"], payload["save_rule"]) == ("separate", "headset", "ask")
+        expect(feedback).to_contain_text("Profilvorgabe gespeichert.")
+        expect(mode).to_have_value("separate")
         expect(page.get_by_role("status").filter(has_text="Profilvorgabe gespeichert.")).to_be_visible()
         page.reload()
-        expect(page.get_by_label("Quellenzuordnung", exact=True)).to_have_value("separate")
+        settings.click()
+        expect(mode).to_have_value("separate")
         expect(batch_source).to_have_value("headset")
         expect(rule).to_have_value("ask")
+
         page.get_by_role("link", name="Wortschatz prüfen", exact=True).click()
         expect(page).to_have_url(app_base + "/admin#/wortschatz")
         expect(page.get_by_role("heading", name="Wortschatz", exact=True)).to_be_visible()
+
+
+def test_p15_mobile_navigation_keeps_central_preferences_and_statistics_controls(browser, tmp_path, monkeypatch):
+    monkeypatch.setenv("CLINIC_PROFILE", "staging")
+    with support.serve_app(tmp_path, support.SERVER) as base:
+        state = support.login(browser, base, support.ROLES["admin"])
+        with browser.new_context(viewport={"width": 390, "height": 844}, storage_state=state) as context:
+            page = context.new_page()
+            errors = []
+            page.on("pageerror", lambda exc: errors.append(str(exc)))
+            support.navigation.show_asr(page, base)
+            nav = page.get_by_test_id("clinic-v8-nav")
+            toggle = page.get_by_test_id("clinic-admin-nav-toggle")
+
+            toggle.click()
+            nav.get_by_role("button", name="Vorgaben", exact=True).click()
+            central = page.get_by_test_id("clinic-central-preferences")
+            expect(central.get_by_label("Einstellung", exact=True)).to_be_visible()
+            expect(toggle).to_have_text("Bereich: Vorgaben")
+            expect(toggle).to_have_attribute("aria-expanded", "false")
+
+            toggle.click()
+            nav.get_by_role("button", name="Aktivität und Audit", exact=True).click()
+            collection = page.get_by_role("region", name="Statistik erfassen", exact=True)
+            expect(collection.get_by_label("Tage aufbewahren", exact=True).first).to_be_visible()
+            expect(toggle).to_have_text("Bereich: Aktivität und Audit")
+            expect(toggle).to_have_attribute("aria-expanded", "false")
+            assert not errors, errors
