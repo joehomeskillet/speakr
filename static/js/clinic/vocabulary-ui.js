@@ -16,6 +16,8 @@ const PATH = '/vocabulary';
 export const MAX_SELECTION = 255;
 export const SEARCH_MODES = Object.freeze(['contains', 'prefix', 'suffix', 'exact']);
 export const STATUS_FILTERS = Object.freeze(['active', 'suppressed', 'all']);
+const SEARCH_FIELDS = { written: 'Schreibweise', spoken: 'Sprechform', all: 'Beide Formen' };
+const MAX_BULK = 100;
 const IMPORT_LIMIT = 256 * 1024;
 const ENCODINGS = { 'utf-8': 'UTF-8', cp1252: 'Windows-1252', 'latin-1': 'ISO-8859-1' };
 const DUPLICATE_RULES = { replace: 'Aktualisieren', skip: 'Überspringen', error: 'Import abbrechen' };
@@ -107,7 +109,7 @@ export function createVocabularyStore(client, onChange, makeState = (value) => v
         entries: [],
         canWrite: true,
         proposalBusy: false,
-        query: { q: '', mode: 'contains', filter: 'active' },
+        query: { q: '', mode: 'contains', filter: 'active', field: 'written' },
         exportText: '',
         importResult: null,
         failedWrite: null, // kept for retry with the same idempotency key
@@ -138,7 +140,8 @@ export function createVocabularyStore(client, onChange, makeState = (value) => v
         const version = ++latestSearch;
         if (next) Object.assign(state.query, next);
         const q = state.query;
-        if (!SEARCH_MODES.includes(q.mode) || !STATUS_FILTERS.includes(q.filter) || q.q.length > MAX_SELECTION) {
+        if (!SEARCH_MODES.includes(q.mode) || !STATUS_FILTERS.includes(q.filter)
+            || !Object.hasOwn(SEARCH_FIELDS, q.field) || q.q.length > MAX_SELECTION) {
             state.status = 'error';
             emit();
             return null;
@@ -146,7 +149,9 @@ export function createVocabularyStore(client, onChange, makeState = (value) => v
         state.status = 'loading';
         state.message = '';
         emit();
-        const params = scopeParams(new URLSearchParams({ q: q.q, mode: q.mode, status: q.filter }));
+        const hasQuery = Boolean(q.q.trim());
+        const params = scopeParams(new URLSearchParams({ q: hasQuery ? q.q : '', mode: hasQuery ? q.mode : 'contains', status: q.filter }));
+        if (hasQuery && q.field !== 'written') params.set('field', q.field);
         const res = await client.request(PATH + '/search?' + params.toString());
         if (version !== latestSearch) return res;
         if (res.outcome !== 'ok') return fail(res);
@@ -171,18 +176,23 @@ export function createVocabularyStore(client, onChange, makeState = (value) => v
     }
 
     // Live membership recheck before every mutation. Own list needs none.
-    async function permitted(requireWrite = false) {
+    async function permitted(write) {
         if (state.scope.kind !== 'pool') return true;
         const scope = state.scope;
         const params = scopeParams(new URLSearchParams({ q: '', mode: 'exact', status: 'active' }));
         const res = await client.request(PATH + '/search?' + params.toString());
         if (scope !== state.scope) return false;
         if (res.outcome === 'ok') {
-            if (!requireWrite) return true;
-            state.canWrite = res.data?.can_write ?? null;
-            return state.canWrite === true;
+            if (!write) return true;
+            const canWrite = res.data?.can_write ?? null;
+            if (canWrite === true || (canWrite === null && !write.isEntry)) return true;
+            state.canWrite = canWrite;
+            state.failedWrite = null;
+            state.message = label('clinic.vocabulary.entryWriteDenied');
+            emit();
+            return false;
         }
-        if (requireWrite && res.outcome === 'permission') state.canWrite = null;
+        if (write && res.outcome === 'permission') state.canWrite = null;
         state.entries = [];
         state.failedWrite = null;
         fail(res);
@@ -191,13 +201,7 @@ export function createVocabularyStore(client, onChange, makeState = (value) => v
 
     async function send(write) {
         const scope = state.scope;
-        const allowed = await permitted(write.isEntry);
-        if (scope !== state.scope) return null;
-        if (!allowed) {
-            return write.isEntry && state.canWrite !== true
-                ? { outcome: 'permission', message: label('clinic.vocabulary.entryWriteDenied') }
-                : null;
-        }
+        if (state.canWrite === false || !(await permitted(write)) || scope !== state.scope) return null;
         const res = await client.request(write.path, { method: write.method || 'POST', body: write.body, idempotencyKey: write.key });
         if (scope !== state.scope) return null;
         if (res.outcome === 'ok') {
@@ -286,28 +290,39 @@ export function createVocabularyStore(client, onChange, makeState = (value) => v
         setScope,
         suppress: (id) => toggle(id, 'suppress'),
         reactivate: (id) => toggle(id, 'reactivate'),
-        propose,
-        proposeSuppression(id) {
-            const entry = state.entries.find((row) => row.id === id && row.status === 'active');
-            return entry ? propose(entry.written, 'negative', entry.spoken) : Promise.resolve(null);
+        async deleteEntries(entries) {
+            if (!entries.length || entries.length > MAX_BULK) return null;
+            const scope = state.scope;
+            const res = await send({
+                key: newId(), isEntry: true, path: PATH + '/entries/bulk',
+                body: { action: 'delete', confirm: true, entries: entries.map(({ id, version }) => ({ id, expected_version: version })) },
+            });
+            if (scope === state.scope && (res?.status === 404 || ['network', 'UNKNOWN', 'permission'].includes(res?.outcome))) await search();
+            return res;
         },
-        saveEntry(draft) {
-            if (state.canWrite !== true) {
-                return Promise.resolve({ outcome: 'permission', message: label('clinic.vocabulary.entryWriteDenied') });
-            }
+        async saveEntry(draft) {
+            const denied = { outcome: 'permission', message: label('clinic.vocabulary.entryWriteDenied') };
+            if (state.canWrite !== true) return denied;
             const written = canonicalSelection(draft.written);
             const spoken = draft.spoken.trim() ? canonicalSelection(draft.spoken) : null;
             if (!written || (draft.spoken.trim() && !spoken)) {
-                return Promise.resolve({ outcome: 'validation', message: 'Bitte Schreibweise und Sprechform prüfen.' });
+                return { outcome: 'validation', message: 'Bitte Schreibweise und Sprechform prüfen.' };
             }
             const entry = draft.entry;
-            return send({
+            const scope = state.scope;
+            const res = await send({
                 key: newId(), isEntry: true,
                 method: entry ? 'PUT' : 'POST',
                 path: entry ? PATH + '/entries/' + encodeURIComponent(entry.id) : PATH + '/additions',
                 body: entry ? { expected_version: entry.version, written, spoken }
                     : { ...scopeBody(), create_only: true, written, spoken },
             });
+            return !res && scope === state.scope && state.canWrite !== true ? denied : res;
+        },
+        propose,
+        proposeSuppression(id) {
+            const entry = state.entries.find((row) => row.id === id && row.status === 'active');
+            return entry ? propose(entry.written, 'negative', entry.spoken) : Promise.resolve(null);
         },
         /** Explicit action only: the caller passes the user's current text selection. */
         addSelection(text) {
@@ -369,30 +384,125 @@ export function statusSurface(state) {
     return surfaceFor(map[state.status] || 'normal');
 }
 
+// Both callers use the same draft, validation, modal and save affordances.
+export function useVocabularyEntryDialog(Vue, submit, entryDialogPrefix, restoreFocus) {
+    const entryDialog = Vue.ref(null);
+    const entryWritten = Vue.ref(null);
+    const entryDraft = Vue.ref(null);
+    const entryBusy = Vue.ref(false);
+    const entryBlocked = Vue.ref(false);
+    const entryError = Vue.ref('');
+    const entryNotice = Vue.ref('');
+    const error = surfaceFor('error');
+    const entryErrorStyle = { background: error.background, color: error.color, borderColor: error.border };
+    async function openEntry(entry = null, written = entry?.written || '') {
+        if (entryDraft.value) return;
+        entryNotice.value = '';
+        entryError.value = '';
+        entryBlocked.value = false;
+        entryDraft.value = { entry, written, spoken: entry?.spoken || '' };
+        await Vue.nextTick();
+        if (!entryDraft.value) return;
+        entryDialog.value?.showModal();
+        entryWritten.value?.focus();
+    }
+    function openSelectedEntry(text) {
+        const written = canonicalSelection(text);
+        if (!written) {
+            entryNotice.value = label('clinic.vocabulary.noSelection');
+            return;
+        }
+        return openEntry(null, written);
+    }
+    function closeEntry(saved = false) {
+        if (entryBusy.value || !entryDraft.value) return;
+        entryDialog.value?.close();
+        entryDraft.value = null;
+        entryNotice.value = saved ? 'Wort gespeichert.' : 'Änderungen verworfen.';
+        restoreFocus?.();
+    }
+    async function saveEntry() {
+        if (!entryDraft.value || entryBusy.value || entryBlocked.value) return;
+        entryBusy.value = true;
+        entryError.value = '';
+        let res;
+        try {
+            res = await submit(entryDraft.value);
+        } finally {
+            entryBusy.value = false;
+        }
+        if (res?.outcome === 'ok') return closeEntry(true);
+        if (res?.code === 'duplicate_entry') {
+            entryError.value = 'Diese Schreibweise gibt es in dieser Wortliste bereits.';
+            entryWritten.value?.focus();
+        } else if (res?.outcome === 'conflict') {
+            entryError.value = 'Das Wort wurde inzwischen geändert. Bitte abbrechen und neu öffnen.';
+            entryBlocked.value = true;
+        } else {
+            entryError.value = res?.message || 'Das Wort konnte nicht gespeichert werden.';
+        }
+    }
+    return {
+        entryDialog, entryWritten, entryDraft, entryBusy, entryBlocked, entryError, entryNotice, entryErrorStyle,
+        entryDialogPrefix, openEntry, openSelectedEntry, closeEntry, saveEntry, maxWordLength: MAX_SELECTION,
+    };
+}
+
+export const VOCABULARY_ENTRY_DIALOG = `
+  <dialog ref="entryDialog" class="voc-entry-dialog" :aria-labelledby="entryDialogPrefix + '-entry-title'"
+    @cancel.prevent="closeEntry()" @keydown.stop>
+    <form v-if="entryDraft" class="stack" @submit.prevent="saveEntry">
+      <div class="dialoghead"><h2 :id="entryDialogPrefix + '-entry-title'">{{ entryDraft.entry ? 'Wort bearbeiten' : 'Wort hinzufügen' }}</h2></div>
+      <p style="overflow-wrap:anywhere">Wortliste: <strong>{{ entryListName }}</strong></p>
+      <div>
+        <label :for="entryDialogPrefix + '-entry-written'">Schreibweise</label>
+        <input :id="entryDialogPrefix + '-entry-written'" ref="entryWritten" class="w-full" autocomplete="off" required
+          :maxlength="maxWordLength" v-model="entryDraft.written" :readonly="entryBusy" autofocus>
+      </div>
+      <div>
+        <label :for="entryDialogPrefix + '-entry-spoken'">Sprechform (optional)</label>
+        <input :id="entryDialogPrefix + '-entry-spoken'" class="w-full" autocomplete="off"
+          :maxlength="maxWordLength" v-model="entryDraft.spoken" :readonly="entryBusy">
+      </div>
+      <p v-if="entryError" role="alert" class="note" :style="entryErrorStyle">{{ entryError }}</p>
+      <div class="actions">
+        <button type="button" :disabled="entryBusy" @click="closeEntry()">Abbrechen</button>
+        <button type="submit" class="primary" :disabled="entryBusy || entryBlocked || !entryCanWrite">{{ entryBusy ? 'Wird gespeichert …' : 'Speichern' }}</button>
+      </div>
+    </form>
+  </dialog>`;
+
 export const VOCABULARY_TEMPLATE = `
 <section class="vocabulary-ui v8-page stack" aria-labelledby="voc-title" :aria-busy="state.status === 'loading'">
   <h2 id="voc-title">{{ label('clinic.vocabulary.title') }}</h2>
   <form class="filterbar voc-filters" :class="{ 'voc-filters-can-add': state.canWrite }" @submit.prevent="store.search()">
     <div class="field voc-list" style="border:0;padding:0;box-shadow:none;background:none">
       <label for="voc-pool">Wortliste</label>
-      <select id="voc-pool" class="select" :style="controlStyle" :value="state.scope.poolId || ''" :disabled="importBusy || state.proposalBusy"
+      <select id="voc-pool" class="select" :style="controlStyle" :value="state.scope.poolId || ''" :disabled="importBusy || state.proposalBusy || !!entryDraft || !!deleteDraft.length"
         @change="selectList($event.target.value)">
         <option value="">{{ label('clinic.vocabulary.scopeUser') }}</option>
         <option v-for="pool in pools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
       </select>
     </div>
-    <button v-if="state.canWrite" ref="addWordButton" type="button" class="primary voc-add-word" @click="openEntry()">Wort hinzufügen</button>
-    <div class="field search" style="border:0;padding:0;box-shadow:none;background:none">
-      <label for="voc-q">{{ label('clinic.vocabulary.query') }}</label>
-      <input id="voc-q" type="search" data-role="query" autocomplete="off" v-model="state.query.q">
+    <button v-if="state.canWrite" ref="addWordButton" type="button" class="primary voc-add-word"
+      aria-haspopup="dialog" @click="openEntry()">Wort hinzufügen</button>
+    <div class="field voc-search-field" style="border:0;padding:0;box-shadow:none;background:none">
+      <label for="voc-field">Suchen nach</label>
+      <select class="select" id="voc-field" v-model="state.query.field">
+        <option v-for="(text, field) in searchFields" :key="field" :value="field">{{ text }}</option>
+      </select>
     </div>
     <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
       <label for="voc-mode">{{ label('clinic.vocabulary.mode') }}</label>
       <select class="select" :style="controlStyle" id="voc-mode" v-model="state.query.mode"><option v-for="mode in modes" :key="mode" :value="mode">{{ enumLabel(mode) }}</option></select>
     </div>
-    <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
+    <div class="field voc-status-filter" style="border:0;padding:0;box-shadow:none;background:none">
       <label for="voc-filter">{{ label('clinic.vocabulary.filter') }}</label>
       <select class="select" :style="controlStyle" id="voc-filter" aria-describedby="voc-asr-suppression" v-model="state.query.filter"><option v-for="filter in filters" :key="filter" :value="filter">{{ enumLabel(filter) }}</option></select>
+    </div>
+    <div class="field search" style="border:0;padding:0;box-shadow:none;background:none">
+      <label for="voc-q">{{ label('clinic.vocabulary.query') }}</label>
+      <input id="voc-q" type="search" data-role="query" autocomplete="off" v-model="state.query.q">
     </div>
     <button type="submit">{{ label('clinic.vocabulary.search') }}</button>
     <div v-if="poolStatus === 'empty' || poolStatus === 'error'" class="voc-pool-feedback">
@@ -414,7 +524,9 @@ export const VOCABULARY_TEMPLATE = `
     <span v-else-if="state.status === 'error' || state.status === 'denied'">Wortschatz konnte nicht geladen werden.</span>
     <span v-else-if="state.status === 'ready'">{{ state.entries.length }} Einträge geladen.</span>
   </p>
-  <p class="voc-entry-notice" role="status">{{ entryNotice }}</p>
+  <div v-if="state.canWrite && selectedIds.length" class="actions">
+    <button type="button" style="min-height:48px" aria-haspopup="dialog" @click="openDelete()">Auswahl löschen ({{ selectedIds.length }})</button>
+  </div>
   <form v-if="canPropose" class="field" @submit.prevent="submitProposal()">
     <label for="voc-proposal">{{ label('clinic.vocabulary.written') }}</label>
     <input id="voc-proposal" type="text" maxlength="255" required autocomplete="off" class="w-full"
@@ -433,7 +545,11 @@ export const VOCABULARY_TEMPLATE = `
         <th scope="col">Aktion</th>
       </tr></thead>
       <tbody><tr v-for="e in state.entries" :key="e.id">
-        <td class="wrap"><strong>{{ e.written }}</strong></td><td class="wrap">{{ e.spoken || '–' }}</td>
+        <td class="wrap"><label v-if="state.canWrite" class="voc-select-entry">
+          <input type="checkbox" :value="e.id" v-model="selectedIds" :aria-label="'Auswählen: ' + e.written"
+            :disabled="state.status === 'loading' || (!selectedIds.includes(e.id) && selectedIds.length >= maxBulk)">
+          <strong>{{ e.written }}</strong>
+        </label><strong v-else>{{ e.written }}</strong></td><td class="wrap">{{ e.spoken || '–' }}</td>
         <td><span class="tag" :class="{ error: e.status === 'suppressed' }">{{ enumLabel(e.status) }}</span></td>
         <td v-if="state.canWrite">
           <div class="actions">
@@ -452,31 +568,30 @@ export const VOCABULARY_TEMPLATE = `
   <p v-else-if="state.status === 'ready'" class="empty" :class="{ 'voc-proposal-empty': canPropose }" role="status">
     <slot name="empty" :scope="state.scope" :query="state.query">{{ label('clinic.vocabulary.empty') }} für diese Auswahl. Suche oder Status anpassen.</slot>
   </p>
+  <div v-if="state.canWrite" class="actions">
+    <button type="button" class="small" style="min-height:48px" aria-haspopup="dialog" @mousedown.prevent @click="addSelected">{{ label('clinic.vocabulary.addSelection') }}</button>
+  </div>
+  <span :class="{ 'sr-only': !entryNotice }" role="status">{{ entryNotice }}</span>
+  <span :class="{ 'sr-only': !deleteNotice }" role="status">{{ deleteNotice }}</span>
+  ${VOCABULARY_ENTRY_DIALOG}
+  <dialog ref="deleteDialog" class="voc-entry-dialog" aria-labelledby="voc-delete-title"
+    aria-describedby="voc-delete-description" @cancel.prevent="closeDelete()">
+    <form v-if="deleteDraft.length" class="stack" @submit.prevent="confirmDelete()">
+      <div class="dialoghead"><h2 id="voc-delete-title">{{ deleteDraft.length === 1 ? 'Eintrag löschen?' : deleteDraft.length + ' Einträge löschen?' }}</h2></div>
+      <p id="voc-delete-description">Die Auswahl wird dauerhaft aus der Wortliste «{{ entryListName }}» gelöscht.</p>
+      <ul class="voc-delete-entries">
+        <li v-for="entry in deleteDraft" :key="entry.id">{{ entry.written }}</li>
+      </ul>
+      <div class="actions">
+        <button type="button" autofocus :disabled="deleteBusy" @click="closeDelete()">Abbrechen</button>
+        <button type="submit" class="primary" :disabled="deleteBusy">{{ deleteBusy ? 'Wird gelöscht …' : 'Dauerhaft löschen' }}</button>
+      </div>
+    </form>
+  </dialog>
   <p id="voc-asr-suppression" class="note">
     <strong>{{ label('clinic.vocabulary.asrSuppressionUnavailable') }}</strong>.
     {{ label('clinic.vocabulary.asrSuppressionDetail') }}
   </p>
-  <dialog ref="entryDialog" class="voc-entry-dialog" aria-labelledby="voc-entry-title" @cancel.prevent="closeEntry()">
-    <form v-if="entryDraft" class="stack" @submit.prevent="saveEntry">
-      <div class="dialoghead"><h2 id="voc-entry-title">{{ entryDraft.entry ? 'Wort bearbeiten' : 'Wort hinzufügen' }}</h2></div>
-      <p style="overflow-wrap:anywhere">Wortliste: <strong>{{ state.scope.kind === 'pool' ? selectedPoolName : label('clinic.vocabulary.ownList') }}</strong></p>
-      <div>
-        <label for="voc-entry-written">{{ label('clinic.vocabulary.written') }}</label>
-        <input id="voc-entry-written" ref="entryWritten" class="w-full" autocomplete="off" required
-          :maxlength="maxWordLength" v-model="entryDraft.written" :readonly="entryBusy" autofocus>
-      </div>
-      <div>
-        <label for="voc-entry-spoken">Sprechform (optional)</label>
-        <input id="voc-entry-spoken" class="w-full" autocomplete="off"
-          :maxlength="maxWordLength" v-model="entryDraft.spoken" :readonly="entryBusy">
-      </div>
-      <p v-if="entryError" role="alert" class="note" :style="importErrorStyle">{{ entryError }}</p>
-      <div class="actions">
-        <button type="button" :disabled="entryBusy" @click="closeEntry()">Abbrechen</button>
-        <button type="submit" class="primary" :disabled="entryBusy || entryBlocked || !state.canWrite">{{ entryBusy ? 'Wird gespeichert …' : 'Speichern' }}</button>
-      </div>
-    </form>
-  </dialog>
   <section class="voc-editor" aria-labelledby="voc-editor-title">
     <header class="voc-editor-head">
       <h3 id="voc-editor-title">{{ state.canWrite ? 'Wortliste bearbeiten' : 'Wortlistenaktionen' }}</h3>
@@ -484,7 +599,6 @@ export const VOCABULARY_TEMPLATE = `
         <button type="button" class="small" @click="store.reload()">{{ label('clinic.vocabulary.reload') }}</button>
         <button type="button" class="small" v-if="state.failedWrite?.command" :disabled="!canPropose || state.proposalBusy" @click="submitProposal(true)">{{ label('clinic.vocabulary.retry') }}</button>
         <button type="button" class="small" v-else-if="state.failedWrite" :disabled="importBusy" @click="runImport(() => store.retry())">{{ label('clinic.vocabulary.retry') }}</button>
-        <button v-if="state.canWrite" type="button" class="small" @click="addSelected()">{{ label('clinic.vocabulary.addSelection') }}</button>
       </div>
     </header>
     <div class="voc-editor-body">
@@ -549,7 +663,10 @@ export function createVocabularyComponent(Vue, client, currentUserId = () => nul
     return {
         template: VOCABULARY_TEMPLATE,
         setup() {
-            const store = createVocabularyStore(client, null, Vue.reactive);
+            const selectedIds = Vue.ref([]);
+            const store = createVocabularyStore(client, (next) => {
+                if (next.status === 'loading' || !next.canWrite || !next.entries.length) selectedIds.value = [];
+            }, Vue.reactive);
             const { state } = store;
             const surfaceStyle = Vue.computed(() => {
                 const s = statusSurface(state);
@@ -560,6 +677,7 @@ export function createVocabularyComponent(Vue, client, currentUserId = () => nul
             const pools = Vue.ref([]);
             const poolStatus = Vue.ref('loading');
             const selectedPoolName = Vue.computed(() => pools.value.find((pool) => pool.id === state.scope.poolId)?.name || label('clinic.vocabulary.scopePool'));
+            const entryListName = Vue.computed(() => state.scope.kind === 'pool' ? selectedPoolName.value : label('clinic.vocabulary.ownList'));
             async function loadPools() {
                 poolStatus.value = 'loading';
                 const result = await client.request('/pools');
@@ -574,10 +692,62 @@ export function createVocabularyComponent(Vue, client, currentUserId = () => nul
                 poolStatus.value = pools.value.length ? 'ready' : 'empty';
             }
             function selectList(id) {
-                entryNotice.value = '';
+                if (entryModal.entryDraft.value || deleteDraft.value.length) return;
+                entryModal.entryNotice.value = '';
+                deleteNotice.value = '';
                 importError.value = '';
                 proposalDraft.value = '';
                 return id ? store.setScope('pool', id) : store.setScope('user');
+            }
+            const addWordButton = Vue.ref(null);
+            const entryCanWrite = Vue.computed(() => state.canWrite === true);
+            const entryModal = useVocabularyEntryDialog(Vue, async (draft) => (
+                await store.saveEntry(draft) || { message: state.message }
+            ), 'voc', () => {
+                if (typeof document !== 'undefined' && document.activeElement === document.body) addWordButton.value?.focus();
+            });
+            const deleteDialog = Vue.ref(null);
+            const deleteDraft = Vue.shallowRef([]);
+            const deleteBusy = Vue.ref(false);
+            const deleteNotice = Vue.ref('');
+            function openEntry(entry) {
+                if (entryCanWrite.value && !deleteDraft.value.length) return entryModal.openEntry(entry);
+            }
+            async function openDelete() {
+                if (!state.canWrite || entryModal.entryDraft.value || deleteDraft.value.length || state.status === 'loading') return;
+                deleteNotice.value = '';
+                deleteDraft.value = state.entries.filter(({ id }) => selectedIds.value.includes(id));
+                if (!deleteDraft.value.length) return;
+                await Vue.nextTick();
+                if (deleteDraft.value.length) deleteDialog.value?.showModal();
+            }
+            function closeDelete() {
+                if (deleteBusy.value) return;
+                deleteDialog.value?.close();
+                deleteDraft.value = [];
+            }
+            async function confirmDelete() {
+                if (!deleteDraft.value.length || deleteBusy.value) return;
+                deleteBusy.value = true;
+                let res;
+                try {
+                    res = await store.deleteEntries(deleteDraft.value);
+                } finally {
+                    deleteBusy.value = false;
+                }
+                closeDelete();
+                selectedIds.value = [];
+                if (res?.outcome === 'ok') {
+                    deleteNotice.value = res.data.deleted === 1 ? '1 Eintrag gelöscht.' : `${res.data.deleted} Einträge gelöscht.`;
+                } else if (res?.outcome === 'conflict') {
+                    deleteNotice.value = 'Einträge wurden geändert. Bitte erneut auswählen und das Löschen bestätigen.';
+                } else if (res?.outcome === 'network' || res?.outcome === 'UNKNOWN') {
+                    deleteNotice.value = 'Löschen konnte nicht bestätigt werden. Bitte prüfen Sie die Wortliste.';
+                } else {
+                    deleteNotice.value = 'Die Auswahl konnte nicht gelöscht werden. Bitte prüfen Sie die Wortliste.';
+                }
+                await Vue.nextTick();
+                addWordButton.value?.focus();
             }
             const proposalDraft = Vue.ref('');
             const canPropose = Vue.computed(() => state.scope.kind === 'pool' && state.canWrite === false && state.status === 'ready');
@@ -585,52 +755,6 @@ export function createVocabularyComponent(Vue, client, currentUserId = () => nul
                 const addition = !retry || state.failedWrite?.command?.payload.operation === 'add';
                 const res = await (retry ? store.retry() : store.propose(proposalDraft.value));
                 if (res?.outcome === 'ok' && addition) proposalDraft.value = '';
-            }
-            const entryDialog = Vue.ref(null);
-            const entryWritten = Vue.ref(null);
-            const addWordButton = Vue.ref(null);
-            const entryDraft = Vue.ref(null);
-            const entryBusy = Vue.ref(false);
-            const entryBlocked = Vue.ref(false);
-            const entryError = Vue.ref('');
-            const entryNotice = Vue.ref('');
-            async function openEntry(entry) {
-                if (entryDraft.value || !state.canWrite) return;
-                entryNotice.value = '';
-                entryError.value = '';
-                entryBlocked.value = false;
-                entryDraft.value = { entry, written: entry?.written || '', spoken: entry?.spoken || '' };
-                await Vue.nextTick();
-                entryDialog.value?.showModal();
-                entryWritten.value?.focus();
-            }
-            function closeEntry(saved = false) {
-                if (entryBusy.value) return;
-                entryDialog.value?.close();
-                entryDraft.value = null;
-                entryNotice.value = saved ? 'Wort gespeichert.' : 'Änderungen verworfen.';
-                if (document.activeElement === document.body) addWordButton.value?.focus();
-            }
-            async function saveEntry() {
-                if (!entryDraft.value || entryBusy.value || entryBlocked.value) return;
-                entryBusy.value = true;
-                entryError.value = '';
-                let res;
-                try {
-                    res = await store.saveEntry(entryDraft.value);
-                } finally {
-                    entryBusy.value = false;
-                }
-                if (res?.outcome === 'ok') return closeEntry(true);
-                if (res?.code === 'duplicate_entry') {
-                    entryError.value = 'Diese Schreibweise gibt es in dieser Wortliste bereits.';
-                    entryWritten.value?.focus();
-                } else if (res?.outcome === 'conflict') {
-                    entryError.value = 'Das Wort wurde inzwischen geändert. Bitte abbrechen und neu öffnen.';
-                    entryBlocked.value = true;
-                } else {
-                    entryError.value = res?.message || state.message || 'Das Wort konnte nicht gespeichert werden.';
-                }
             }
             const importDraft = Vue.ref('');
             const importFile = Vue.shallowRef(null);
@@ -653,9 +777,11 @@ export function createVocabularyComponent(Vue, client, currentUserId = () => nul
                 }
                 event.target.value = '';
             }
-            function addSelected() {
-                const sel = typeof window !== 'undefined' && window.getSelection ? window.getSelection().toString() : '';
-                return store.addSelection(sel);
+            function addSelected(event) {
+                if (!entryCanWrite.value || deleteDraft.value.length) return;
+                const text = globalThis.getSelection?.()?.toString() || '';
+                event.currentTarget.focus();
+                return entryModal.openSelectedEntry(text);
             }
             async function runImport(action) {
                 if (importBusy.value) return;
@@ -702,8 +828,8 @@ export function createVocabularyComponent(Vue, client, currentUserId = () => nul
                 proposalDraft, canPropose, submitProposal,
                 importDraft, importFile, fileInput, encoding, duplicateRule, importBusy, importError, importErrorStyle, exportBusy, canImport, importReport,
                 pickFile, runImport, doImport, downloadList,
-                entryDialog, entryWritten, addWordButton, entryDraft, entryBusy, entryBlocked, entryError, entryNotice,
-                openEntry, closeEntry, saveEntry, maxWordLength: MAX_SELECTION,
+                ...entryModal, openEntry, entryListName, entryCanWrite, addWordButton, selectedIds, deleteDialog, deleteDraft, deleteBusy, deleteNotice,
+                openDelete, closeDelete, confirmDelete, maxBulk: MAX_BULK, searchFields: SEARCH_FIELDS,
                 encodings: ENCODINGS, duplicateRules: DUPLICATE_RULES, modes: SEARCH_MODES, filters: STATUS_FILTERS, onKey: (e) => handleKey(store, e),
             };
         },
