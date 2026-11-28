@@ -125,7 +125,6 @@ export const RecordingsView = {
 <section ref="root" class="clinic-recordings-view cl-view content-inner v8-page" data-testid="clinic-recordings-view" aria-labelledby="crv-title">
   <div class="page-head recordings-head">
     <div>
-      <div class="eyebrow">{{ t.eyebrow }}</div>
       <div class="hline"><h1 id="crv-title" class="cl-title" tabindex="-1">{{ t.title }}</h1><span v-if="c.state.loaded" class="count-pill" data-testid="total-count">{{ c.totalLabel() }}</span></div>
       <p class="subtitle">{{ t.subtitle }}</p>
     </div>

@@ -33,8 +33,6 @@ const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 export const LABELS = Object.freeze({
     title: 'Aktivität und Audit',
-    eyebrow: 'Verwaltung',
-    eyebrowScoped: 'Diktat',
     subline: 'Verlauf eines Diktats und Statistik des eigenen Berechtigungsbereichs. Es werden nur Kennungen, Aktionen und Revisionsbezüge gezeigt, kein Diktattext.',
     sublineScoped: 'Wer hat was an diesem Diktat geändert? Ereignisse mit Akteur, Aktion und betroffener Version.',
     historyTitle: 'Verlauf eines Diktats',
@@ -287,7 +285,6 @@ export const ACTIVITY_TEMPLATE = `
   <template v-else>
     <div class="pagehead">
       <div>
-        <div class="eyebrow">{{ historyOnly ? '${LABELS.eyebrowScoped}' : '${LABELS.eyebrow}' }}</div>
         <h1>{{ historyOnly ? '${LABELS.historyOnlyTitle}' : '${LABELS.title}' }}</h1>
         <p class="subline">{{ historyOnly ? '${LABELS.sublineScoped}' : '${LABELS.subline}' }}</p>
       </div>

@@ -30,7 +30,6 @@ const REFRESH_BUTTON = `<button type="button" :disabled="c.state.value.loading" 
 export const TEXT = Object.freeze({
     title: 'Verarbeitung',
     eyebrow: 'Verwaltung',
-    eyebrowScoped: 'Diktat',
     subline: 'Aufträge, Fehler und unklare Ausgabestände nachvollziehen. Nur bereinigte Auftragsdaten werden angezeigt.',
     sublineScoped: 'Aufträge dieses Diktats und ihr aktueller Zustand.',
     statDone: 'Abgeschlossen',
@@ -250,7 +249,7 @@ export const JobsView = {
          :data-scoped="c.scoped() ? 'true' : 'false'">
   <div class="pagehead">
     <div>
-      <div class="eyebrow">{{ c.scoped() ? c.text.eyebrowScoped : c.text.eyebrow }}</div>
+      <div v-if="!c.scoped()" class="eyebrow">{{ c.text.eyebrow }}</div>
       <h1 id="cjv-title">{{ c.scoped() ? c.text.scopedTitle : c.text.title }}&nbsp;<span class="count-pill align-middle" data-testid="job-count">{{ c.rows.value.length }}</span></h1>
       <p class="subline">{{ c.scoped() ? c.text.sublineScoped : c.text.subline }}</p>
     </div>
