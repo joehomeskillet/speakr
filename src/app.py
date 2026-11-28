@@ -1456,6 +1456,8 @@ def register_clinic_audio(flask_app):
     from src.clinic.ingest import IngestService
     from src.clinic.models import ClinicDictation
     from src.clinic import routes_live_drafts
+    from src.clinic.richtext_graphics import GraphicStore
+    from src.clinic.routes_richtext_graphics import create_blueprint as create_graphics_blueprint
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
     run_once = flask_app.extensions['clinic_run_once']
@@ -1529,6 +1531,7 @@ def register_clinic_audio(flask_app):
         run_once=run_once, require_if_match=True))
     flask_app.register_blueprint(routes_correction_documents.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation)))
+    flask_app.register_blueprint(create_graphics_blueprint(GraphicStore(originals_root)))
     # V8 alignment (v8-86)
     from src.clinic import alignment_job, routes_alignment
     from src.services.job_queue import register_clinic_handler
