@@ -68,7 +68,7 @@ export const TEXT = Object.freeze({
     routingMissing: 'Ihr Konto ist noch keinem Autorenpool zugeordnet. Bitte wenden Sie sich an die Verwaltung.',
     routingError: 'Die Berechtigung konnte nicht geprüft werden. Bitte laden Sie die Seite neu.',
     recordFailed: 'Senden fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Aufnahme wird nicht lokal gespeichert.',
-    takeNotConfirmed: 'Senden fehlgeschlagen. Die Aufnahme ist weiterhin in diesem Browser verfügbar.',
+    takeNotConfirmed: 'Senden fehlgeschlagen. Die Aufnahme ist weiterhin in diesem Browser verfügbar. Sie wird nicht lokal gespeichert.',
     takeSendFailed: 'Aufnahme gespeichert. Senden hat nicht geklappt.',
     retryPending: 'Sie müssen nichts tun – es wird automatisch erneut gesendet.',
     recordRetained: 'Die Aufnahme liegt verschlüsselt unter „Offline und Wiederherstellung“. Der Server hat den Entwurf nicht bestätigt.',
@@ -530,7 +530,8 @@ export function createRecordingViewController(options) {
                 const detail = draft ? { outcome: 'ok', data: { dictation_id: id, etag: draft.etag } }
                     : await (takeId ? client.request(path + '/detail', deadline) : client.request(path + '/detail'));
                 if (detail.outcome !== 'ok' || detail.data?.dictation_id !== id || !detail.data.etag) {
-                    submitError = detail.message || 'Der aktuelle Diktatstand konnte nicht geladen werden.';
+                    submitError = takeId && ['network', 'UNKNOWN'].includes(detail.outcome)
+                        ? TEXT.takeSendFailed : detail.message || 'Der aktuelle Diktatstand konnte nicht geladen werden.';
                     return denied('detail_unavailable');
                 }
                 pendingSend = {
@@ -564,6 +565,7 @@ export function createRecordingViewController(options) {
             return denied(res.code || 'unconfirmed');
         } catch {
             if (takeId && pendingSend) scheduleRetry();
+            else if (takeId) submitError = TEXT.takeSendFailed;
             return denied('unconfirmed');
         } finally {
             if (submission === 'submitting') {
@@ -865,7 +867,7 @@ export function createRecordingViewController(options) {
             editableDraftId: editableDraftId(),
             canSaveRecording: (!opts.draftMetadata || opts.oneButton === true) && !routing && state.mode === 'record'
                 && !separateSubmit() && !s.receipt && (s.phase === 'review' || (savingTakeAsDraft && s.phase === 'failed')),
-            message: message(),
+            message: message() || (created() && s.phase === 'sent' && (!oneButtonRecording || savingTakeAsDraft) ? TEXT.sent : ''),
             surface: surface(),
         };
     }
@@ -1112,7 +1114,8 @@ export const RECORDING_TEMPLATE = `
                style="display: grid; gap: var(--ui-space-2)">
             <span id="crv-active-microphone-label">Mikrofon</span>
             <button v-for="device in [{ deviceId: '', label: 'Standardmikrofon' }, ...m.microphoneOptions]" :key="device.deviceId"
-                    type="button" class="button" :aria-pressed="device.deviceId === m.selectedMicrophoneId"
+                    type="button" class="button" :class="{ accent: device.deviceId === m.selectedMicrophoneId }"
+                    :aria-pressed="device.deviceId === m.selectedMicrophoneId"
                     :disabled="m.microphoneSwitching" @click="c.chooseMicrophone(device.deviceId)"
                     style="${TOUCH}; white-space: normal; overflow-wrap: anywhere">
               {{ device.label }}
@@ -1136,7 +1139,7 @@ export const RECORDING_TEMPLATE = `
           <summary class="focus-visible:outline-ui-text" style="${TOUCH}; align-content: center; cursor: pointer">
             Aufnahmeformat ({{ microphone.formats.find(format => format.mimeType === microphone.mimeType)?.label || 'Automatisch' }})
           </summary>
-          <div class="actions" role="group" aria-label="Aufnahmeformat">
+          <div class="actions" role="group" aria-label="Aufnahmeformat" style="margin-top: var(--ui-space-2)">
             <button type="button" class="button" :aria-pressed="!microphone.mimeType" :disabled="!enabled('start')"
                     @click="microphone.selectFormat('')" style="${TOUCH}">Automatisch</button>
             <button v-for="format in microphone.formats" :key="format.mimeType" type="button" class="button"
@@ -1161,12 +1164,12 @@ export const RECORDING_TEMPLATE = `
         <draft-send-fields v-if="m.draft && !m.retryingTake && !['retryPending', 'submitted', 'notDraft'].includes(m.phase)" :m="m" :c="c" @reload="reloadDraft" />
         <required-categories v-if="!m.retryingTake && !['retryPending', 'submitting'].includes(m.phase) && m.categories.length && m.canSubmit"
                              :items="m.categories" :disabled="!m.canSelectCategory" @select="c.selectCategory" />
-        <details v-if="m.canSubmit" class="draft-protection" style="margin-bottom: var(--ui-space-3); text-align: left">
+        <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
+        <details v-if="m.canSubmit && !m.retryingTake" class="draft-protection" style="margin-bottom: var(--ui-space-3); text-align: left">
           <summary style="${TOUCH}; cursor: pointer; align-content: center">Diktat-Schutz (optional)</summary>
           <component :is="Protection" ref="protection" :key="m.created.dictationId"
                      :client="client" :dictation-id="m.created.dictationId" />
         </details>
-        <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
         <div v-if="!m.routing && m.canSubmit && (m.retryingTake || m.directSend) && m.phase !== 'retryPending'"
              style="display: grid; justify-items: center; gap: var(--ui-space-3)">
           <p v-if="m.plannedDestination" data-testid="send-destination" style="margin: 0; overflow-wrap: anywhere">{{ m.plannedDestination }}</p>
@@ -1177,7 +1180,7 @@ export const RECORDING_TEMPLATE = `
           <p v-if="m.submittedVisibility" role="status" data-testid="submitted-visibility" style="margin: var(--ui-space-2) 0 0">{{ m.submittedVisibility }}</p>
           <a href="#/neu" data-testid="another" style="${LINK}" @click.prevent="c.another()">{{ c.text.title }}</a>
         </div>
-        <fieldset v-else-if="!m.directSend && m.phase !== 'retryPending'" class="actions" :disabled="protecting()"
+        <fieldset v-else-if="!m.directSend && !m.retryingTake && m.phase !== 'retryPending'" class="actions" :disabled="protecting()"
                   style="justify-content: center; border: 0; padding: 0; margin: 0; min-inline-size: 0">
           <button v-if="!['submitted', 'notDraft'].includes(m.phase)" type="button" class="button primary" style="${TOUCH}"
                   :disabled="!m.canSubmit || m.categoriesLoading" data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>

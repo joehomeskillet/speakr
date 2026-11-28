@@ -125,23 +125,28 @@ export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = (
             const chunks = state.audioChunks.value;
             if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
             const previous = takes.get(chunks);
-            const take = previous || { uploadOptions, id: globalThis.crypto.randomUUID(), title };
+            const take = previous || {
+                ...uploadOptions,
+                clientUploadId: uploadOptions.clientUploadId || globalThis.crypto.randomUUID(),
+                title,
+            };
             takes.set(chunks, take);
             const gated = gatedTake?.chunks === chunks ? gatedTake.blob : null;
             const file = gated
                 ? new File([gated], 'aufnahme.wav', { type: gated.type })
                 : new File(chunks, 'aufnahme.webm', { type: state.mediaRecorder.value.mimeType.split(';')[0] });
+            const { title: takeTitle, ...takeOptions } = take;
             const drafts = offlineDrafts();
             let binding = retained.get(chunks);
             let receipt;
             try {
-                receipt = await uploadFile(file, take.title, take.uploadOptions, { id: take.id, retry: Boolean(previous) });
+                receipt = await uploadFile(file, takeTitle, { ...takeOptions, ...(previous && { retry: true }) });
                 if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
             } catch (error) {
                 if (drafts && (globalThis.navigator?.onLine === false || error instanceof TypeError)) {
                     try {
                         binding ||= { dictationId: crypto.randomUUID(), sequence: 0 };
-                        if (await drafts.saveTake(binding, file, take.title)) retained.set(chunks, binding);
+                        if (await drafts.saveTake(binding, file, takeTitle)) retained.set(chunks, binding);
                     } catch (e) { /* the original upload failure still owns the retry state */ }
                 }
                 if (retained.has(chunks)) throw new Error('offline_retained');

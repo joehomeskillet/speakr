@@ -10,7 +10,7 @@ from threading import Barrier
 from unittest.mock import patch
 from uuid import uuid4
 
-from src.clinic import pools, recipient_defaults, revisions, web_ingest, workflow
+from src.clinic import app_wiring, pools, recipient_defaults, revisions, web_ingest, workflow
 from src.clinic.models import ClinicAudioRevision, ClinicDictation, ClinicOriginal
 from src.database import db
 from src.models import AuditEvent, ProcessingJob, Recording
@@ -65,6 +65,17 @@ def _exercise_mic_replay(app, author, other):
         browser, csrf = actor
         return browser.post('/upload', headers=csrf, data={'file': (audio(sample), 'aufnahme.wav'),
                             'from_recorder': 'true', 'clinic_take_id': take_id, 'title': label})
+
+    with app.app_context():
+        pool_id = web_ingest.author_pool_for(author)
+        app_wiring.set_active_author_pool(author, pool_id)
+        pools.remove_author_member(pool_id, author, actor_id=other)
+    denied = upload(clients[0])
+    assert denied.status_code == 403 and denied.json['code'] == 'clinic_author_pool_reselection_required'
+    assert clients[0][0].get(lookup).status_code == 404
+    with app.app_context():
+        assert Recording.query.filter_by(user_id=author, original_filename='aufnahme.wav').count() == 0
+        pools.add_author_member(pool_id, author, actor_id=other)
 
     with patch.object(web_ingest, 'queue_take', side_effect=RuntimeError('queue insert interrupted')):
         assert upload(clients[0]).status_code == 500

@@ -270,14 +270,12 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
     try:
         selection = app_wiring.active_author_pool(owner.id)
         pool_id = selection.pool_id
-        if selection.reselection_required:
+        if selection.reselection_required or pool_id is None:
+            code, message = (('clinic_author_pool_reselection_required', MSG_RESELECT_POOL)
+                             if selection.reselection_required else ('clinic_no_author_pool', MSG_NO_POOL))
             if take_id:
-                raise TakeUploadError('clinic_author_pool_reselection_required', 403, MSG_RESELECT_POOL)
-            return _refuse(recording, storage, 'clinic_author_pool_reselection_required', MSG_RESELECT_POOL, 403)
-        if pool_id is None:
-            if take_id:
-                raise TakeUploadError('clinic_no_author_pool', 403, MSG_NO_POOL)
-            return _refuse(recording, storage, 'clinic_no_author_pool', MSG_NO_POOL, 403)
+                raise TakeUploadError(code, 403, message)
+            return _refuse(recording, storage, code, message, 403)
         with storage.materialize(recording.audio_path) as stored:
             path = stored.local_path
             size = os.path.getsize(path)

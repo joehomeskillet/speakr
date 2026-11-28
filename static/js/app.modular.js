@@ -3130,10 +3130,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             const clinicMenuToolbarVisible = computed(() => clinicMenuActions.some((entry) => entry.view === currentView.value));
             const clinicFormats = clinicMenu ? clinicRecordingFormats() : [];
             // Recorded takes and selected files share the same upload and server receipt.
-            const clinicUploadFile = async (file, recordingTitle, { useSpeechRecognition = true, clientUploadId } = {}, { id, retry } = {}) => {
-                const signal = id ? AbortSignal.timeout(120_000) : undefined;
-                if (id && retry) {
-                    const saved = await fetch('/api/clinic/v1/recording-takes/' + encodeURIComponent(id), {
+            const clinicUploadFile = async (file, recordingTitle, { useSpeechRecognition = true, clientUploadId, retry = false } = {}) => {
+                const takeId = recordingTitle === undefined ? null : clientUploadId;
+                const signal = takeId ? AbortSignal.timeout(120_000) : undefined;
+                if (takeId && retry) {
+                    const saved = await fetch('/api/clinic/v1/recording-takes/' + encodeURIComponent(takeId), {
                         cache: 'no-store', signal,
                     });
                     if (saved.ok) return saved.json();
@@ -3154,7 +3155,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     body.append('title', recordingTitle);
                     body.append('from_recorder', 'true');
                 }
-                if (id) body.append('clinic_take_id', id);
+                if (takeId) body.append('clinic_take_id', takeId);
                 const token = clinicMenu ? await clinicMenu.getUploadCsrfToken() : null;
                 const response = await fetch('/upload', { method: 'POST', headers: token ? { 'X-CSRFToken': token } : {}, body, signal });
                 if (!response.ok) throw new Error('upload_failed');

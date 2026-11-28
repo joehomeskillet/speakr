@@ -51,9 +51,9 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
         try:
             context = browser.new_context(storage_state=login(browser, app_base, ROLES["author"]))
             page = context.new_page()
-            page.goto(app_base + "/#/neu")
+            support._open_shell_view(page, app_base, '#/neu')
             view = page.get_by_test_id("clinic-recording-view")
-            expect(view.get_by_test_id("rec-start")).to_be_enabled()
+            expect(view.get_by_test_id("rec-start")).to_be_enabled(timeout=support.SHOW_TIMEOUT_MS)
             expect(view.locator("input")).to_have_count(0)
             posts = []
             page.on("request", lambda req: posts.append(req.url)
@@ -110,9 +110,9 @@ def test_lost_confirmations_keep_one_take_and_offer_keyboard_retry(app_base, siz
                                           viewport={'width': width, 'height': height}, **theme_context_options(theme))
             context.add_init_script(theme_init_script(theme))
             page = context.new_page()
-            page.goto(app_base + '/#/neu')
+            support._open_shell_view(page, app_base, '#/neu')
             view = page.get_by_test_id('clinic-recording-view')
-            expect(view.get_by_test_id('rec-start')).to_be_enabled()
+            expect(view.get_by_test_id('rec-start')).to_be_enabled(timeout=support.SHOW_TIMEOUT_MS)
             expect(page.locator('html')).to_have_class(re.compile(r'\bdark\b' if theme == 'dark' else r'^(?!.*\bdark\b)'))
             OUT_DIR.mkdir(parents=True, exist_ok=True)
             static_path = os.path.relpath(ROOT / 'static', OUT_DIR)
@@ -138,6 +138,9 @@ def test_lost_confirmations_keep_one_take_and_offer_keyboard_retry(app_base, siz
                 assert not (overflow['document'] or overflow['body']), overflow
 
             capture('empty')
+            recognition = view.get_by_role('switch', name='Spracherkennung')
+            recognition.click()
+            expect(recognition).to_have_attribute('aria-checked', 'false')
             view.get_by_test_id('rec-start').click()
             page.wait_for_function("document.querySelector('#app').__vue_app__._instance.proxy.recordingTime >= 2")
             view.get_by_test_id('rec-stop').click()
@@ -167,7 +170,11 @@ def test_lost_confirmations_keep_one_take_and_offer_keyboard_retry(app_base, siz
             expect(view.get_by_test_id('status')).to_contain_text('weiterhin in diesem Browser')
             expect(send).to_have_text('Erneut senden')
             capture('unconfirmed-upload')
-            with page.expect_response(re.compile('/api/clinic/v1/recording-takes/')) as lookup:
+            detail_path = app_base + f'/api/clinic/v1/dictations/{uploads[0]["dictation_id"]}/detail'
+            with (
+                page.expect_response(re.compile('/api/clinic/v1/recording-takes/')) as lookup,
+                page.expect_response(detail_path) as draft_detail,
+            ):
                 send.click()
             assert lookup.value.json() == uploads[0]
             assert uploads[0]['use_speech_recognition'] is False
@@ -175,7 +182,9 @@ def test_lost_confirmations_keep_one_take_and_offer_keyboard_retry(app_base, siz
             expect(send).to_have_count(0)
             expect(view.get_by_test_id('status')).to_have_text('Aufnahme gespeichert. Senden hat nicht geklappt.')
             expect(view.get_by_role('button', name='Erneut senden', exact=True)).to_have_count(1)
+            expect(view.get_by_text('Diktat-Schutz (optional)', exact=True)).to_have_count(0)
             expect(view.get_by_test_id('send-destination')).to_have_text('Vorgesehen: Schreibdienst V860')
+            assert draft_detail.value.json()['use_speech_recognition'] is False
             assert send.bounding_box()['height'] >= 48
             capture('failure')
 
@@ -232,7 +241,7 @@ def _check_offline_take(context, base, managed):
 
     attest(page)
     with page.expect_response(base + path) as checked:
-        page.goto(base + '/#/offline')
+        support._open_shell_view(page, base, '#/offline')
     assert checked.value.json()['available'] is managed
     if managed:
         unlock(page)
@@ -268,7 +277,7 @@ def _check_offline_take(context, base, managed):
     context.set_offline(False)
     recovery = context.new_page()
     attest(recovery)
-    recovery.goto(base + '/#/offline')
+    support._open_shell_view(recovery, base, '#/offline')
     unlock(recovery)
     with recovery.expect_download() as restored:
         recovery.get_by_test_id('restore').click()
@@ -323,9 +332,9 @@ def test_protected_draft_before_submission(app_base, browser, role_states):
     for size in support.VIEWPORTS if out else ('390x844',):
         for theme in support.THEMES if out else ('light',):
             author, page = open_page('author', size, theme)
-            page.goto(app_base + '/#/neu')
+            support._open_shell_view(page, app_base, '#/neu')
             view = page.get_by_test_id('clinic-recording-view')
-            expect(view.get_by_test_id('rec-start')).to_be_enabled()
+            expect(view.get_by_test_id('rec-start')).to_be_enabled(timeout=support.SHOW_TIMEOUT_MS)
             capture(page, 'recording-empty', size, theme)
             view.get_by_test_id('mode-file').click()
             payload = wav.getvalue()[:-2] + bytes((list(support.VIEWPORTS).index(size), support.THEMES.index(theme)))
