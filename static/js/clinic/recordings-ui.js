@@ -196,11 +196,41 @@ export function statusBadge(status) {
     }
 }
 
-export function processingLabel(state) {
-    return ({ QUEUED: 'Transkription wartet', PENDING: 'Transkription wartet',
-        PROCESSING: 'Transkription läuft', RUNNING: 'Transkription läuft',
-        FAILED: 'Transkription fehlgeschlagen', COMPLETED: 'Transkription abgeschlossen',
-        SUCCEEDED: 'Transkription abgeschlossen' })[String(state || '').toUpperCase()] || '';
+function nextStep(item, pools, userId) {
+    const mine = (person) => userId != null && person?.id != null && String(person.id) === String(userId);
+    const wait = (label) => ({ label: label + ' – Sie müssen nichts tun', needsAction: false });
+    const act = (step) => ({ label: 'Sie sind dran: ' + step, needsAction: true });
+    const writer = (step) => {
+        if (item.lease_holder) {
+            return mine(item.lease_holder) ? act(step) : wait('In Bearbeitung durch ' + (nameOf(item.lease_holder) || 'eine andere Person'));
+        }
+        if (item.assignee) {
+            return mine(item.assignee) ? act(step) : wait(nameOf(item.assignee) ? 'Bei ' + nameOf(item.assignee) : 'Einer anderen Person zugeteilt');
+        }
+        if (pools.length) return wait('Beim Schreibdienst ' + pools.join(', '));
+        return wait('Wartet auf eine Zuteilung');
+    };
+    switch (item.workflow_status) {
+        case 'aufgabe': return wait('Aufgabe geplant');
+        case 'neu_angelegt':
+            return mine(item.dictated_by) ? act('Diktat an den Schreibdienst senden')
+                : wait(nameOf(item.dictated_by) ? 'Entwurf bei ' + nameOf(item.dictated_by) : 'Noch nicht gesendet');
+        case 'vorbereitung_offline':
+        case 'vorbereitung_online': return wait('Das System bereitet das Diktat vor');
+        case 'zu_schreiben': return writer('Diktat schreiben');
+        case 'zu_korrigieren': return writer('Text prüfen');
+        case 'in_bearbeitung': return writer('Diktat weiterbearbeiten');
+        case 'abzunehmen':
+            return item.viewer_review_turn === true ? act('Text zur Abnahme prüfen')
+                : wait('Wartet auf die zuständige Person zur Abnahme');
+        case 'abgenommen':
+            return item.viewer_review_turn === true ? act('Text freigeben')
+                : wait('Wartet auf die zuständige Person zur Freigabe');
+        case 'fertiggestellt': return wait('Fertig');
+        case 'zu_archivieren': return wait(item.archived_at ? 'Archiviert' : 'Zum Ablegen vorgemerkt');
+        case 'zu_loeschen': return wait('Zum Löschen vorgemerkt');
+        default: return { label: 'Der nächste Schritt ist nicht bekannt', needsAction: false };
+    }
 }
 
 const nameOf = (person) => (person && typeof person.display_name === 'string' && person.display_name ? person.display_name : null);
@@ -214,11 +244,18 @@ const STATUS_TINT = Object.freeze({
 });
 
 /** One contract item to the flat shape the template renders. Reads contract fields only. */
-export function toViewRow(item) {
+export function toViewRow(item, userId) {
     const source = item && item.time_source;
     const fallback = source !== 'recorded';
     const pools = (Array.isArray(item.staff_pools) ? item.staff_pools : []).map((p) => p && p.name).filter(Boolean);
     const badge = statusBadge(item.workflow_status);
+    const next = nextStep(item, pools, userId);
+    const processingState = String(item.processing_status || '').toUpperCase();
+    const processingActive = ['QUEUED', 'PENDING', 'PROCESSING', 'RUNNING'].includes(processingState);
+    let processing = '';
+    if (item.text_created === true) processing = 'Text erstellt';
+    else if (processingActive) processing = 'Text wird erstellt';
+    else if (processingState === 'FAILED') processing = 'Text konnte nicht erstellt werden';
     const seconds = Number.isFinite(item.duration_ms) ? Math.round(item.duration_ms / 1000) : null;
     const time = formatTime(item.sort_time || item.recorded_at);
     const heading = item.case_display ? TEXT.caseId + ' ' + item.case_display : item.capture_label || TEXT.dictation;
@@ -233,7 +270,7 @@ export function toViewRow(item) {
         time,
         datetime: item.sort_time || item.recorded_at || '',
         statusClass: Object.prototype.hasOwnProperty.call(STATUS_TINT, item.workflow_status) ? STATUS_TINT[item.workflow_status] : 'neu',
-        ariaLabel: [heading + (!item.case_display && !item.capture_label && reference ? ' ' + reference : ''), TEXT.author + ' ' + authorName, TEXT.pool + ' ' + poolText, item.day ? formatLongDay(item.day) : '', time, badge.label,
+        ariaLabel: [heading + (!item.case_display && !item.capture_label && reference ? ' ' + reference : ''), TEXT.author + ' ' + authorName, TEXT.pool + ' ' + poolText, item.day ? formatLongDay(item.day) : '', time,
             seconds === null ? '' : formatAudioDuration(seconds)].filter(Boolean).join(', '),
         isFallback: fallback,
         fallbackLabel: fallback ? TEXT.fallbackBadge : '',
@@ -245,8 +282,10 @@ export function toViewRow(item) {
         leaseHolder: nameOf(item.lease_holder) || TEXT.none,
         status: badge.label,
         statusStyle: badge.style,
-        processing: processingLabel(item.processing_status),
-        processingActive: ['QUEUED', 'PENDING', 'PROCESSING', 'RUNNING'].includes(String(item.processing_status || '').toUpperCase()),
+        nextStep: next.label,
+        needsAction: next.needsAction,
+        processing,
+        processingActive,
         duration: seconds === null ? TEXT.none : formatAudioDuration(seconds),
         caseDisplay: item.case_display || '',
         ownTitle: typeof item.own_title === 'string' ? item.own_title.trim() : '',
@@ -316,12 +355,12 @@ export function buildPath(filters, cursor, limit) {
 }
 
 /** Appends a page and skips dictations that are already loaded. */
-export function mergePage(existing, incoming) {
+export function mergePage(existing, incoming, userId) {
     const seen = new Set(existing.map((r) => r.key));
     const next = existing.slice();
     for (const item of incoming) {
         if (!item || item.dictation_id == null) continue;
-        const row = toViewRow(item);
+        const row = toViewRow(item, userId);
         if (seen.has(row.key)) continue;
         seen.add(row.key);
         next.push(row);
@@ -440,7 +479,7 @@ export function createRecordingsController(options) {
             refreshOptions();
             loadedRevision = revision;
             loadedPages = 1;
-            state.rows = mergePage([], Array.isArray(data.items) ? data.items : []);
+            state.rows = mergePage([], Array.isArray(data.items) ? data.items : [], user.id);
             state.nextCursor = data.next_cursor || null;
             state.stale = false;
         } else fail(res);
@@ -462,7 +501,7 @@ export function createRecordingsController(options) {
             collectOptions(registry, data.items);
             refreshOptions();
             loadedPages += 1;
-            state.rows = mergePage(state.rows, Array.isArray(data.items) ? data.items : []);
+            state.rows = mergePage(state.rows, Array.isArray(data.items) ? data.items : [], user.id);
             state.nextCursor = data.next_cursor || null;
         } else fail(res);
         persist();
@@ -508,7 +547,7 @@ export function createRecordingsController(options) {
             const data = response.data || {};
             const items = Array.isArray(data.items) ? data.items : [];
             collectOptions(registry, items);
-            rows = mergePage(rows, items);
+            rows = mergePage(rows, items, user.id);
             cursor = data.next_cursor || null;
             pages += 1;
         } while (cursor && pages < loadedPages);
