@@ -2,8 +2,8 @@
  * Category set editor and send-form preview (PAR-CFG-003).
  *
  * Sets come from GET /api/clinic/v1/categories. Edits stay in memory as drafts
- * until saved through the parity command channel with the set version as
- * expected revision. The same match rule as the server (case-insensitive
+ * until saved through the categories API with the set version as expected
+ * revision for updates. The same match rule as the server (case-insensitive
  * substring, src/clinic/presets.py validate_category_requirement) decides
  * whether a pending selection stays valid, so a removal that would invalidate
  * one is rejected before any request. Clinical selection values are never
@@ -13,7 +13,7 @@
 import { createClinicApiClient } from './api-client.js';
 import { surfaceFor } from './tokens.js';
 
-const CATEGORIES = '/categories';
+export const CATEGORIES = '/categories';
 
 export const LABELS = Object.freeze({
     title: 'Kategorien',
@@ -29,12 +29,16 @@ export const LABELS = Object.freeze({
 const REASONS = Object.freeze({
     empty_category: 'Eine Kategorie darf nicht leer sein.',
     duplicate_category: 'Diese Kategorie existiert bereits.',
+    invalid_name: 'Geben Sie einen Namen für das Kategorieset ein (maximal 128 Zeichen).',
+    unsaved_set: 'Speichern oder verwerfen Sie zuerst das neue Kategorieset.',
+    empty_set: 'Fügen Sie mindestens eine Kategorie hinzu.',
     no_category: 'Eine Pflichtgruppe braucht mindestens eine Kategorie.',
     pending_selection_invalid: 'Eine ausstehende Auswahl wäre danach ungültig.',
     unknown_set: 'Die Kategoriegruppe ist unbekannt.',
     stale_version: 'Der Stand ist veraltet. Bitte neu laden.',
     permission: 'Keine Berechtigung für diese Aktion.',
     failure: 'Das Speichern ist fehlgeschlagen.',
+    create_unconfirmed: 'Anlegen nicht bestätigt. Laden Sie die Kategorien neu, bevor Sie es erneut versuchen.',
 });
 
 // Keyboard states: Enter adds, Delete/Backspace removes the focused entry.
@@ -49,10 +53,17 @@ function refuse(code) {
     return { ok: false, code: code, message: REASONS[code] || REASONS.failure };
 }
 
-function newKey() {
-    const c = globalThis.crypto;
-    if (c && typeof c.randomUUID === 'function') return c.randomUUID();
-    return 'cat-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+function editableSet(item) {
+    return {
+        id: item.id,
+        name: item.name,
+        version: item.version,
+        categories: item.categories.slice(),
+        required: !!item.required,
+        targetField: item.target_field,
+        scope: item.scope,
+        stale: false,
+    };
 }
 
 /**
@@ -92,16 +103,7 @@ export function createCategoriesEditor(options) {
             return { ok: false, code: row.outcome === 'permission' ? 'permission' : 'failure', message: row.message };
         }
         const sets = (row.data && row.data.sets) || [];
-        state.sets = sets.map((item) => ({
-            id: item.id,
-            name: item.name,
-            version: item.version,
-            categories: item.categories.slice(),
-            required: !!item.required,
-            targetField: item.target_field,
-            scope: item.scope,
-            stale: false,
-        }));
+        state.sets = sets.map(editableSet);
         state.loaded = true;
         setStatus('success');
         return { ok: true };
@@ -110,6 +112,19 @@ export function createCategoriesEditor(options) {
     function select(setId, value) {
         if (typeof value === 'string' && value !== '') state.selections[setId] = value;
         else delete state.selections[setId];
+    }
+
+    function createSet(name) {
+        const clean = name.trim();
+        if (!clean || clean.length > 128) return refuse('invalid_name');
+        if (find(null)) return refuse('unsaved_set');
+        state.sets.unshift(editableSet({ id: null, name: clean, categories: [], target_field: 'notes' }));
+        return { ok: true };
+    }
+
+    function cancelCreate() {
+        state.sets = state.sets.filter((row) => row.id !== null);
+        return { ok: true };
     }
 
     function addCategory(setId, name) {
@@ -163,20 +178,15 @@ export function createCategoriesEditor(options) {
         const row = find(setId);
         if (!row) return refuse('unknown_set');
         if (row.stale) return refuse('stale_version');
+        if (row.categories.length === 0) return refuse('empty_set');
         setStatus('processing');
-        const key = newKey();
-        const result = await client.command(
-            {
-                command: 'save_category_set',
-                request_id: key,
-                expected_revision: row.version,
-                payload: { set_id: row.id, categories: row.categories.slice(), required: row.required },
-            },
-            { idempotencyKey: key, ifMatch: '"' + row.version + '"' },
-        );
-        if (result.outcome === 'ok') {
-            const data = result.data || {};
-            if (Number.isInteger(data.revision)) row.version = data.revision;
+        const creating = row.id === null;
+        const body = { categories: row.categories.slice(), required: row.required };
+        const result = await client.request(CATEGORIES, creating
+            ? { method: 'POST', body: { ...body, name: row.name } }
+            : { method: 'PUT', body: { ...body, id: row.id, version: row.version } });
+        if (result.outcome === 'ok' && result.data?.id && Number.isInteger(result.data.version)) {
+            Object.assign(row, editableSet(result.data));
             setStatus('success');
             return { ok: true };
         }
@@ -186,6 +196,10 @@ export function createCategoriesEditor(options) {
             return refuse('stale_version');
         }
         setStatus(result.outcome === 'permission' ? 'warning' : 'error');
+        if (creating && !['permission', 'validation'].includes(result.outcome)) {
+            row.stale = true;
+            return refuse('create_unconfirmed');
+        }
         return refuse(result.outcome === 'permission' ? 'permission' : 'failure');
     }
 
@@ -205,7 +219,7 @@ export function createCategoriesEditor(options) {
         client.switchContext({ accountId: null, dictationId: null });
     }
 
-    return { state, load, select, addCategory, removeCategory, setRequired, preview, save, onKey, reset };
+    return { state, load, select, createSet, cancelCreate, addCategory, removeCategory, setRequired, preview, save, onKey, reset };
 }
 
 /**
@@ -226,8 +240,30 @@ export function categoriesComponent(vue, options) {
         name: 'ClinicCategories',
         setup() {
             const editor = useCategoriesEditor(vue, options);
-            editor.load();
-            return { editor };
+            const canManage = options?.canManage === true;
+            const name = vue.ref('');
+            const feedback = vue.ref('');
+            const report = (result, success = '') => { feedback.value = result.ok ? success : result.message; };
+            const load = async () => report(await editor.load());
+            void load();
+            return {
+                editor, canManage, name, feedback, report, load,
+                create() {
+                    const result = editor.createSet(name.value);
+                    report(result);
+                    if (result.ok) name.value = '';
+                },
+                add(row, input) {
+                    const result = editor.addCategory(row.id, input.value);
+                    report(result);
+                    if (result.ok) input.value = '';
+                },
+                toggle(row, input) {
+                    report(editor.setRequired(row.id, input.checked));
+                    input.checked = row.required;
+                },
+                async save(row) { report(await editor.save(row.id), row.name + ' gespeichert.'); },
+            };
         },
         template: `
 <section role="region" aria-labelledby="clinic-cat-title" :aria-busy="editor.state.status === 'processing'" class="v8-page v8-admin-page">
@@ -240,28 +276,60 @@ export function categoriesComponent(vue, options) {
   </header>
   <section class="panel" aria-labelledby="clinic-cat-list-title">
     <h2 id="clinic-cat-list-title">Kategoriefelder</h2>
-    <p v-if="editor.state.status === 'processing'" role="status" class="text-sm text-[var(--text-muted)]">{{ editor.state.loaded ? 'Wird verarbeitet …' : 'Kategorien werden geladen.' }}</p>
-    <p v-else-if="editor.state.loaded && !editor.state.sets.length" role="status" class="empty">Keine Kategorien vorhanden.</p>
-    <fieldset v-for="row in editor.state.sets" :key="row.id" class="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 space-y-3">
-      <legend class="px-1 text-sm font-semibold text-[var(--text-primary)]">{{ row.name }}</legend>
-      <label class="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)]"><input type="checkbox" class="h-4 w-4" :checked="row.required" @change="editor.setRequired(row.id, $event.target.checked)"> ${LABELS.required}</label>
-      <ul role="list" aria-label="${LABELS.list}" class="divide-y divide-[var(--border-primary)] rounded-lg border border-[var(--border-primary)] empty:hidden">
-        <li v-for="cat in row.categories" :key="cat" tabindex="0" class="flex items-center justify-between gap-2 px-3 py-1.5 text-sm text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]" @keydown="editor.onKey(row.id, $event, cat)">
-          <span>{{ cat }}</span> <button type="button" class="btn btn--sm btn--ghost" @click="editor.removeCategory(row.id, cat)">${LABELS.remove}</button>
+    <form v-if="canManage && editor.state.loaded && !editor.state.sets.some(row => row.id === null)" @submit.prevent="create" class="field">
+      <label for="clinic-cat-name">Name des neuen Kategoriesets</label>
+      <div class="actions">
+        <input id="clinic-cat-name" v-model="name" type="text" maxlength="128" required style="flex: 1 1 14rem; min-width: 0" :disabled="editor.state.status === 'processing'">
+        <button type="submit" class="button primary" :disabled="editor.state.status === 'processing'">Kategorieset anlegen</button>
+      </div>
+    </form>
+    <p role="status" class="muted">{{ editor.state.status === 'processing' ? (editor.state.loaded ? 'Wird verarbeitet …' : 'Kategorien werden geladen.') : feedback }}</p>
+    <p v-if="editor.state.loaded && !editor.state.sets.length" class="empty">Keine Kategorien vorhanden.</p>
+    <button v-if="(!editor.state.loaded && feedback) || editor.state.sets.some(row => row.stale)" type="button" class="button" :disabled="editor.state.status === 'processing'" @click="load">Kategorien neu laden</button>
+    <fieldset v-for="row in editor.state.sets" :key="row.id" class="panel mb-3" :disabled="!canManage || row.stale || editor.state.status === 'processing'">
+      <legend class="px-1 text-sm font-semibold break-words">{{ row.name }}</legend>
+      <label class="inline-label"><input type="checkbox" :checked="row.required" @change="toggle(row, $event.target)"> ${LABELS.required}</label>
+      <ul v-if="row.categories.length" role="list" aria-label="${LABELS.list}" class="my-3 space-y-1">
+        <li v-for="cat in row.categories" :key="cat" class="actions justify-between">
+          <span class="min-w-0 break-words">{{ cat }}</span>
+          <button v-if="canManage" type="button" class="button quiet" :aria-label="cat + ' entfernen'" @click="report(editor.removeCategory(row.id, cat))" @keydown.delete.prevent="report(editor.onKey(row.id, $event, cat))" @keydown.backspace.prevent="report(editor.onKey(row.id, $event, cat))">${LABELS.remove}</button>
         </li>
       </ul>
-      <div class="flex flex-wrap items-center gap-2">
-        <input type="text" class="field min-w-0 flex-1" aria-label="${LABELS.name}" placeholder="${LABELS.name}" @keydown.enter="editor.addCategory(row.id, $event.target.value); $event.target.value = ''">
-        <button type="button" class="btn btn--primary" @click="editor.save(row.id)">${LABELS.save}</button>
-      </div>
+      <template v-if="canManage">
+        <form class="actions my-3" @submit.prevent="add(row, $event.target.elements.category)">
+          <input name="category" type="text" maxlength="128" required aria-label="${LABELS.name}" placeholder="${LABELS.name}" style="flex: 1 1 12rem; min-width: 0">
+          <button type="submit" class="button">${LABELS.add}</button>
+        </form>
+        <div class="actions">
+          <button type="button" class="button primary" @click="save(row)">${LABELS.save}</button>
+          <button v-if="row.id === null" type="button" class="button quiet" @click="report(editor.cancelCreate())">Verwerfen</button>
+        </div>
+      </template>
     </fieldset>
   </section>
   <section v-if="editor.state.sets.length" class="panel">
     <h2>${LABELS.preview}</h2>
-    <ul role="list" class="mt-2 space-y-1 text-sm text-[var(--text-secondary)]">
-      <li v-for="item in editor.preview()" :key="item.setId" :aria-label="item.ariaLabel">{{ item.label }} <span class="inline-flex items-center rounded-full bg-[var(--bg-tertiary)] px-2.5 py-0.5 text-xs text-[var(--text-primary)]">{{ item.field }}</span></li>
+    <ul role="list" class="mt-2 space-y-1 text-sm">
+      <li v-for="item in editor.preview()" :key="item.setId" :aria-label="item.ariaLabel" class="actions"><span class="min-w-0 break-words">{{ item.label }}</span> <span v-if="item.required" class="tag neutral">${LABELS.required}</span></li>
     </ul>
   </section>
 </section>`,
     };
 }
+
+export const RequiredCategories = {
+    props: { items: Array, disabled: Boolean },
+    emits: ['select'],
+    template: `
+<section class="panel mb-3 text-left" aria-labelledby="crv-categories-title">
+  <h2 id="crv-categories-title">Pflichtkategorien</h2>
+  <div v-for="item in items" :key="item.id" class="field">
+    <label :for="'crv-category-' + item.id" class="break-words">{{ item.name }}</label>
+    <select :id="'crv-category-' + item.id" :value="item.value" required :disabled="disabled"
+            @change="$emit('select', item.id, $event.target.value)">
+      <option value="">Kategorie wählen</option>
+      <option v-for="value in item.categories" :key="value" :value="value">{{ value }}</option>
+    </select>
+  </div>
+</section>`,
+};
