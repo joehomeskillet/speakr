@@ -14,12 +14,15 @@ import re
 import tempfile
 import uuid
 
+from sqlalchemy import and_, or_
+
 from src.database import db
 
 from .agent_channel import (
-    INTENT_KIND, OUTCOMES, AgentChannelError, ClinicAgentChunk, ClinicAgentIngest, ClinicAgentIntent,
+    INTENT_KIND, OUTCOMES, AgentChannelError, ClinicAgentChunk, ClinicAgentIngest, ClinicAgentIntent, ClinicAgentInventory,
     ClinicAgentOutcome, agent_of, authorise, aware, inventory_row, stamp, transactional, utcnow,
 )
+from .models import ClinicOriginal
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +248,40 @@ def abort_ingest(principal, *, ingest_id):
 
 def get_receipt(principal, *, ingest_id):
     return _receipt(_session(agent_of(principal), ingest_id))
+
+
+def source_cleanup_refusal(snapshot, receipt_id):
+    """Check the last reported identity and the committed, bound ingest receipt."""
+    from .import_centre import ClinicImportDelivery
+    from .ingest import storage_key_for
+
+    inventory = ClinicAgentInventory
+    if inventory.query.filter(
+        inventory.agent_id == snapshot.agent_id, inventory.id != snapshot.id,
+        inventory.reported_at >= snapshot.reported_at,
+        or_(inventory.source_id == snapshot.source_id, and_(
+            inventory.root_id == snapshot.root_id, inventory.relative_path == snapshot.relative_path,
+        )),
+    ).first() is not None:
+        return "SNAPSHOT_CHANGED"
+    row = db.session.get(ClinicAgentIngest, receipt_id)
+    if row is None or row.state != "STORED" or not row.dictation_id or not row.original_id:
+        return "STORED_RECEIPT_REQUIRED"
+    if (row.agent_id, row.source_id, row.snapshot_version, row.declared_size, row.declared_sha256) != (
+        snapshot.agent_id, snapshot.source_id, snapshot.snapshot_version, snapshot.size, snapshot.sha256,
+    ):
+        return "RECEIPT_NOT_BOUND"
+    delivery = ClinicImportDelivery.query.filter_by(ingest_id=row.id, agent_id=row.agent_id,
+                                                      source_id=row.source_id, status="MATCHED").first()
+    if delivery is None or (delivery.root_id, delivery.relative_path) != (snapshot.root_id, snapshot.relative_path):
+        return "RECEIPT_NOT_BOUND"
+    original = db.session.get(ClinicOriginal, row.original_id)
+    if original is None or (original.dictation_id, original.size_bytes, original.content_hash, original.storage_key) != (
+        row.dictation_id, snapshot.size, snapshot.sha256,
+        storage_key_for(f"agent-ingest:{row.agent_id}:{row.idempotency_key}"),
+    ):
+        return "RECEIPT_NOT_BOUND"
+    return None
 
 
 # --- outcome audit ------------------------------------------------------------------
