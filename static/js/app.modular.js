@@ -3122,7 +3122,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (recordingTitle === undefined) {
                     body.append('file', file);
                 } else {
-                    const format = clinicFormats.find(({ mimeType }) => mimeType.split(';')[0] === file.type);
+                    const format = file.type === 'audio/wav'
+                        ? { mimeType: 'audio/wav', extension: 'wav' }
+                        : clinicFormats.find(({ mimeType }) => mimeType.split(';')[0] === file.type);
                     if (!format) throw new Error('unsupported_recording_format');
                     body.append('file', file, 'aufnahme.' + format.extension);
                     body.append('audio_mime', format.mimeType);
@@ -5417,6 +5419,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 getStatusClass,
                 formatTime,
                 formatDuration,
+                globalError,
                 setGlobalError,
                 showToast,
                 loadTokenBudget,
