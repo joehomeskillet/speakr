@@ -139,7 +139,7 @@ const TEMPLATE_ERRORS = Object.freeze({
 
 const LOCAL_CSS_ID = 'clinic-v8-output-local';
 const LOCAL_CSS = `
-.v8-ui .clinic-output-view :is(select,button,.button){min-height:48px}
+.v8-ui .clinic-output-view :is(select,button,.button,input[type="checkbox"]){min-height:48px}
 .v8-ui .clinic-output-view :is(button,.button){white-space:nowrap}
 .v8-ui .clinic-output-view .out-template-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-top:8px;min-width:180px}
 .v8-ui .clinic-output-view .out-template-fields .field{margin:0;min-width:0}
@@ -614,6 +614,7 @@ export function createOutputViewController(options) {
         templates, templatesFailed, templateDetails, selectedTemplates, selectedModes,
         previousDownloads, includeTemplates,
         supportsTemplates, templatesFor, selectedTemplateDetail, setTemplate, setTextMode,
+        selected, toggleTarget, preferences, preferenceNotice, savingDefaults, saveDefaults, exportingSelected, exportSelected,
         load, canExport, exportTo, downloadUrl, markDownloadStarted, refreshStatus, clipboardCopy,
         text: TEXT,
         destination, destinations, catalogFailed, nameMode, filename, collisionPolicy, placementUnconfirmed,

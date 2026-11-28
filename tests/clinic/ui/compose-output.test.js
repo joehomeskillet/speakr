@@ -703,6 +703,7 @@ describe('compose-output', () => {
         data.targets.push({ id: 'odt', channel: 'file', available: true });
         const client = fakeClient({
             targets: ok(data),
+            preferences: () => ok({ formats: ['docx'], version: 1, open_after_export: false }),
             templates: ok({
                 items: [
                     { id: 'tpl-bad-mark', name: 'Ohne Marke', scope: 'user', version: 1, mime_type: DOCX_MIME },
@@ -724,10 +725,12 @@ describe('compose-output', () => {
                 return ok(job({ id: 'good-job' }), 201);
             },
         });
-        const c = await loaded(client, { includeAllFileFormats: true, includeTemplates: true });
+        const c = await loaded(client, { includeAllFileFormats: true, includeTemplates: true, includePreferences: true });
 
         await c.setTemplate('docx', 'tpl-bad-mark');
-        await c.exportTo('docx');
+        expect(c.selected.value).toEqual(['docx']);
+        await c.exportSelected();
+        expect(posts(client)[0].options.body).toMatchObject({ template_id: 'tpl-bad-mark', text_mode: 'formatted' });
         expect(c.results.value.docx).toMatchObject({
             phase: 'validation',
             tone: 'error',
