@@ -29,6 +29,7 @@
  *   createCorrectionViewController(options)  the controller behind the view.
  */
 
+import { useCorrectionPlayerPosition } from './correction-player-position.js';
 import { formatDictationReference } from './worklist-ui.js';
 import { createClinicApiClient } from './api-client.js';
 import { SessionTransportNotice } from './compose-settings.js';
@@ -41,6 +42,8 @@ import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
 import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
+import { FinishOptions } from './finish-options-ui.js';
+import { createWorkflowActions } from './workflow-actions-ui.js';
 
 export const COMPOSE_CORRECTION_VERSION = 1;
 
@@ -111,6 +114,7 @@ export const TEXT = Object.freeze({
     openAssignment: 'Zuordnung offen',
     noPool: 'Kein Pool zugewiesen',
     options: 'Wiedergabeoptionen',
+    audioUnsynced: 'Text und Audio sind nicht synchronisiert.',
     highlightOn: 'Wortmarkierung ausschalten',
     highlightOff: 'Wortmarkierung einschalten',
     follow: 'Aktuelles Wort mitverfolgen',
@@ -330,6 +334,27 @@ export function createCorrectionViewController(options) {
         ...(opts.modesOptions || {}),
     });
 
+    let manuallyPaused = false;
+    function togglePlayback() {
+        const wasWaiting = modes.waiting.value;
+        modes.cancelResume();
+        if (modeAudio.isPlaying()) {
+            manuallyPaused = true;
+            modeAudio.pause();
+        } else {
+            const backstep = manuallyPaused || wasWaiting;
+            manuallyPaused = false;
+            if (backstep) modes.resumeWithBackstep();
+            else modeAudio.play();
+        }
+    }
+
+    function pedalPlayback(command) {
+        manuallyPaused = false;
+        modes.cancelResume();
+        command();
+    }
+
     const saver = useCorrectionSave({
         editor, client, dictationId, getPositionMs, vue: V || undefined,
         lease: createLeaseAdapter(editor, V),
@@ -371,6 +396,8 @@ export function createCorrectionViewController(options) {
 
     // --- audio wiring -------------------------------------------------------
     function unbindAudio() {
+        manuallyPaused = false;
+        modes.cancelResume();
         for (const [node, name, fn] of audioListeners.splice(0)) {
             if (typeof node.removeEventListener === 'function') node.removeEventListener(name, fn);
         }
@@ -407,7 +434,11 @@ export function createCorrectionViewController(options) {
             if (gain) gain.start();
         });
         listen('pause', () => { if (gain) gain.stop(); });
-        listen('ended', () => { if (gain) gain.stop(); });
+        listen('ended', () => {
+            manuallyPaused = false;
+            modes.cancelResume();
+            if (gain) gain.stop();
+        });
         // Same tempo controller the player buttons use (seek, rewind); the pedal calls it too.
         tempo = usePlaybackTempo({ audio: el, onSync });
         // Highlight follows the real media position (rAF while playing, events otherwise); it never touches focus or editor state.
@@ -546,8 +577,8 @@ export function createCorrectionViewController(options) {
     const leaseButtons = () => editor.availableLeaseActions().filter((a) => typeof leaseRun[a.id] === 'function');
 
     // --- foot pedal, keyboard mode (PAR-OPS-001) -----------------------------
-    // The pedal calls the same functions as the player controls: modeAudio (play, pause) and the tempo
-    // controller (rewind, skip). No playback action mutates data; `mutating` stays empty and canMutate
+    // Pedal commands bypass correction backstep: hold release already applies its own rewind.
+    // No playback action mutates data; `mutating` stays empty and canMutate
     // follows the lease so a future mutating command cannot bypass it. The module is loaded on demand.
     function startPedal() {
         if (opts.pedal === false) return Promise.resolve(null);
@@ -556,11 +587,11 @@ export function createCorrectionViewController(options) {
             pedal = mod.createPedalController({
                 vue: api,
                 commands: {
-                    play: () => modeAudio.play(),
-                    pause: () => modeAudio.pause(),
-                    playPause: () => (modeAudio.isPlaying() ? modeAudio.pause() : modeAudio.play()),
-                    rewind: (s) => { if (tempo) tempo.rewind(s); },
-                    skip: (s) => { if (tempo) tempo.skip(s); },
+                    play: () => pedalPlayback(modeAudio.play),
+                    pause: () => pedalPlayback(modeAudio.pause),
+                    playPause: () => pedalPlayback(modeAudio.isPlaying() ? modeAudio.pause : modeAudio.play),
+                    rewind: (s) => pedalPlayback(() => tempo?.rewind(s)),
+                    skip: (s) => pedalPlayback(() => tempo?.skip(s)),
                 },
                 mutating: [],
                 canMutate: () => Boolean(editor.canEdit.value),
@@ -637,7 +668,7 @@ export function createCorrectionViewController(options) {
         ready, loadGeneration, revisionGeneration, audioEl, gainState, closeMessage, resumeLabel,
         recordingId: () => opts.recordingId || editor.audio.value.recordingId || null,
         peaksKey, peaksFetch,
-        stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS,
+        stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS, togglePlayback,
         leaseRun, leaseButtons,
         pedalStatus, pedalReady: () => pedalReady, pedal: () => pedal, setPedalSettings,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
@@ -670,6 +701,7 @@ const ICON_PATHS = Object.freeze({
     refresh: '<path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/>',
     users: '<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 5"/>',
     settings: '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>',
+    'move-player': '<path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3m12-6 3 3-3 3"/>',
     target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/>'
 });
 
@@ -731,6 +763,8 @@ const LOCAL_CSS = `
 .v8-ui .editor-page .clinic-audio-markers li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px;border-radius:8px}
 .v8-ui .editor-page .clinic-correction-waveform-uncertain,.v8-ui .editor-page .clinic-correction-waveform-unaligned{font-size:12px}
 .v8-ui .editor-page .editor-aux{display:grid;gap:14px;margin-top:16px}
+.v8-ui .editor-page .correction-backstep{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-block:14px 0}
+.v8-ui .editor-page .correction-backstep input{width:7ch;min-height:44px;padding:6px 8px;border:1px solid var(--v8-input-line);border-radius:7px;color:var(--v8-text);background:var(--surface)}
 .v8-ui .editor-page :is(.panel-header h2,.clinic-correction-waveform h3){font-size:14px;font-weight:700;letter-spacing:-.1px;color:var(--v8-text)}
 .v8-ui .editor-page .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 @media(max-width:767px){.v8-ui .editor-page .document-id{min-width:0;white-space:normal;overflow-wrap:anywhere}.v8-ui .editor-page .document-title h2{flex-shrink:0}}
@@ -741,6 +775,17 @@ const LOCAL_CSS = `
   .v8-ui .editor-page .find-count{grid-column:2 / -1;min-width:0}
 }
 .v8-ui .editor-page[data-open-mode="player"] .compact-player{border:1px solid var(--line);background:var(--v8-s2);border-radius:8px;padding:8px 10px}
+.v8-ui .editor-page .player-dock .compact-player{box-sizing:border-box;flex-wrap:wrap}
+.v8-ui .editor-page .player-dock[data-player-moved] .compact-player{position:relative;z-index:30;width:min(100%, 640px);transform:translate(var(--player-x, 0px),var(--player-y, 0px));border:1px solid var(--line);border-radius:var(--ui-radius-sm);box-shadow:var(--shadow)}
+.v8-ui .editor-page .player-dock:not([data-player-moved]) .player-reset{display:none}
+.v8-ui .editor-page .player-dock .tempo-controls>input[type=range]{flex:1;min-width:100px}
+.v8-ui .editor-page .player-placement{display:flex;gap:2px;align-items:center;flex:none}
+.v8-ui .editor-page .player-move{cursor:grab;touch-action:none;user-select:none}
+.v8-ui .editor-page .player-move:active{cursor:grabbing}
+@media(max-width:700px){
+  .v8-ui .editor-page .player-dock .tempo-controls>input[type=range]{flex-basis:100%;min-width:0}
+  .v8-ui .editor-page .player-placement .icon-button{width:44px;height:44px;min-height:44px}
+}
 `;
 const LOCAL_CSS_ID = 'clinic-v8-schreibplatz-local';
 
@@ -765,7 +810,7 @@ const BODY_PROPS = {
 /** Inner body: one instance per dictation. The outer view re-keys it, which disposes everything. */
 export const CorrectionBody = {
     name: 'ClinicCorrectionBody',
-    components: { DictationSummary, CorrectionAudioPanel, CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain, UiIcon },
+    components: { DictationSummary, CorrectionAudioPanel, CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain, UiIcon, FinishOptions },
     directives: { tip: vTip },
     props: BODY_PROPS,
     emits: ['close'],
@@ -795,6 +840,29 @@ export const CorrectionBody = {
         const a = c.alignment;
         const s = c.saver;
         const m = c.modes;
+        const finishOptions = V.shallowRef(null);
+        const finishWorkflow = createWorkflowActions({ client: c.client, reactive: V.reactive });
+        if (typeof V.watch === 'function') {
+            V.watch([c.loadGeneration, e.textRevisionId, () => e.audio.value.revisionId], async ([loaded, textId, audioId], _, onCleanup) => {
+                finishWorkflow.load(null);
+                if (!loaded || !textId || !audioId || props.openMode === 'player') return;
+                let current = true;
+                onCleanup(() => { current = false; });
+                const { outcome, data } = await c.client.request('/dictations/' + encodeURIComponent(props.dictationId) + '/detail');
+                const binding = data?.binding?.release;
+                if (!current || outcome !== 'ok' || !Array.isArray(data?.allowed_actions)
+                        || binding?.transcript_revision_id !== textId
+                        || binding.original_version_id !== audioId || !binding.context_revision_id || !binding.text_sha256) return;
+                finishWorkflow.load({ dictationId: props.dictationId, etag: data.etag, revision: data.revision,
+                    allowedActions: data.allowed_actions, binding: data.binding });
+            });
+        }
+        function onFinishKeydown(event) {
+            // Handle F5 before the nested dialog's own shortcut listener.
+            event.stopPropagation();
+            finishOptions.value?.onKeydown(event);
+            if (!event.defaultPrevented) event.preventDefault();
+        }
         const highlightOn = V.ref(true);
         const editorScroll = V.ref(0);
         const inlineWord = V.computed(() => {
@@ -889,7 +957,7 @@ export const CorrectionBody = {
         const SHORTCUTS = Object.freeze([
             ['Speichern', 'Strg/Cmd+S'], [TEXT.undo, 'Strg/Cmd+Z'], [TEXT.redo, 'Strg/Cmd+Umschalt+Z'],
             [TEXT.paragraph, 'Strg/Cmd+Enter'], [TEXT.marker, 'Strg/Cmd+Umschalt+M'], [TEXT.find, 'Strg/Cmd+F'],
-            ['Vollbild', 'Strg/Cmd+Umschalt+F'], [TEXT.shortcuts, 'F1'],
+            ['Vollbild', 'Strg/Cmd+Umschalt+F'], [TEXT.shortcuts, 'F1'], ['Fertigstellen (wenn verfügbar)', 'F5'],
         ]);
         const WORKER = { held: TEXT.workerHeld, foreign: TEXT.workerForeign, lost: TEXT.workerLost };
         const workerLabel = () => WORKER[e.lease.value.status] || TEXT.workerFree;
@@ -913,18 +981,21 @@ export const CorrectionBody = {
         const pickTemplate = (id) => { templatesOpen.value = false; if (id) e.applyTemplate(id); };
         const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
         return {
+            ...useCorrectionPlayerPosition(V),
             formatDictationReference,
-            c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
+            c, FOCUS, MODES, box, styleFor, TEXT, showDiff, finishOptions, finishWorkflow, onFinishKeydown,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
             onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
             SessionTransportNotice,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId, loading: e.loading, error: e.error, manual: e.manual,
-            lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
+            lease: e.lease, audio: e.audio, audioSynced: e.audioSynced,
+            template: e.template, templates: e.templates, templatesError: e.templatesError,
             editorAnnouncement: e.announcement,
             alignStatus: a.status, alignError: a.error, segments: a.segments, currentWord: a.currentWord, alignAnnouncement: a.announcement,
             saveState: s.state, saveMessage: s.message,
             mode: m.mode, modeStatus: m.status, modeError: m.error, modeAnnouncement: m.announcement,
+            backstepSeconds: m.backstepSeconds,
             ready: c.ready, loadGeneration: c.loadGeneration, revisionGeneration: c.revisionGeneration,
             audioEl: c.audioEl, gainState: c.gainState, closeMessage: c.closeMessage, resumeLabel: c.resumeLabel,
             pedalStatus: c.pedalStatus, alignmentNotice: c.alignmentNotice,
@@ -932,11 +1003,16 @@ export const CorrectionBody = {
     },
     template: `
 <section class="clinic-correction-view editor-page v8-page" data-testid="clinic-correction-view" :data-open-mode="openMode === 'player' ? 'player' : 'correction'" aria-labelledby="ccv-title" :aria-busy="loading ? 'true' : 'false'"
-         @keydown="c.onShortcut($event)">
+         @keydown.f5.exact.capture="onFinishKeydown" @keydown="c.onShortcut($event)">
   <div class="pagehead">
     <div>
       <div class="eyebrow">{{ TEXT.eyebrow }}</div>
-      <h1 id="ccv-title" style="font-weight: 700; letter-spacing: -.8px; color: var(--v8-text)">{{ openMode === 'player' ? TEXT.playerPage : TEXT.page }}</h1>
+      <div class="hline">
+        <h1 id="ccv-title" style="font-weight: 700; letter-spacing: -.8px; color: var(--v8-text)">{{ openMode === 'player' ? TEXT.playerPage : TEXT.page }}</h1>
+        <FinishOptions v-if="finishWorkflow.state.allowed.includes('release')"
+                       ref="finishOptions" :workflow="finishWorkflow" :client="c.client" :vue="vue"
+                       :disabled="dirty || loading || !!error" @finished="c.close()" />
+      </div>
       <p class="subline">{{ openMode === 'player' ? TEXT.playerSubline : TEXT.subline }}</p>
     </div>
     <div class="head-actions">
@@ -1003,9 +1079,22 @@ export const CorrectionBody = {
     </div>
 
     <template v-if="ready">
+      <div class="player-dock" ref="playerDock">
       <div class="player compact-player" data-testid="player-bar">
+        <span class="player-placement">
+          <span class="tool-wrap" v-tip="{ label: 'Player verschieben', keys: 'Pfeiltasten · Pos1 zurücksetzen' }">
+            <button type="button" class="icon-button player-move" :style="FOCUS" data-testid="player-move"
+                    aria-label="Player verschieben" aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Home Escape"
+                    @pointerdown="startMove" @pointermove="movePlayer" @pointerup="endMove"
+                    @pointercancel="endMove" @lostpointercapture="endMove" @keydown="playerPositionKey"><UiIcon name="move-player" /></button>
+          </span>
+          <span class="tool-wrap player-reset" v-tip="{ label: 'Playerposition zurücksetzen' }">
+            <button type="button" class="icon-button" :style="FOCUS" data-testid="player-reset"
+                    aria-label="Playerposition zurücksetzen" @click="resetPlayer(); $event.currentTarget.closest('.player-placement').querySelector('.player-move').focus({ preventScroll: true })"><UiIcon name="refresh" /></button>
+          </span>
+        </span>
         <audio preload="metadata" hidden :ref="c.bindAudio" :src="audio.status === 'ready' ? audio.src : null" :aria-label="TEXT.audio"></audio>
-        <PlaybackTempo v-if="audioEl" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" />
+        <PlaybackTempo v-if="audioEl" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" :on-toggle="c.togglePlayback" />
         <span class="word-sync-controls">
           <span class="tool-wrap" v-tip="{ label: highlightOn ? TEXT.highlightOn : TEXT.highlightOff }">
             <button type="button" class="icon-button" :style="FOCUS" :aria-pressed="String(highlightOn)" :aria-label="highlightOn ? TEXT.highlightOn : TEXT.highlightOff"
@@ -1017,8 +1106,10 @@ export const CorrectionBody = {
           </span>
         </span>
       </div>
+      </div>
       <p class="word-sync-info" role="status" aria-live="polite">
         <template v-if="audio.status !== 'ready' && audio.status !== 'idle' && audio.status !== 'loading'">{{ audio.message + ' ' }}</template>
+        <span v-if="audioSynced === false">{{ TEXT.audioUnsynced + ' ' }}</span>
         <span v-if="alignmentNotice" data-testid="alignment-notice">{{ alignmentNotice + ' ' }}</span>
         <span v-if="pedalStatus" data-testid="pedal-status">{{ pedalStatus }}</span>
       </p>
@@ -1183,6 +1274,12 @@ export const CorrectionBody = {
             <small :id="'ccv-mode-' + opt.id" class="hint" style="grid-column: 2; margin: 0">{{ opt.hint }}</small>
           </label>
         </div>
+        <label class="correction-backstep">
+          <span>Rücksprung in Sekunden</span>
+          <input type="number" min="0" step="1" required :value="backstepSeconds" :style="FOCUS"
+                 aria-describedby="ccv-backstep-hint" @input="c.modes.setBackstepSeconds" @change="c.modes.setBackstepSeconds">
+        </label>
+        <p id="ccv-backstep-hint" class="hint">Gilt nach einer Tipp-Pause und beim erneuten Starten. 0 bedeutet kein Rücksprung.</p>
         <div v-if="modeStatus === 'error'" role="alert" class="note" :style="box('error')">
           {{ modeError && modeError.message }}
           <button type="button" class="small" :style="FOCUS" @click="c.modes.setMode(mode)">{{ TEXT.modeRetry }}</button>
