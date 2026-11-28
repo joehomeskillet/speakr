@@ -105,7 +105,18 @@ def _open_ready_editor(browser, base):
 def _save_view(page, name):
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     page.screenshot(path=str(ARTIFACTS / f"{name}.png"), full_page=True)
-    (ARTIFACTS / f"{name}.html").write_text(page.content(), encoding="utf-8")
+    # Preserve the rendered DOM for offline linting without restarting Vue.
+    snapshot = page.evaluate("""() => {
+        const root = document.documentElement.cloneNode(true);
+        root.querySelectorAll('script, meta[name="csrf-token"]').forEach(node => node.remove());
+        for (const attr of ['href', 'src']) {
+            for (const node of root.querySelectorAll(`[${attr}^="/static/"]`)) {
+                node.setAttribute(attr, '../..' + node.getAttribute(attr));
+            }
+        }
+        return '<!DOCTYPE html>' + root.outerHTML;
+    }""")
+    (ARTIFACTS / f"{name}.html").write_text(snapshot, encoding="utf-8")
 
 
 def test_waveform_zoom_hide_keyboard_focus_and_sync(wave_server):
@@ -161,14 +172,15 @@ def test_waveform_zoom_hide_keyboard_focus_and_sync(wave_server):
             assert float(wave.locator("line[data-kind=playhead]").get_attribute("x1")) == pytest.approx(500, abs=1)
             assert page.evaluate("document.activeElement === document.querySelector('[data-testid=text]')")
 
-            # Typing immediately goes into the still-focused editor.
-            page.keyboard.type("Neu")
-            assert "Husten Neu." in editor.input_value()
-
             # Keyboard operation: Tab to zoom-in and hit Enter until 16x, focus must stay on button!
+            page.set_viewport_size({"width": 390, "height": 844})
             peaks_count_before = len([r for r in page.responses if "/peaks" in r])
             corr_count_before = len([r for r in page.responses if r.endswith("/correction")])
-            zoom_in.focus()
+            toggle.focus()
+            page.keyboard.press("Tab")
+            expect(zoom_out).to_be_focused()
+            page.keyboard.press("Tab")
+            expect(zoom_in).to_be_focused()
             for expected_zoom in ("4", "8", "16"):
                 page.keyboard.press("Enter")
                 expect(wave).to_have_attribute("data-zoom", expected_zoom)
@@ -176,7 +188,8 @@ def test_waveform_zoom_hide_keyboard_focus_and_sync(wave_server):
             expect(zoom_in).to_have_attribute("aria-disabled", "true")
 
             # Keyboard Space on zoom-reset returns to 1x and keeps focus.
-            zoom_reset.focus()
+            page.keyboard.press("Tab")
+            expect(zoom_reset).to_be_focused()
             page.keyboard.press("Space")
             expect(wave).to_have_attribute("data-zoom", "1")
             expect(zoom_reset).to_be_focused()
@@ -214,6 +227,7 @@ def test_waveform_zoom_hide_keyboard_focus_and_sync(wave_server):
                 for theme in ("light", "dark"):
                     page.evaluate("t => document.documentElement.classList.toggle('dark', t === 'dark')", theme)
                     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), f"overflow at {width} {theme}"
+                    wave.scroll_into_view_if_needed()
                     for testid in ("waveform-toggle", "waveform-zoom-out", "waveform-zoom-in", "waveform-zoom-reset"):
                         box = page.get_by_test_id(testid).bounding_box()
                         assert box is not None and box["height"] >= 48 and box["width"] >= 48, (testid, box)
@@ -224,11 +238,15 @@ def test_waveform_zoom_hide_keyboard_focus_and_sync(wave_server):
             page.evaluate("() => document.documentElement.classList.remove('dark')")
             page.set_viewport_size({"width": 390, "height": 844})
             editor.focus()
+            editor.evaluate("el => el.setSelectionRange(22, 26)")
             toggle.click()
             expect(wave).to_have_attribute("data-wave-visible", "false")
             assert page.evaluate("document.activeElement === document.querySelector('[data-testid=text]')")
             _save_view(page, "par-p111-hidden-390x844-light")
 
+            # Type after the captures so autosave cannot remount the waveform during them.
+            page.keyboard.type("Neu")
+            assert "Husten Neu." in editor.input_value()
             assert not page.js_errors
         finally:
             browser.close()
@@ -248,6 +266,7 @@ def test_waveform_empty_state_renders_cleanly(empty_wave_server):
                 for theme in ("light", "dark"):
                     page.evaluate("t => document.documentElement.classList.toggle('dark', t === 'dark')", theme)
                     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                    wave.scroll_into_view_if_needed()
                     _save_view(page, f"par-p111-empty-{width}x{height}-{theme}")
             assert not page.js_errors
         finally:

@@ -86,12 +86,13 @@ def add_human_revision(
     author_user_id: int,
     *,
     original_version: ClinicOriginal | None = None,
-    force_new_revision: bool = False,
+    force_new: bool = False,
 ) -> ClinicTranscriptRevision:
     """Append a human correction, or keep the tip for unchanged text and provenance.
 
     A new row is flushed, so its ID is available to other writes in the same
-    session. The caller owns the commit or rollback.
+    session. The caller owns the commit or rollback. Use ``force_new`` when
+    audio, formatting or provenance changes with identical text.
 
     ``author_user_id`` must be an existing user. It is stored as
     ``revision_author_user_id``, separate from the dictating person.
@@ -106,7 +107,7 @@ def add_human_revision(
         original_version=original_version,
         model_ref=None,
         author_user_id=author_user_id,
-        force_new_revision=force_new_revision,
+        force_new=force_new,
     )
 
 
@@ -158,13 +159,15 @@ def is_flagged(dictation: ClinicDictation, revision: ClinicTranscriptRevision) -
 
 
 def _append(dictation, *, kind, text, explicit_parent, original_version, model_ref,
-            author_user_id=None, force_new_revision=False):
+            author_user_id=None, force_new=False):
     digest = text_hash(text)
     normalised = normalise_text(text)
     rows = _load(dictation.id)
-    existing, parent = _link(dictation, explicit_parent, rows, kind, digest, force_new_revision)
+    existing, parent = _link(dictation, explicit_parent, rows, kind, digest)
     if existing is not None:
-        return existing
+        if not force_new:
+            return existing
+        parent = existing
     if kind == KIND_HUMAN:
         original_id = _human_original_id(parent, original_version, dictation)
         stored_model = None
@@ -242,7 +245,7 @@ def _human_original_id(parent, original_version, dictation):
     return original_id
 
 
-def _link(dictation, explicit_parent, rows, kind, digest, force_new_revision=False):
+def _link(dictation, explicit_parent, rows, kind, digest):
     """Return ``(existing_tip, None)`` or ``(None, parent_for_insert)``.
 
     The insert parent is the same-kind tip at or below the anchor. Extending
@@ -256,7 +259,7 @@ def _link(dictation, explicit_parent, rows, kind, digest, force_new_revision=Fal
     if anchor is None:
         return None, None
     tip = _same_kind_tip(anchor, rows, kind)
-    if not force_new_revision and tip.normalised_text_hash == digest:
+    if tip.normalised_text_hash == digest:
         return tip, None
     return None, tip
 
