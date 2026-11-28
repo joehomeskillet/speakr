@@ -258,6 +258,10 @@ export function toViewRow(item, userId) {
     const next = nextStep(item, pools, userId);
     const processingStatus = String(item.processing_status || '').toUpperCase();
     const processingActive = ['QUEUED', 'PENDING', 'PROCESSING', 'RUNNING'].includes(processingStatus);
+    let processing = '';
+    if (item.text_created === true) processing = 'Text erstellt';
+    else if (processingActive) processing = 'Text wird erstellt';
+    else if (processingStatus === 'FAILED') processing = 'Text konnte nicht erstellt werden';
     const seconds = Number.isFinite(item.duration_ms) ? Math.round(item.duration_ms / 1000) : null;
     const time = formatTime(item.sort_time || item.recorded_at);
     const heading = item.case_display ? TEXT.caseId + ' ' + item.case_display : item.capture_label || TEXT.dictation;
@@ -286,7 +290,7 @@ export function toViewRow(item, userId) {
         statusStyle: badge.style,
         nextStep: next.label,
         needsAction: next.needsAction,
-        processing: item.text_created === true ? 'Text erstellt' : (processingActive ? 'Text wird erstellt' : ''),
+        processing,
         processingDetail: PROCESSING_DETAIL[processingStatus] || '',
         processingActive,
         duration: seconds === null ? TEXT.none : formatAudioDuration(seconds),
