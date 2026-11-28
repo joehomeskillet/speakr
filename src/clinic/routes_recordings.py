@@ -60,6 +60,7 @@ def create_blueprint(load_entries: Callable[[int], Iterable[WorklistEntry]]) -> 
                 author_id=args.get("author_id") or None,
                 pool_id=args.get("pool_id") or None,
                 status=args.get("status") or None,
+                kind=args.get("recording_type"),
                 pending_first=args.get("pending_first") == "1",
             )
             entries = load_entries(actor)

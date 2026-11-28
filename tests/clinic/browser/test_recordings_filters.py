@@ -1,11 +1,15 @@
 """P01 adaptive disclosure against the real local app and recordings endpoint."""
 
 import json
+import os
+import re
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from playwright.sync_api import expect
 
+import v8_browser_support as support
+from test_recordings_pending import _save_rendered_dom
 from v8_browser_support import OUT_DIR, _wait_loading_overlay_gone
 
 
@@ -148,3 +152,130 @@ def test_filter_toggle_preserves_values_and_server_apply(browser, app_base, role
         expect(listing.get_by_test_id("filter-search")).to_have_value("")
     finally:
         context.close()
+
+
+RT04_TYPES = {
+    "sitzung": "Sitzung",
+    "patientengespraech": "Patientengespräch",
+    "bericht": "Bericht",
+    "notiz": "Persönliche Notiz",
+}
+RT04_SEED = """
+    empty = user("rt04-empty", "rt04-empty@local.test")
+    pools.add_author_member(pool.id, empty.id, actor_id=admin.id)
+    report = db.session.get(workflow.ClinicWorkflowDictation, dic.id)
+    report.status = workflow.DRAFT
+    report.assignee_user_id = None
+    for kind in ("sitzung", "patientengespraech", "notiz"):
+        take = Recording(user_id=author.id, title=f"RT04 {kind}", status="COMPLETED",
+                         original_filename="synthetic.wav")
+        db.session.add(take)
+        db.session.flush()
+        private = ClinicDictation(recording_id=take.id, author_user_id=author.id, pool_id=pool.id,
+                                  configured_recording_type=kind)
+        db.session.add(private)
+        db.session.flush()
+        db.session.add(workflow.ClinicWorkflowDictation(
+            id=private.id, author_user_id=author.id, pool_id=pool.id,
+            status=workflow.DRAFT, audio_seconds=4))
+    db.session.commit()
+"""
+
+
+@pytest.fixture(scope="module")
+def rt04_base(tmp_path_factory):
+    # Keep the original report (including its legacy type default) and add three private drafts.
+    source = support.SERVER.replace("server = make_server", RT04_SEED + "\nserver = make_server", 1)
+    with support.serve_app(tmp_path_factory.mktemp("rt04"), source) as base:
+        yield base
+
+
+@pytest.fixture(scope="module")
+def rt04_states(browser, rt04_base):
+    return {
+        "rows": support.login(browser, rt04_base, support.ROLES["author"]),
+        "empty": support.login(browser, rt04_base, "rt04-empty@local.test"),
+    }
+
+
+def _expect_rt04_rows(listing, kinds):
+    rows = listing.locator("[data-row]")
+    expect(rows).to_have_count(len(kinds))
+    for kind in kinds:
+        badge = listing.page.get_by_test_id("recording-type").filter(has_text=RT04_TYPES[kind])
+        row = rows.filter(has=badge)
+        expect(row.get_by_test_id("recording-type")).to_be_visible()
+        expect(row.get_by_test_id("recording-type")).to_have_text(RT04_TYPES[kind])
+        expect(row).to_have_accessible_description(re.compile(RT04_TYPES[kind]))
+        step = row.get_by_test_id("recording-next-step")
+        if kind == "bericht":
+            expect(step).not_to_have_text("Nur für Sie")
+        else:
+            expect(step).to_be_visible()
+            expect(step).to_have_text("Nur für Sie")
+    for marker in ("pending-heading", "pending-shortcut"):
+        if "bericht" in kinds:
+            expect(listing.get_by_test_id(marker)).to_be_visible()
+        else:
+            expect(listing.get_by_test_id(marker)).to_have_count(0)
+
+
+def _expect_rt04_mobile_layout(page, type_filter):
+    overflow = support.horizontal_overflow(page)
+    assert not (overflow["document"] or overflow["body"]), overflow
+    target = type_filter.bounding_box()
+    assert target is not None and min(target["width"], target["height"]) >= 48, target
+    assert 0 <= target["x"] <= page.viewport_size["width"] - target["width"], target
+
+
+@pytest.mark.parametrize("scenario", ["rows", "empty"])
+@pytest.mark.parametrize("size", support.VIEWPORTS)
+@pytest.mark.parametrize("theme", support.THEMES)
+def test_recording_type_filter(browser, rt04_base, rt04_states, scenario, size, theme):
+    width, height = support.VIEWPORTS[size]
+    with browser.new_context(
+        storage_state=rt04_states[scenario], viewport={"width": width, "height": height},
+        **support.theme_context_options(theme),
+    ) as context:
+        context.add_init_script(support.theme_init_script(theme))
+        page = context.new_page()
+        support._open_shell_view(page, rt04_base, "#/aufnahmen")
+        listing = page.get_by_test_id("clinic-recordings-view")
+        control = listing.locator('select[data-testid="filter-type"]')
+        expect(control).to_be_visible()
+        expect(control).to_have_value("")
+        expect(control.locator('option[value=""]')).to_have_text("Alle")
+        assert set(control.locator("option").evaluate_all("options => options.map(option => option.value)")) == {
+            "", *RT04_TYPES,
+        }
+        expect(control.locator("option")).to_have_count(5)
+        if scenario == "rows":
+            _expect_rt04_rows(listing, RT04_TYPES)
+        else:
+            expect(listing.get_by_test_id("empty-state")).to_be_visible()
+            _expect_rt04_rows(listing, ())
+        assert page.evaluate("document.documentElement.classList.contains('dark')") == (theme == "dark")
+        if size == "390x844":
+            _expect_rt04_mobile_layout(page, control)
+        if os.environ.get("V8_BROWSER_OUT"):
+            OUT_DIR.mkdir(parents=True, exist_ok=True)
+            stem = OUT_DIR / f"rt04-p01-{scenario}-{size}-{theme}"
+            page.screenshot(path=str(stem.with_suffix(".png")), full_page=True, animations="disabled")
+            _save_rendered_dom(page, stem.with_suffix(".html"))
+            if scenario == "rows" and size == "390x844":
+                last = listing.locator("[data-row]").last
+                last.scroll_into_view_if_needed()
+                page.screenshot(path=str(stem.with_name(stem.name + "-list").with_suffix(".png")), animations="disabled")
+        if scenario == "rows":
+            for kind in (*RT04_TYPES, ""):
+                with page.expect_response(
+                    lambda response: urlsplit(response.url).path == "/api/clinic/v1/recordings"
+                ) as response:
+                    control.select_option(kind)
+                assert response.value.ok
+                params = parse_qs(urlsplit(response.value.url).query, keep_blank_values=True)
+                assert params.get("recording_type") == ([kind] if kind else None)
+                expect(control).to_have_value(kind)
+                _expect_rt04_rows(listing, (kind,) if kind else RT04_TYPES)
+                if size == "390x844":
+                    _expect_rt04_mobile_layout(page, control)

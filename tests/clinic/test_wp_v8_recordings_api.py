@@ -21,7 +21,7 @@ from flask_login import LoginManager, login_user
 from sqlalchemy import func, select
 
 from src.app import app, db
-from src.clinic import dictation_roles, policy, recordings_list, routes_worklist, workflow, worklist_entries
+from src.clinic import dictation_roles, policy, recording_type, recordings_list, routes_worklist, workflow, worklist_entries
 from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger
 from src.clinic.archive_policy import ClinicArchiveEntry
 from src.clinic.identity import ClinicAccountPolicy, create_tables as _create_identity_tables
@@ -35,7 +35,7 @@ from src.models import AuditEvent, Group, GroupMembership, Recording, User
 from src.services import audit
 
 ROOT = Path(__file__).resolve().parents[2]
-ITEM_KEYS = {"dictation_id", "recording_id", "recorded_at", "time_source", "sort_time", "day", "dictated_by",
+ITEM_KEYS = {"dictation_id", "recording_id", "recording_type", "recorded_at", "time_source", "sort_time", "day", "dictated_by",
              "staff_pools", "lease_holder", "processing_status", "workflow_status", "duration_ms",
              "case_display", "archived_at", "own_title"}
 
@@ -65,13 +65,14 @@ def _user(name, *, is_admin=False, status=None, full_name=None):
 
 
 def _dictation(author, *, pool_id, meeting=None, created=None, status=workflow.TO_WRITE, assignee=None,
-               seconds=12, rec_status="COMPLETED", title="PATIENT-TITLE-SECRET", notes=None):
+               seconds=12, rec_status="COMPLETED", title="PATIENT-TITLE-SECRET", notes=None, kind=None):
     rec = Recording(user_id=author.id, title=title, status=rec_status, notes=notes,
                     original_filename="x.wav", meeting_date=meeting)
     db.session.add(rec)
     db.session.flush()
     kwargs = {} if created is None else {"created_at": created}
-    dictation = ClinicDictation(recording_id=rec.id, author_user_id=author.id, pool_id=pool_id, **kwargs)
+    dictation = ClinicDictation(recording_id=rec.id, author_user_id=author.id, pool_id=pool_id,
+                                configured_recording_type=kind, **kwargs)
     db.session.add(dictation)
     db.session.flush()
     db.session.add(workflow.ClinicWorkflowDictation(
@@ -146,6 +147,7 @@ def test_unauthenticated_is_401_and_contract_shape(scene):
     [row] = body["items"]
     assert set(row) == ITEM_KEYS
     assert row["dictation_id"] == dictation_id and row["recording_id"] == recording_id
+    assert row["recording_type"] == recording_type.REPORT
     assert row["recorded_at"] == "2026-07-01T08:30:00Z" == row["sort_time"]
     assert row["time_source"] == "recorded" and row["day"] == "2026-07-01"
     assert row["dictated_by"] == {"id": str(scene.a), "display_name": "Dr. Anna Autorin"}
@@ -189,6 +191,87 @@ def test_pending_first_is_owned_filter_independent_and_pageable(scene):
     admin = get(client_for(scene, scene.admin), "?pending_first=1").json
     assert admin["pending_count"] == 0
     assert any(row["dictation_id"] == foreign and "send_attention" not in row for row in admin["items"])
+
+
+def test_recording_type_filters_before_pending_and_paging(scene):
+    with app.app_context():
+        author = db.session.get(User, scene.a)
+        report = _dictation(author, pool_id=scene.pool_a, status=workflow.DRAFT,
+                            meeting=datetime(2026, 1, 1))
+        assert report.configured_recording_type is None
+        report_id = report.id
+        sent_report = _dictation(author, pool_id=scene.pool_a, kind=recording_type.REPORT,
+                                 meeting=datetime(2026, 11, 10)).id
+        private_ids = {
+            kind: _dictation(author, pool_id=scene.pool_a, kind=kind, status=status,
+                             meeting=datetime(2026, 11, day)).id
+            for day, (kind, status) in enumerate([
+                ("notiz", workflow.DRAFT), ("sitzung", workflow.PREP_OFFLINE),
+                ("patientengespraech", workflow.DRAFT),
+            ], start=11)
+        }
+        unknown = _dictation(author, pool_id=scene.pool_a, kind="future-type", status=workflow.DRAFT,
+                             meeting=datetime(2026, 1, 2)).id
+    client = client_for(scene, scene.a)
+    assert {row["dictation_id"]: row["recording_type"] for row in get(client).json["items"]} == {
+        report_id: recording_type.REPORT, sent_report: recording_type.REPORT, unknown: "future-type",
+        **{did: kind for kind, did in private_ids.items()},
+    }
+    query = "?pending_first=1&limit=1&from=2026-11-01"
+    unfiltered = get(client, query).json
+    assert (unfiltered["pending_count"], unfiltered["unsent_count"]) == (1, 1)
+    assert unfiltered["items"][0]["dictation_id"] == report_id
+    for kind, did in private_ids.items():
+        body = get(client, f"{query}&recording_type={kind}").json
+        [row] = body["items"]
+        assert (row["dictation_id"], row["recording_type"]) == (did, kind)
+        assert "send_attention" not in row and body["next_cursor"] is None
+        assert (body["pending_count"], body["unsent_count"]) == (0, 0)
+    query += f"&recording_type={recording_type.REPORT}"
+    first = get(client, query).json
+    [row] = first["items"]
+    assert row["dictation_id"] == report_id and row["send_attention"] == "unsent"
+    assert first["next_cursor"].startswith("p.")
+    second = get(client, f"{query}&cursor={first['next_cursor']}").json
+    assert [row["dictation_id"] for row in second["items"]] == [sent_report]
+    assert (second["pending_count"], second["unsent_count"]) == (1, 1)
+    assert second["next_cursor"] is None
+
+
+def test_private_recordings_are_hidden_even_from_admin_and_assignee(scene):
+    with app.app_context():
+        author = db.session.get(User, scene.a)
+        admin = db.session.get(User, scene.admin)
+        assignee = db.session.get(User, scene.typist)
+        report = _dictation(author, pool_id=scene.pool_a, assignee=assignee).id
+        for kind in ("notiz", "sitzung", "patientengespraech"):
+            _dictation(author, pool_id=scene.pool_a, assignee=assignee, kind=kind)
+        archived = _dictation(author, pool_id=scene.pool_a, kind="notiz", status=workflow.TO_ARCHIVE).id
+        admin_own = _dictation(admin, pool_id=scene.pool_a, kind="notiz").id
+    query = f"?author_id={scene.a}&limit=1&pending_first=1"
+    for viewer in (scene.admin, scene.typist):
+        client = client_for(scene, viewer)
+        body = get(client, query).json
+        assert [row["dictation_id"] for row in body["items"]] == [report]
+        assert body["next_cursor"] is None
+        assert (body["pending_count"], body["unsent_count"]) == (0, 0)
+        for kind in ("notiz", "sitzung", "patientengespraech"):
+            assert get(client, f"{query}&recording_type={kind}").json["items"] == []
+    archives = f"?status={workflow.TO_ARCHIVE}&recording_type=notiz"
+    [row] = get(client_for(scene, scene.a), archives).json["items"]
+    assert row["dictation_id"] == archived and row["recording_type"] == "notiz"
+    admin_client = client_for(scene, scene.admin)
+    assert get(admin_client, archives + f"&author_id={scene.a}").json["items"] == []
+    [row] = get(admin_client, f"?recording_type=notiz&author_id={scene.admin}").json["items"]
+    assert row["dictation_id"] == admin_own
+
+
+@pytest.mark.parametrize("kind", ["", "future-type", "BERICHT"])
+def test_invalid_recording_type_filter_returns_problem(scene, kind):
+    response = get(client_for(scene, scene.a), f"?recording_type={kind}&pending_first=1&limit=1")
+    assert response.status_code == 400
+    assert response.mimetype == "application/problem+json"
+    assert response.json["code"] == "INVALID_PAYLOAD"
 
 
 def test_assignee_and_asr_confirmed_text_are_optional_list_fields(scene):
@@ -326,20 +409,23 @@ def test_archive_dates_use_durable_sources_without_widening_visibility(scene, ma
 
 
 def test_admin_list_equals_the_worklist_and_foreign_loads_are_audited(scene):
-    """Same loader and same row policy as the worklist: the list never adds a second rule."""
+    """Reports still use the worklist loader, row policy and foreign-read audit."""
     with app.app_context():
         own = _dictation(db.session.get(User, scene.admin), pool_id=scene.pool_a, meeting=datetime(2026, 5, 1, 9))
         foreign = _dictation(db.session.get(User, scene.b), pool_id=scene.pool_b, meeting=datetime(2026, 5, 2, 9))
         own_id, foreign_recording = own.id, foreign.recording_id
         baseline = db.session.execute(select(func.max(AuditEvent.id))).scalar_one() or 0
-    listed = {row["dictation_id"] for row in get(client_for(scene, scene.admin)).json["items"]}
+    response = get(client_for(scene, scene.admin), f"?recording_type={recording_type.REPORT}")
+    listed = {row["dictation_id"] for row in response.json["items"]}
     assert own_id in listed
     audit.flush()
     with app.app_context():
         snapshot = routes_worklist.get_worklist(
             worklist_entries.load_entries(scene.admin), policy.build_subject(scene.admin), LayoutStore(),
             page_size=100)
-        assert listed == {row["dictation_id"] for row in snapshot.page.items}
+        assert listed == {row["dictation_id"] for row in snapshot.page.items
+                          if db.session.get(ClinicDictation, row["dictation_id"]).recording_type
+                          == recording_type.REPORT}
         rows = AuditEvent.query.filter(AuditEvent.id > baseline, AuditEvent.actor_user_id == scene.admin,
                                        AuditEvent.event == "recording.content.read").all()
         assert foreign_recording in {row.recording_id for row in rows}  # W12 audit of the foreign load

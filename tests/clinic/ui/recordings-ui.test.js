@@ -19,6 +19,37 @@ const make = (client, extra = {}) => createRecordingsController({ client, curren
 
 describe('recordings view model', () => {
     it.each([
+        ['sitzung', 'Sitzung'],
+        ['patientengespraech', 'Patientengespräch'],
+        ['notiz', 'Persönliche Notiz'],
+    ])('shows %s as private without hiding transcription progress', (recording_type, typeLabel) => {
+        const row = toViewRow(item('1', { recording_type, send_attention: 'unconfirmed', processing_status: 'queued' }), 3);
+        expect(row).toMatchObject({ typeLabel, nextStep: 'Nur für Sie', needsAction: false, sendAttention: null,
+            statusClass: '', processing: 'Text wird erstellt', workflowStatus: 'zu_schreiben' });
+    });
+
+    it('keeps report status and does not infer it for an unrecognised type', () => {
+        expect(toViewRow(item('1'), 3).typeLabel).toBe('Bericht');
+        const report = toViewRow(item('1', { recording_type: 'bericht', send_attention: 'unconfirmed' }), 3);
+        expect(report).toMatchObject({ typeLabel: 'Bericht', sendAttention: 'unconfirmed', needsAction: true });
+        const unknown = toViewRow(item('1', { recording_type: 'constructor', send_attention: 'unconfirmed' }), 3);
+        expect(unknown).toMatchObject({ typeLabel: '', sendAttention: null, needsAction: false });
+    });
+
+    it('keeps the selected type when paging or refreshing and omits it after reset', async () => {
+        const client = fakeClient([ok([item('1')], 'first'), ok([item('2')], 'filtered'), ok([]), ok([]), ok([])]);
+        const c = make(client);
+        await c.start();
+        c.state.draft.recording_type = 'notiz';
+        await c.applyFilters();
+        await c.loadMore();
+        await c.load();
+        await c.resetFilters();
+        const params = client.request.mock.calls.map(([path]) => new URLSearchParams(path.split('?')[1]));
+        expect(params.map(p => p.get('recording_type'))).toEqual([null, 'notiz', 'notiz', 'notiz', null]);
+        expect(params.map(p => p.get('cursor'))).toEqual([null, null, 'filtered', null, null]);
+    });
+    it.each([
         ['aufgabe', 'Aufgabe geplant'],
         ['neu_angelegt', 'Entwurf bei Dr. Muster'],
         ['vorbereitung_offline', 'Das System bereitet das Diktat vor'],

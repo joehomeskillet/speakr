@@ -630,6 +630,11 @@
 .v8-ui .record-search:focus-within{outline:2px solid #6c9f9f;outline-offset:1px}
 .v8-ui .record-search input{border:0;background:transparent;outline:0;width:100%;min-width:0;font-size:13px;color:var(--v8-text)}
 .v8-ui .record-select{font-size:12px;min-height:40px;border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:8px 30px 8px 11px;color:var(--v8-text);max-width:100%;cursor:pointer}
+.v8-ui .record-period-and-type,.v8-ui .record-period-and-type label{display:flex;align-items:center;gap:var(--ui-space-2);min-width:0}
+.v8-ui .record-period-and-type label{font-size:12px;color:var(--v8-text-2)}
+.v8-ui .clinic-recordings-view .cl-reference-row .record-title-line{display:flex;align-items:center;gap:var(--ui-space-1);padding-inline-end:34px}
+.v8-ui .clinic-recordings-view .cl-reference-row .record-title-line .record-title{padding-right:0}
+.v8-ui .record-title-line .cl-badge{flex-shrink:0}
 .v8-ui .record-list-meta{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:17px 1px 13px;font-size:12px;color:var(--v8-text-2)}
 .v8-ui .record-list-meta p{margin:0}
 .v8-ui .record-order{display:flex;gap:9px;align-items:center}
@@ -826,8 +831,12 @@
 .v8-ui .sort-select{font-size:10px;min-height:34px;padding-left:8px;padding-right:25px}
 .v8-ui .record-list-meta p{font-size:10px}
 .v8-ui .record-toolbar{padding:10px;gap:8px}
+.v8-ui .clinic-recordings-view .record-toolbar{padding-block:var(--ui-space-1);row-gap:var(--ui-space-1)}
 .v8-ui .record-toolbar .record-select{font-size:11px;flex-basis:calc(50% - 8px);min-width:0}
-.v8-ui .record-toolbar .record-select:last-child{flex-basis:100%}
+.v8-ui .record-toolbar > .record-select:last-child,.v8-ui .record-period-and-type{flex-basis:100%}
+.v8-ui .record-period-and-type .record-select{flex:1 1 auto}
+.v8-ui .record-period-and-type [data-testid="filter-period"]{flex:1 0 40%;padding-inline-start:var(--ui-space-2)}
+.v8-ui .record-period-and-type [data-testid="filter-type"]{padding-inline-start:var(--ui-space-2)}
 .v8-ui .record-search{min-width:100%}
 .v8-ui .date-heading{gap:8px}
 .v8-ui .date-heading .date-caption{font-size:10px}

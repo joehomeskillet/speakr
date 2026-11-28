@@ -2,8 +2,9 @@
 
 Visibility reuses the worklist: the injected loader narrows the candidates
 (W12 admin full access incl. audit of foreign reads, W13 pool leads) and the
-worklist's own row policy (``query_worklist``) decides every row. There is no
-second policy here. The payload carries identifiers, workflow state and staff
+worklist's row policy (``query_worklist``) decides among the remaining candidates.
+Known private recording types are creator-only on this endpoint. The payload
+carries identifiers, workflow state and staff
 names only: no patient name, no patient reference, no notes. The author-entered
 title is projected only on the viewer's own rows (owner decision Q-01); every
 other viewer gets ``own_title: None``. Fall-ID context stays in ``case_display``.
@@ -27,7 +28,9 @@ from datetime import date, datetime, timezone
 from sys import maxsize
 from zoneinfo import ZoneInfo
 
-from src.clinic import policy, pool_policy, recognition_state, routes_worklist, web_ingest, workflow, worklist_entries
+from src.clinic import (
+    policy, pool_policy, recognition_state, recording_type, routes_worklist, web_ingest, workflow, worklist_entries,
+)
 from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, PolicyError
 from src.clinic.acceptance_rules import can_decide
 from src.clinic.archive_policy import ClinicArchiveEntry
@@ -128,26 +131,42 @@ def list_recordings(
     author_id: str | None = None,
     pool_id: str | None = None,
     status: str | None = None,
+    kind: str | None = None,
     pending_first: bool = False,
     now: datetime | None = None,
 ) -> dict:
     """Page visible dictations by time, optionally prioritizing the viewer's own pending sends."""
+    if kind is not None and kind not in recording_type.SPEAKER_RANGES:
+        raise RecordingsQueryError("recording_type")
     if status is not None and status not in workflow.STATUS_ORDER:
         raise RecordingsQueryError("status")
     pending_cursor = bool(pending_first and cursor and cursor.startswith("p."))
     after = None if cursor is None else (pending_cursor, *decode_cursor(cursor[2:] if pending_cursor else cursor))
 
     by_id = {entry.row["dictation_id"]: entry for entry in entries}
-    visible = query_worklist((routes_worklist._query_row(entry) for entry in by_id.values()),
+    entry_ids = list(by_id)
+    dictations = {}
+    for start in range(0, len(entry_ids), 500):
+        part = entry_ids[start:start + 500]
+        for dictation in db.session.query(ClinicDictation).filter(ClinicDictation.id.in_(part)):
+            stored_kind = dictation.recording_type
+            if kind is not None and stored_kind != kind:
+                continue
+            # RT-02 owns the broader access rules; keep this list creator-only for known private types.
+            if (stored_kind in recording_type.SPEAKER_RANGES and stored_kind != recording_type.REPORT
+                    and dictation.author_user_id != subject.user_id):
+                continue
+            dictations[dictation.id] = dictation
+
+    visible = query_worklist((routes_worklist._query_row(entry) for did, entry in by_id.items() if did in dictations),
                              subject, page_size=maxsize).items
     ids = [row["dictation_id"] for row in visible]
-    dictations = {}
     confirmed = set()
     for start in range(0, len(ids), 500):
         part = ids[start:start + 500]
-        dictations.update({d.id: d for d in db.session.query(ClinicDictation).filter(ClinicDictation.id.in_(part))})
         candidates = [did for did in part if pending_first and by_id[did].row["status"] == workflow.PREP_OFFLINE
-                      and by_id[did].row["author_user_id"] == subject.user_id]
+                      and dictations[did].recording_type == recording_type.REPORT
+                      and dictations[did].author_user_id == subject.user_id]
         if candidates:
             item = workflow.ClinicWorkflowDictation
             # Sending stores the routing target in the same transaction as the workflow transition.
@@ -162,14 +181,13 @@ def list_recordings(
     ranked = []
     pending_count = unsent_count = 0
     for dictation_id in ids:
-        dictation = dictations.get(dictation_id)
-        if dictation is None:
-            continue
+        dictation = dictations[dictation_id]
         entry = by_id[dictation_id]
         moment, source = sort_time(dictation, entry.recording)
         row_status = entry.row["status"]
         attention = None
-        if pending_first and dictation.author_user_id == subject.user_id:
+        if (pending_first and dictation.recording_type == recording_type.REPORT
+                and dictation.author_user_id == subject.user_id):
             if row_status == workflow.DRAFT:
                 attention = "unsent"
                 unsent_count += 1
@@ -219,6 +237,7 @@ def list_recordings(
         items.append({
             "dictation_id": dictation_id,
             "recording_id": recording.id,
+            "recording_type": dictation.recording_type,
             "recorded_at": None if recorded is None else _iso(recorded),
             "time_source": source,
             "sort_time": _iso(moment),

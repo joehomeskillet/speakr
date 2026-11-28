@@ -17,7 +17,13 @@ import { STATUS_LABELS, formatAudioDuration, formatDictationReference, getOpenMo
 export const RECORDINGS_UI_VERSION = 1;
 export const RECORDINGS_PAGE_SIZE = 50;
 export const ARCHIVE_STATUS = 'zu_archivieren';
-export const FILTER_KEYS = Object.freeze(['author_id', 'pool_id', 'status', 'from', 'to']);
+export const FILTER_KEYS = Object.freeze(['author_id', 'pool_id', 'status', 'from', 'to', 'recording_type']);
+export const RECORDING_TYPES = Object.freeze({
+    sitzung: 'Sitzung',
+    patientengespraech: 'Patientengespräch',
+    bericht: 'Bericht',
+    notiz: 'Persönliche Notiz',
+});
 const ACTIVE_STATUS_LABELS = Object.freeze(Object.fromEntries(
     Object.entries(STATUS_LABELS).filter(([status]) => status !== ARCHIVE_STATUS),
 ));
@@ -31,13 +37,16 @@ export const TEXT = Object.freeze({
     checkReceipt: 'Empfang noch offen. Öffnen Sie das Diktat, um den Stand zu sehen.',
     searchLabel: 'Aufnahmen durchsuchen',
     searchPlaceholder: 'Person, Schreibdienst, Fallnummer',
-    periodAny: 'Gesamter Zeitraum',
+    periodAny: 'Alle Zeiten',
     periodToday: 'Heute',
     period7: 'Letzte 7 Tage',
     period30: 'Letzte 30 Tage',
     periodCustom: 'Eigener Zeitraum',
     periodLabel: 'Zeitraum der Aufnahme',
     statusLabel: 'Status der Aufnahme',
+    typeLabel: 'Art',
+    typeAll: 'Alle',
+    privateRecording: 'Nur für Sie',
     sortLabel: 'Aufnahmedatum',
     sortNewest: 'Neueste zuerst',
     sortSelect: 'Aufnahmen chronologisch sortieren',
@@ -250,13 +259,17 @@ const STATUS_TINT = Object.freeze({
 export function toViewRow(item, userId) {
     const source = item && item.time_source;
     const fallback = source !== 'recorded';
-    const pools = (Array.isArray(item.staff_pools) ? item.staff_pools : []).map((p) => p && p.name).filter(Boolean);
+    const kind = item.recording_type ?? 'bericht';
+    const typeLabel = Object.hasOwn(RECORDING_TYPES, kind) ? RECORDING_TYPES[kind] : '';
+    const isReport = kind === 'bericht';
+    const pools = (isReport && Array.isArray(item.staff_pools) ? item.staff_pools : []).map((p) => p && p.name).filter(Boolean);
     const badge = statusBadge(item.workflow_status);
     const own = userId != null && String(item.dictated_by?.id) === String(userId);
-    const sendAttention = own && ['unsent', 'unconfirmed'].includes(item.send_attention) ? item.send_attention : null;
-    const next = sendAttention === 'unconfirmed'
-        ? { label: TEXT.checkReceipt, needsAction: true }
-        : nextStep(item, pools, userId);
+    const sendAttention = isReport && own && ['unsent', 'unconfirmed'].includes(item.send_attention) ? item.send_attention : null;
+    let next;
+    if (!isReport) next = { label: typeLabel ? TEXT.privateRecording : 'Der nächste Schritt ist nicht bekannt', needsAction: false };
+    else if (sendAttention === 'unconfirmed') next = { label: TEXT.checkReceipt, needsAction: true };
+    else next = nextStep(item, pools, userId);
     const processingState = String(item.processing_status || '').toUpperCase();
     const processingActive = ['QUEUED', 'PENDING', 'PROCESSING', 'RUNNING'].includes(processingState);
     let processing = '';
@@ -276,8 +289,10 @@ export function toViewRow(item, userId) {
         day: item.day || null,
         time,
         datetime: item.sort_time || item.recorded_at || '',
-        statusClass: Object.prototype.hasOwnProperty.call(STATUS_TINT, item.workflow_status) ? STATUS_TINT[item.workflow_status] : 'neu',
-        ariaLabel: [heading + (!item.case_display && !item.capture_label && reference ? ' ' + reference : ''), TEXT.author + ' ' + authorName, TEXT.pool + ' ' + poolText, item.day ? formatLongDay(item.day) : '', time,
+        typeLabel,
+        isReport,
+        statusClass: isReport ? (Object.hasOwn(STATUS_TINT, item.workflow_status) ? STATUS_TINT[item.workflow_status] : 'neu') : '',
+        ariaLabel: [heading + (!item.case_display && !item.capture_label && reference ? ' ' + reference : ''), TEXT.author + ' ' + authorName, isReport ? TEXT.pool + ' ' + poolText : '', item.day ? formatLongDay(item.day) : '', time,
             seconds === null ? '' : formatAudioDuration(seconds)].filter(Boolean).join(', '),
         isFallback: fallback,
         fallbackLabel: fallback ? TEXT.fallbackBadge : '',
@@ -300,7 +315,7 @@ export function toViewRow(item, userId) {
         workflowStatus: item.workflow_status || null,
         heading,
         captureLabel: item.capture_label || '',
-        hasLease: nameOf(item.lease_holder) !== null,
+        hasLease: isReport && nameOf(item.lease_holder) !== null,
         fallbackText: source === 'imported' ? TEXT.fallbackImportedText : (source === 'created' ? TEXT.fallbackCreatedText : ''),
         searchText: [nameOf(item.dictated_by), pools.join(' '), item.case_display, '#' + item.dictation_id, item.dictation_id].filter(Boolean).join(' ').toLowerCase(),
     };
@@ -377,7 +392,7 @@ export function mergePage(existing, incoming, userId) {
     return next;
 }
 
-export const emptyFilters = () => Object.freeze({ author_id: '', pool_id: '', status: '', from: '', to: '' });
+export const emptyFilters = () => Object.freeze({ author_id: '', pool_id: '', status: '', from: '', to: '', recording_type: '' });
 
 /** Return state holder: lives in memory only, never in browser storage. */
 export function createRecordingsMemory() {

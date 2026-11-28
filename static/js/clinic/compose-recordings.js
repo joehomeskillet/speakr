@@ -11,7 +11,7 @@
  * Colours come from tokens.js. Nothing is written to browser storage or URLs.
  */
 
-import { PERIODS, RECORDINGS_PAGE_SIZE, TEXT, createRecordingsController, formatDay } from './recordings-ui.js';
+import { PERIODS, RECORDINGS_PAGE_SIZE, RECORDING_TYPES, TEXT, createRecordingsController, formatDay } from './recordings-ui.js';
 
 export const COMPOSE_RECORDINGS_VERSION = 1;
 export { RECORDINGS_PAGE_SIZE, createRecordingsController };
@@ -125,7 +125,7 @@ export const RecordingsView = {
             heading?.focus({ preventScroll: true });
             heading?.scrollIntoView({ block: 'start' });
         }
-        return { c, rowContext, recordingLabel, jumpToPending, scroller, root, onScroll, filtersOpen, t: TEXT, periods: PERIODS };
+        return { c, rowContext, recordingLabel, jumpToPending, scroller, root, onScroll, filtersOpen, t: TEXT, periods: PERIODS, types: RECORDING_TYPES };
     },
     template: `
 <section ref="root" class="clinic-recordings-view cl-view content-inner v8-page" data-testid="clinic-recordings-view" aria-labelledby="crv-title">
@@ -166,10 +166,20 @@ export const RecordingsView = {
         <option value="">{{ t.statusAny }}</option>
         <option v-for="(label, key) in c.statusOptions" :key="key" :value="key">{{ label }}</option>
       </select>
-      <select class="record-select" style="appearance: auto; width: auto; font-size: 12px" data-testid="filter-period" :aria-label="t.periodLabel" :value="c.picker.period"
-              @change="c.setPeriod($event.target.value); if ($event.target.value !== 'custom') c.applyFilters()">
-        <option v-for="p in periods" :key="p.key" :value="p.key">{{ p.label }}</option>
-      </select>
+      <div class="record-period-and-type">
+        <select class="record-select" style="appearance: auto; width: auto; font-size: 12px" data-testid="filter-period" :aria-label="t.periodLabel" :value="c.picker.period"
+                @change="c.setPeriod($event.target.value); if ($event.target.value !== 'custom') c.applyFilters()">
+          <option v-for="p in periods" :key="p.key" :value="p.key">{{ p.label }}</option>
+        </select>
+        <label>
+          {{ t.typeLabel }}
+          <select class="record-select" style="appearance: auto; min-height: 48px; padding-inline-end: var(--ui-space-2)"
+                  data-testid="filter-type" v-model="c.state.draft.recording_type" @change="c.applyFilters()">
+            <option value="">{{ t.typeAll }}</option>
+            <option v-for="(label, kind) in types" :key="kind" :value="kind">{{ label }}</option>
+          </select>
+        </label>
+      </div>
     </div>
     <div id="crv-role-filters" class="record-role-filters" :data-collapsed="!filtersOpen">
       <label style="position: relative"><span>{{ t.poolId }}</span>
@@ -238,17 +248,20 @@ export const RecordingsView = {
         <div class="record-group-list" data-testid="cards">
           <div v-for="r in g.rows" :key="r.key" class="cl-reference-row">
           <button type="button" class="recording-row" data-row data-card :data-id="r.dictationId" data-testid="open-link"
-             :disabled="!r.dictationId" :aria-label="r.ariaLabel" :aria-describedby="'crv-next-' + r.key + (r.processing ? ' crv-processing-' + r.key : '')" @click.prevent="c.open(r)">
+             :disabled="!r.dictationId" :aria-label="r.ariaLabel" :aria-describedby="'crv-next-' + r.key + (r.typeLabel ? ' crv-type-' + r.key : '') + (r.processing ? ' crv-processing-' + r.key : '')" @click.prevent="c.open(r)">
             <time class="record-time" :datetime="r.datetime || null">{{ r.time }}</time>
             <span class="record-icon" aria-hidden="true">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5zM15 3v6h5M9 12h6M9 16h6"/></svg>
             </span>
             <span class="record-text">
-              <span class="record-title">{{ recordingLabel(r) }}</span>
+              <span class="record-title-line">
+                <span class="record-title">{{ recordingLabel(r) }}</span>
+                <span v-if="r.typeLabel" :id="'crv-type-' + r.key" class="cl-badge" data-testid="recording-type">{{ r.typeLabel }}</span>
+              </span>
               <span v-if="r.ownTitle" class="record-subtitle" data-testid="own-title">Titel: {{ r.ownTitle }}</span>
               <span class="record-roles">
                 <span class="record-role"><span class="record-role-label">{{ t.author }}:</span> <span class="dictator-name" data-cell="author" :title="r.author">{{ r.author }}</span></span>
-                <span class="record-role"><span class="record-role-label">{{ t.pool }}:</span> <span class="pool-name" data-cell="pool" :title="r.poolText">{{ r.poolText }}</span></span>
+                                 <span v-if="r.isReport" class="record-role"><span class="record-role-label">{{ t.pool }}:</span> <span class="pool-name" data-cell="pool" :title="r.poolText">{{ r.poolText }}</span></span>
                 <span v-if="r.hasLease" class="record-role"><span class="record-role-label">{{ t.lease }}:</span> <span class="dictator-name" data-cell="lease">{{ r.leaseHolder }}</span></span>
               </span>
               <span class="record-subtitle" :class="r.isFallback ? 'date-fallback' : ''"><span>Diktat {{ r.reference }}</span><span v-if="r.fallbackText" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackText }}</span><span v-else-if="r.isFallback" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackLabel }}</span></span>
