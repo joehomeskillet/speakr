@@ -178,7 +178,7 @@ describe('recordings review fixes (V8 P01)', () => {
         const mounted = []; const unmounted = [];
         const vue = { ref: (v) => ({ value: v }), reactive: (o) => o, onMounted: (f) => mounted.push(f), onBeforeUnmount: (f) => unmounted.push(f), nextTick: () => Promise.resolve() };
         const host = { scrollTop: 0, addEventListener: vi.fn(), removeEventListener: vi.fn() };
-        const memory = { snapshot: { rows: [], nextCursor: null, filters: {}, draft: {}, query: '', scrollTop: 340 } };
+        const memory = { snapshot: { accountId: String(user.id), rows: [], nextCursor: null, filters: {}, draft: {}, query: '', scrollTop: 340 } };
         const s = RecordingsView.setup({ client: mk([]), currentUser: user, vue, memory, autoStart: true }, { emit: vi.fn() });
         s.scroller.value = host; // no DOM in the unit test: the fallback host is used
         await mounted[0]();

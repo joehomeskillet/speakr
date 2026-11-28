@@ -133,6 +133,49 @@ describe('recordings view model', () => {
 });
 
 describe('recordings controller', () => {
+    it('puts open owned dictations first once each and keeps them visible during a search', async () => {
+        const unsent = item('1', { workflow_status: 'neu_angelegt', send_attention: 'unsent' });
+        const unconfirmed = item('2', { workflow_status: 'vorbereitung_offline', send_attention: 'unconfirmed' });
+        const confirmed = item('3', { workflow_status: 'vorbereitung_online' });
+        const foreign = item('4', { dictated_by: { id: 9 }, send_attention: 'unsent' });
+        const unknown = item('5', { workflow_status: 'unknown', send_attention: 'unknown' });
+        const response = ok([unsent, unconfirmed, confirmed, foreign, unknown]);
+        Object.assign(response.data, { pending_count: 2, unsent_count: 1 });
+        const client = fakeClient([response]);
+        const c = make(client, { currentUser: { id: 3, role: 'typist' }, pendingFirst: true });
+        await c.start();
+        expect(client.request.mock.calls[0][0]).toBe('/recordings?limit=50&pending_first=1');
+        const [pending, ...days] = c.groups();
+        expect(pending.title).toBe('Noch nicht beim Schreibdienst');
+        expect(pending.rows.map((row) => [row.key, row.nextStep])).toEqual([
+            ['1', 'Sie sind dran: Diktat an den Schreibdienst senden'],
+            ['2', 'Empfang noch offen. Öffnen Sie das Diktat, um den Stand zu sehen.'],
+        ]);
+        expect(days.flatMap((day) => day.rows.map((row) => row.key))).toEqual(['3', '4', '5']);
+        expect(c.pendingLabel()).toBe('2 Diktate warten auf Versand oder Bestätigung.');
+        c.state.query = 'absent';
+        expect(c.groups().flatMap((group) => group.rows.map((row) => row.key))).toEqual(['1', '2']);
+    });
+
+    it('hides stale counts on failure and never restores pending dictations for another account', async () => {
+        const open = ok([item('1', { workflow_status: 'neu_angelegt', send_attention: 'unsent' })]);
+        Object.assign(open.data, { pending_count: 1, unsent_count: 1 });
+        const memory = createRecordingsMemory();
+        const client = fakeClient([open, { outcome: 'network' }, open, ok([])]);
+        const first = make(client, { memory, currentUser: { id: 3 } });
+        await first.start();
+        expect(first.pendingLabel()).toBe('Sie haben 1 Diktat, das noch nicht gesendet ist.');
+        await first.load();
+        expect(first.pendingLabel()).toBe('');
+        expect(first.groups()[0].rows[0].key).toBe('1');
+        await first.load();
+        first.dispose();
+        const other = make(client, { memory, currentUser: { id: 4 } });
+        await other.start();
+        expect(other.pendingLabel()).toBe('');
+        expect(other.groups()).toEqual([]);
+    });
+
     it('loads, appends via next_cursor and skips duplicates', async () => {
         const client = fakeClient([ok([item('1'), item('2')], 'c1'), ok([item('2'), item('3')], null)]);
         const c = make(client);

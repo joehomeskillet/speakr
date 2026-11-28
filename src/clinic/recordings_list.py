@@ -128,21 +128,31 @@ def list_recordings(
     author_id: str | None = None,
     pool_id: str | None = None,
     status: str | None = None,
+    pending_first: bool = False,
     now: datetime | None = None,
 ) -> dict:
-    """One page of visible dictations, newest first: ``{"items": [...], "next_cursor": str|None}``."""
+    """Page visible dictations by time, optionally prioritizing the viewer's own pending sends."""
     if status is not None and status not in workflow.STATUS_ORDER:
         raise RecordingsQueryError("status")
-    after = decode_cursor(cursor) if cursor is not None else None
+    pending_cursor = bool(pending_first and cursor and cursor.startswith("p."))
+    after = None if cursor is None else (pending_cursor, *decode_cursor(cursor[2:] if pending_cursor else cursor))
 
     by_id = {entry.row["dictation_id"]: entry for entry in entries}
     visible = query_worklist((routes_worklist._query_row(entry) for entry in by_id.values()),
                              subject, page_size=maxsize).items
     ids = [row["dictation_id"] for row in visible]
     dictations = {}
+    confirmed = set()
     for start in range(0, len(ids), 500):
         part = ids[start:start + 500]
         dictations.update({d.id: d for d in db.session.query(ClinicDictation).filter(ClinicDictation.id.in_(part))})
+        candidates = [did for did in part if pending_first and by_id[did].row["status"] == workflow.PREP_OFFLINE
+                      and by_id[did].row["author_user_id"] == subject.user_id]
+        if candidates:
+            item = workflow.ClinicWorkflowDictation
+            # Sending stores the routing target in the same transaction as the workflow transition.
+            confirmed.update(did for (did,) in db.session.query(item.id).filter(
+                item.id.in_(candidates), item.routing_target_json.is_not(None)))
 
     pools = None
     if pool_id is not None:  # a staff pool id matches the author pools routed to it
@@ -150,15 +160,33 @@ def list_recordings(
                              .filter(ClinicPoolRoute.staff_pool_id == pool_id)}
 
     ranked = []
+    pending_count = unsent_count = 0
     for dictation_id in ids:
         dictation = dictations.get(dictation_id)
         if dictation is None:
             continue
         entry = by_id[dictation_id]
         moment, source = sort_time(dictation, entry.recording)
-        key = (moment, dictation_id)
+        row_status = entry.row["status"]
+        attention = None
+        if pending_first and dictation.author_user_id == subject.user_id:
+            if row_status == workflow.DRAFT:
+                attention = "unsent"
+                unsent_count += 1
+            # Offline intake can hold a stored take before its handover. Online preparation
+            # on its own provides no evidence that a send is still open.
+            elif row_status == workflow.PREP_OFFLINE and dictation_id not in confirmed:
+                attention = "unconfirmed"
+        key = (attention is not None, moment, dictation_id)
+        if attention:
+            pending_count += 1
+        if after is not None and key >= after:
+            continue
+        if attention:
+            ranked.append((key, source, dictation, entry, attention))
+            continue
         day = day_of(moment)
-        if (after is not None and key >= after) or (status is not None and entry.row["status"] != status):
+        if status is not None and row_status != status:
             continue
         if author_id is not None and str(dictation.author_user_id) != author_id:
             continue
@@ -167,7 +195,7 @@ def list_recordings(
         if (date_from is not None and day < date_from.isoformat()) or (
                 date_to is not None and day > date_to.isoformat()):
             continue
-        ranked.append((key, source, dictation, entry))
+        ranked.append((key, source, dictation, entry, attention))
     ranked.sort(key=lambda item: item[0], reverse=True)
 
     page, more = ranked[:limit], len(ranked) > limit
@@ -179,7 +207,7 @@ def list_recordings(
     archive_times = dict(db.session.query(ClinicArchiveEntry.dictation_id, ClinicArchiveEntry.archived_at)
                          .filter(ClinicArchiveEntry.dictation_id.in_([item[2].id for item in page]))) if page else {}
     items = []
-    for (moment, dictation_id), source, dictation, entry in page:
+    for (_, moment, dictation_id), source, dictation, entry, attention in page:
         recording = entry.recording
         seconds = recording.audio_duration_seconds
         if seconds is None:
@@ -205,6 +233,8 @@ def list_recordings(
             "case_display": contexts.get(dictation_id),
             "own_title": (recording.title or None) if dictation.author_user_id == subject.user_id else None,
         })
+        if attention:
+            items[-1]["send_attention"] = attention
         if assignees[dictation_id] is not None:
             items[-1]["assignee"] = assignees[dictation_id]
         if outcomes[dictation_id] == "completed":
@@ -215,5 +245,11 @@ def list_recordings(
         if (entry.row.get("source_label") == routes_worklist.ORIGIN_LABELS["web-recorder"]
                 and (label := web_ingest.generated_recorder_title(recording.title))):
             items[-1]["capture_label"] = label
-    last = page[-1][0] if more else None
-    return {"items": items, "next_cursor": None if last is None else encode_cursor(*last)}
+    next_cursor = None
+    if more:
+        pending, moment, dictation_id = page[-1][0]
+        next_cursor = ("p." if pending else "") + encode_cursor(moment, dictation_id)
+    body = {"items": items, "next_cursor": next_cursor}
+    if pending_first:
+        body.update(pending_count=pending_count, unsent_count=unsent_count)
+    return body

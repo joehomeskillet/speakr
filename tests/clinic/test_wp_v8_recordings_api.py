@@ -158,6 +158,39 @@ def test_unauthenticated_is_401_and_contract_shape(scene):
     assert "PATIENT-TITLE-SECRET" not in text and "PAT-SECRET" not in text and "patient" not in text.lower()
 
 
+def test_pending_first_is_owned_filter_independent_and_pageable(scene):
+    with app.app_context():
+        author = db.session.get(User, scene.a)
+        other = db.session.get(User, scene.b)
+        normal = _dictation(author, pool_id=scene.pool_a, status=workflow.TO_WRITE,
+                            meeting=datetime(2026, 11, 20)).id
+        unsent = _dictation(author, pool_id=scene.pool_a, status=workflow.DRAFT,
+                            meeting=datetime(2026, 1, 1)).id
+        unconfirmed = _dictation(author, pool_id=scene.pool_a, status=workflow.PREP_OFFLINE,
+                                 meeting=datetime(2026, 1, 2)).id
+        confirmed = _dictation(author, pool_id=scene.pool_a, status=workflow.PREP_OFFLINE,
+                               meeting=datetime(2026, 11, 19)).id
+        workflow.store_routing_target(db.session(), confirmed, actor_id=scene.a)
+        foreign = _dictation(other, pool_id=scene.pool_b, status=workflow.DRAFT,
+                             meeting=datetime(2026, 11, 21)).id
+    client = client_for(scene, scene.a)
+    assert get(client, "?limit=1").json["items"][0]["dictation_id"] == normal
+    query = "?pending_first=1&limit=1&from=2026-11-01"
+    first = get(client, query).json
+    assert (first["pending_count"], first["unsent_count"]) == (2, 1)
+    assert [(r["dictation_id"], r["send_attention"]) for r in first["items"]] == [(unconfirmed, "unconfirmed")]
+    second = get(client, f"{query}&cursor={first['next_cursor']}").json
+    assert [(r["dictation_id"], r["send_attention"]) for r in second["items"]] == [(unsent, "unsent")]
+    third = get(client, f"{query}&cursor={second['next_cursor']}").json
+    assert third["items"][0]["dictation_id"] == normal
+    fourth = get(client, f"{query}&cursor={third['next_cursor']}").json
+    assert fourth["items"][0]["dictation_id"] == confirmed
+    assert "send_attention" not in fourth["items"][0] and fourth["next_cursor"] is None
+    admin = get(client_for(scene, scene.admin), "?pending_first=1").json
+    assert admin["pending_count"] == 0
+    assert any(row["dictation_id"] == foreign and "send_attention" not in row for row in admin["items"])
+
+
 def test_assignee_and_asr_confirmed_text_are_optional_list_fields(scene):
     with app.app_context():
         author = db.session.get(User, scene.a)
