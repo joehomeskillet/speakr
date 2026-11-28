@@ -196,7 +196,8 @@ export function createRecorderPhases(options) {
             set({ phase: 'recording', title, error: null });
             return { ok: true };
         } catch (e) {
-            const code = ['NotAllowedError', 'SecurityError'].includes(e?.name) ? 'microphone_denied' : 'start_failed';
+            const code = ['NotAllowedError', 'SecurityError'].includes(e?.name) ? 'microphone_denied'
+                : ['NotFoundError', 'OverconstrainedError'].includes(e?.name) ? 'microphone_unavailable' : 'start_failed';
             if (mine === generation) set({ error: code });
             return denied(code);
         } finally {

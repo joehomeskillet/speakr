@@ -1,5 +1,9 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## P-062 – Versanddaten vor dem Einreichen
+
+Im lokalen Klinik-Browserlauf wurden Titel, Anmerkung, Priorität und ein Zürcher Tagesendtermin eines synthetischen P04-Entwurfs gespeichert und nach erneutem Öffnen geprüft. Die angezeigte Abnahmepflicht folgte einer separaten Admin-Änderung. Staging und Originalsystemvergleich stehen aus; die offenen Paritätslücken bleiben unverändert.
+
 ## P-141 – ASR-Wartezeit (PAR-ASR-003)
 
 Die Klinik-API erlaubt berechtigten Bearbeitern nach Ablauf der Profilfrist den Wechsel von In Vorbereitung zu Zu schreiben. Ein lokaler synthetischer API-/DB-Test prüft eine verspätete ASR-Antwort als Nebenversion bei vorhandenem menschlichem Textkopf. Staging und Referenzvergleich bleiben offen.
@@ -7,6 +11,10 @@ Die Klinik-API erlaubt berechtigten Bearbeitern nach Ablauf der Profilfrist den 
 ## Implementierung P-084
 
 Versionierte Importabsichten werden pro Datei in den bestehenden Klinik-Import übernommen. Synthetische HTTP-/DB-Tests prüfen Metadaten, Poolwahl, Empfänger, die drei ASR-Modi und den unveränderten nicht ausgewählten Inventareintrag. Staging- und Philips-Referenztests für BT-IMP-003 stehen noch aus.
+
+## P-193 – DSS/DS2-Autorzuordnung beim Import (PAR-IMP-002)
+
+Synthetische Uploads über die registrierte Agent-Route bestätigen die Zuordnung per gespeicherter Autor- oder Gerätebindung. Unbekannte und widersprüchliche Autoren bleiben mit unverändertem Original auf der Klärliste; Desktop-Anmeldung und Agent-Hinweise bestimmen die Zuordnung nicht. Ein DS2-Upload prüft auch, dass die Metadaten der zugeordneten Importabsicht übernommen werden. Staging und der Referenzvergleich BT-IMP-002 mit realen Geräten bleiben `not_run`.
 
 ## Q-05 vom 27. November 2026 – KIS nur lesend (X-KIS-1)
 
@@ -75,3 +83,7 @@ Für neue Diktate kann die erste erfolgreiche lokale Transkription eine Zusammen
 ## P-133 – Playerposition im Schreibplatz (PAR-COR-001)
 
 Teilfunktion umgesetzt und lokal mit synthetischem Audio im Browser geprüft: Die Playerleiste lässt sich per Zeiger und Pfeiltasten im sichtbaren Editorbereich verschieben und zurücksetzen. Audioelement, laufende Wiedergabe, Textauswahl und Bearbeitungslease blieben auch beim Wechsel auf 390 px erhalten. Die Prüfung auf Staging und der unveränderte Originaltest BT-COR-001 mit Referenzvergleich stehen aus; keine Aussage zur vollständigen Parität.
+
+## P-235 – Arbeitsplatzvorgaben (PAR-CFG-001)
+
+Gezielte API-/Datenbanktests mit SQLite und PostgreSQL bestätigen, dass zentrale Locks, Workflow-Presets und lokale Arbeitsplatzwerte nach einem App-Neustart erhalten bleiben. Die effektiven Werte berücksichtigen Systempflicht und Ceilings. Zentrale Schreibzugriffe erfordern einen aktiven Site-Admin und einen gültigen CSRF-Token. Der Staging-Neustarttest bleibt beim Orchestrator.
