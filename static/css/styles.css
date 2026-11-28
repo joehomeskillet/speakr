@@ -1,15 +1,9 @@
 @import './tokens.css';
 
 /* Clinic tables and drawers keep their own scroll containers. */
-@scope (html:has(.v8-ui)) {
-    :scope { --work-surface-focus: var(--brand-accent); }
-    :scope, html, body { overflow-x: clip; }
+@scope (html:has(> body:is(.v8-ui, .v8-focus))) {
+    :scope, body { overflow-x: clip; }
     body.overflow-hidden { overflow: clip; }
-    #global-header { --border-focus: var(--brand-accent-darkmode); }
-    #global-header > div:first-child a:focus-visible {
-        outline: 3px solid var(--brand-accent-darkmode);
-        outline-offset: 2px;
-    }
 }
 
 /* Page-to-page navigation: a short cross-fade between same-origin pages in
