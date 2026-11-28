@@ -34,6 +34,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from src.database import db
 from src.models import User
+from src.models.user import USERNAME_MAX_LENGTH
 from src.services import audit, login_lock
 
 logger = logging.getLogger(__name__)
@@ -312,7 +313,8 @@ def _hash_code(code):
 
 def _checked_email(username, email, *, user_id=None):
     """Normalised email; IdentityConflict for invalid or taken username/email."""
-    if not isinstance(username, str) or len(username) > 20 or len(username.strip()) < 2 or '\x00' in username:
+    if (not isinstance(username, str) or len(username) > USERNAME_MAX_LENGTH
+            or len(username.strip()) < 2 or '\x00' in username):
         raise IdentityConflict("invalid_username")
     email = User.normalize_email(email) if isinstance(email, str) else None
     if not email or len(email) > 120 or '\x00' in email or not _EMAIL_RE.fullmatch(email):
