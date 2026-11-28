@@ -1451,12 +1451,12 @@ def register_clinic_audio(flask_app):
                             revisions, richtext, routes_audio, routes_bundle, routes_clipboard, routes_correction,
                             routes_correction_documents, routes_dictation_properties, routes_live,
                             routes_output, routes_tts, startup)
+    from src.clinic import routes_live_drafts
     from src.clinic.admin_dictation_access import can_open_content
     from src.clinic.clipboard_ledger import AuditClipboardLedger
     from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
     from src.clinic.models import ClinicDictation
-    from src.clinic import routes_live_drafts
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
     run_once = flask_app.extensions['clinic_run_once']
