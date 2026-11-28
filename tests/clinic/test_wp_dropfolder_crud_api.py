@@ -168,3 +168,18 @@ def test_audit_failure_rolls_back_create_and_delete(client_for, monkeypatch):
         patch.setattr(audit, "record_in_tx", lambda *args, **kwargs: None)
         assert client.delete(f"{URL}/{created.json['id']}", headers=headers).status_code == 503
     assert client.get(URL).json["items"] == [created.json]
+
+
+@clinic_routes
+def test_empty_sources_list_still_returns_authors_and_pools(client_for):
+    from src.clinic import pools
+
+    client, _headers, uid = client_for("admin")
+    with app.app_context():
+        pool = pools.create_author_pool("Dropfolder Empty Pool", actor_id=uid)
+        pools.add_author_member(pool.id, uid, actor_id=uid)
+        pool_id = pool.id
+    body = client.get(URL).json
+    assert body["items"] == []
+    assert any(a["id"] == uid for a in body["authors"])
+    assert any(p["id"] == pool_id and p["author_id"] == uid for p in body["pools"])

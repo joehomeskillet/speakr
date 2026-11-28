@@ -11,12 +11,14 @@ from sqlalchemy import func
 from src.database import db
 
 
+USERNAME_MAX_LENGTH = 120
+
 
 class User(db.Model, UserMixin):
     """User model for authentication and profile management."""
 
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(20), unique=True, nullable=False)
+    username = db.Column(db.String(USERNAME_MAX_LENGTH), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     # TEXT: a scrypt hash (scrypt:131072:8:1) is longer than 60 characters.
     # Existing bcrypt hashes stay valid. Databases created with VARCHAR(60)
