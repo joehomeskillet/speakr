@@ -417,3 +417,83 @@ def test_declarative_web_command_execute_unauthorized_and_csrf(client_session, a
     unauth_client = app.test_client()
     unauth_resp = unauth_client.post(EXECUTE_PATH, headers=headers, json=body)
     assert unauth_resp.status_code in (401, 403)
+
+
+EXPORT_PATH = "/api/clinic/v1/commands/export"
+IMPORT_PATH = "/api/clinic/v1/commands/import"
+
+
+def _seed_hooked_command(app, user_id):
+    with app.app_context():
+        vocabulary.add_voice_command("user", "Gruss", action_type="insert_text", action_payload="Hallo", user_id=user_id)
+        vocabulary.add_voice_command(
+            "user", "Brief", action_type="template", action_payload="Sehr geehrte Kollegen",
+            user_id=user_id, before_hook="Gruss", after_hook="focus_editor",
+        )
+        db.session.commit()
+
+
+def test_export_reimport_with_hooks_collision_needs_confirmation(client_session, app):
+    client, headers, user_id = client_session
+    _seed_hooked_command(app, user_id)
+
+    exported = client.get(EXPORT_PATH)
+    assert exported.status_code == 200
+    bundle = exported.json
+    assert bundle["format"] == "clinic-commands" and bundle["version"] == 1
+    brief = next(c for c in bundle["commands"] if c["trigger_phrase"] == "Brief")
+    assert brief["before_hook"] == "Gruss" and brief["after_hook"] == "focus_editor"
+
+    # Change the stored entry, then reimport without overwrite: 409, entry preserved.
+    with app.app_context():
+        vocabulary.add_voice_command(
+            "user", "Brief", action_type="template", action_payload="Geaendert", user_id=user_id,
+        )
+        db.session.commit()
+    body = {"bundle": bundle, "scope_type": "user", "scope_id": str(user_id)}
+    refused = client.post(IMPORT_PATH, headers=headers, json=body)
+    assert refused.status_code == 409
+    assert refused.json["code"] == "import_conflict"
+    assert "Brief" in refused.json["conflicts"]
+    with app.app_context():
+        cmd = vocabulary.ClinicVoiceCommand.query.filter_by(user_id=user_id, trigger_phrase="Brief").one()
+        assert cmd.action_payload == "Geaendert"
+
+    confirmed = client.post(IMPORT_PATH, headers=headers, json={**body, "overwrite": True})
+    assert confirmed.status_code == 200
+    with app.app_context():
+        cmd = vocabulary.ClinicVoiceCommand.query.filter_by(user_id=user_id, trigger_phrase="Brief").one()
+        assert (cmd.action_payload, cmd.before_hook, cmd.after_hook) == ("Sehr geehrte Kollegen", "Gruss", "focus_editor")
+
+
+def test_import_creates_text_block_and_rejects_unlisted_hooks(client_session, app):
+    client, headers, user_id = client_session
+    scope = {"scope_type": "user", "scope_id": str(user_id)}
+
+    def bundle(entry):
+        return {"format": "clinic-commands", "version": 1, "commands": [entry]}
+
+    block = {"trigger_phrase": "Baustein", "action_type": "template", "action_payload": "Text"}
+    ok = client.post(IMPORT_PATH, headers=headers, json={"bundle": bundle(block), **scope})
+    assert ok.status_code == 200 and ok.json["imported"] == 1
+
+    script = {**block, "trigger_phrase": "Boese", "before_hook": "rm -rf /"}
+    bad = client.post(IMPORT_PATH, headers=headers, json={"bundle": bundle(script), **scope})
+    assert bad.status_code == 422 and bad.json["code"] == "hook_not_allowed"
+    with app.app_context():
+        assert vocabulary.ClinicVoiceCommand.query.filter_by(trigger_phrase="Boese").count() == 0
+
+    old = client.post(IMPORT_PATH, headers=headers, json={"bundle": {**bundle(block), "version": 2}, **scope})
+    assert old.status_code == 422 and old.json["code"] == "unsupported_bundle"
+
+
+def test_import_export_guards_scope_csrf_and_auth(client_session, app):
+    client, headers, user_id = client_session
+    bundle = {"format": "clinic-commands", "version": 1,
+              "commands": [{"trigger_phrase": "X", "action_type": "insert_text", "action_payload": "y"}]}
+    foreign = client.post(IMPORT_PATH, headers=headers, json={"bundle": bundle, "scope_type": "user", "scope_id": "99"})
+    assert foreign.status_code == 403
+    no_csrf = client.post(IMPORT_PATH, json={"bundle": bundle, "scope_type": "user", "scope_id": str(user_id)})
+    assert no_csrf.status_code == 403
+    assert client.get(EXPORT_PATH + "?scope_type=author_pool&scope_id=nopool").status_code == 403
+    assert app.test_client().get(EXPORT_PATH).status_code == 401

@@ -253,6 +253,108 @@ def execute_command_endpoint():
         return _make_problem(code, title, status)
 
 
+BUNDLE_FORMAT, BUNDLE_VERSION = "clinic-commands", 1
+IMPORT_ACTION_TYPES = ("insert_text", "template", "app_command", "macro")
+
+
+def _command_scope(actor_id: int, st: Any, sid: Any) -> tuple[str, int | None, str | None] | None:
+    """Return (scope, user_id, pool_id) when the actor may manage that scope."""
+    if st == "user" and str(sid) == str(actor_id):
+        return "user", actor_id, None
+    if st == "author_pool" and isinstance(sid, str) and sid in _resolve_actor_pools(actor_id, [sid]):
+        return "pool", None, sid
+    return None
+
+
+def _scoped_commands(scope: str, user_id: int | None, pool_id: str | None) -> list[Any]:
+    cls = vocabulary.ClinicVoiceCommand
+    q = cls.query.filter_by(scope=scope, user_id=user_id, pool_id=pool_id)
+    return q.order_by(cls.trigger_phrase.asc()).all()
+
+
+@commands_blueprint.route("/api/clinic/v1/commands/export", methods=["GET"])
+@commands_blueprint.route("/commands/export", methods=["GET"])
+def export_commands():
+    actor_id = _require_actor()
+    if actor_id is None:
+        return _problem("UNAUTHORIZED")
+    st, sid = request.args.get("scope_type", "user"), request.args.get("scope_id", str(actor_id))
+    scope = _command_scope(actor_id, st, sid)
+    if scope is None:
+        return _problem("FORBIDDEN")
+    items = [
+        {"trigger_phrase": c.trigger_phrase, "description": c.description, "action_type": c.action_type,
+         "action_payload": c.action_payload, "before_hook": c.before_hook, "after_hook": c.after_hook, "status": c.status}
+        for c in _scoped_commands(*scope)
+    ]
+    return jsonify({"format": BUNDLE_FORMAT, "version": BUNDLE_VERSION, "scope_type": st, "scope_id": sid, "commands": items}), 200
+
+
+@commands_blueprint.route("/api/clinic/v1/commands/import", methods=["POST"])
+@commands_blueprint.route("/commands/import", methods=["POST"])
+def import_commands():
+    """Import a versioned command bundle. Collisions need overwrite=true; otherwise nothing is written."""
+    actor_id = _require_actor()
+    if actor_id is None:
+        return _problem("UNAUTHORIZED")
+    if not _require_csrf():
+        return _problem("FORBIDDEN")
+
+    body = request.get_json(silent=True) or {}
+    bundle, overwrite = body.get("bundle"), body.get("overwrite", False)
+    scope = _command_scope(actor_id, body.get("scope_type"), body.get("scope_id"))
+    if scope is None:
+        return _problem("FORBIDDEN")
+    if not isinstance(bundle, dict) or not isinstance(overwrite, bool):
+        return _problem("INVALID_PAYLOAD")
+    if bundle.get("format") != BUNDLE_FORMAT or bundle.get("version") != BUNDLE_VERSION:
+        return _make_problem("unsupported_bundle", "Befehlspaket-Version nicht unterstützt", 422)
+    entries = bundle.get("commands")
+    if not isinstance(entries, list) or not entries or len(entries) > 200:
+        return _problem("INVALID_PAYLOAD")
+
+    existing = {c.trigger_phrase: c for c in _scoped_commands(*scope)}
+    triggers = {e.get("trigger_phrase", "").strip() for e in entries if isinstance(e, dict) and isinstance(e.get("trigger_phrase"), str)}
+    known = set(APP_RIGHTS) | triggers | set(existing)
+    clean: list[dict[str, Any]] = []
+    for e in entries:
+        if not isinstance(e, dict):
+            return _problem("INVALID_PAYLOAD")
+        phrase, atype, payload = e.get("trigger_phrase"), e.get("action_type"), e.get("action_payload")
+        if not isinstance(phrase, str) or not phrase.strip() or len(phrase.strip()) > 255 or atype not in IMPORT_ACTION_TYPES:
+            return _make_problem("invalid_command", "Ungültiger Befehl im Paket", 422)
+        if not isinstance(payload, str) or not payload or (atype == "app_command" and payload not in APP_RIGHTS):
+            return _make_problem("invalid_command", f"Ungültige Aktion für '{phrase}'", 422)
+        hooks = {}
+        for key in ("before_hook", "after_hook"):
+            hook = e.get(key)
+            if hook is not None and (not isinstance(hook, str) or hook not in known or len(hook) > 64):
+                return _make_problem("hook_not_allowed", f"Hook '{hook}' nicht erlaubt (nur App-Befehle oder Befehle des Pakets)", 422)
+            hooks[key] = hook or None
+        desc = e.get("description")
+        clean.append({"phrase": phrase.strip(), "atype": atype, "payload": payload,
+                      "description": desc if isinstance(desc, str) else None, **hooks})
+
+    conflicts = sorted(c["phrase"] for c in clean if c["phrase"] in existing)
+    if conflicts and not overwrite:
+        resp = _make_problem("import_conflict", "Befehle existieren bereits; Überschreiben bestätigen", 409)
+        body_out = resp[0].get_json()
+        body_out["conflicts"] = conflicts
+        out = jsonify(body_out)
+        out.mimetype = "application/problem+json"
+        return out, 409
+
+    scope_name, user_id, pool_id = scope
+    for c in clean:
+        vocabulary.add_voice_command(
+            scope=scope_name, trigger_phrase=c["phrase"], action_type=c["atype"], action_payload=c["payload"],
+            user_id=user_id, pool_id=pool_id, description=c["description"],
+            before_hook=c["before_hook"], after_hook=c["after_hook"],
+        )
+    db.session.commit()
+    return jsonify({"status": "imported", "imported": len(clean), "overwritten": conflicts}), 200
+
+
 def register_commands_adapters(dispatch: ParityDispatch, registry: AsrCapabilityRegistry | None = None) -> None:
     """Register parity command adapters for save_command and request_adaptation."""
 
