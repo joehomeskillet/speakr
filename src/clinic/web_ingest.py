@@ -204,6 +204,7 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
     """
     if processing_source != WEB_SOURCE:
         return None
+    owner_id = owner.id
     kind = requested_type or recording_type.REPORT
     from src.services.upload_cancel import client_upload_id_from
     time_source = _time_source(form, now, meeting_date)
@@ -213,7 +214,7 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
     # parsers that split off the recording id still match.
     asr_mark = '' if speech_recognition_requested(form, kind) else ':asr=off'
     try:
-        selection = app_wiring.active_author_pool(owner.id)
+        selection = app_wiring.active_author_pool(owner_id)
         pool_id = selection.pool_id
         if kind == recording_type.REPORT:
             if selection.reselection_required:
@@ -224,13 +225,13 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
             path = stored.local_path
             size = os.path.getsize(path)
             digest = _sha256(path)
-            key = f'web:{owner.id}:{client_upload_id_from(form) or digest}'
+            key = f'web:{owner_id}:{client_upload_id_from(form) or digest}'
             service = IngestService(startup.originals_root(current_app))
             with open(path, 'rb') as stream:
                 receipt = service.store_original(
                     stream, declared_sha256=digest, declared_size=size, origin=origin,
                     origin_ref=f'upload:recording:{recording.id}{asr_mark}:time={time_source}',
-                    author_user_id=owner.id, idempotency_key=key, now=moment, commit=False)
+                    author_user_id=owner_id, idempotency_key=key, now=moment, commit=False)
         dictation = db.session.get(ClinicDictation, receipt.dictation_id)
         if dictation.private_purge_at is not None:
             raise IngestError('conflict', 'recording is in the trash')
@@ -242,17 +243,18 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
                 anchor = db.session.get(Recording, dictation.recording_id)
                 anchor.title = title
                 anchor.title_source = recording.title_source
+            # The workflow column is NOT NULL. An empty value represents an unpooled private draft.
             db.session.add(ClinicWorkflowDictation(
-                id=dictation.id, author_user_id=owner.id, pool_id=dictation.pool_id,
+                id=dictation.id, author_user_id=owner_id, pool_id=dictation.pool_id or '',
                 status=DRAFT, created_at=moment, audio_seconds=int(recording.audio_duration_seconds or 0)))
         elif requested_type is not None and requested_type != dictation.recording_type:
             raise IngestError('conflict', 'recording type differs from the original upload')
         db.session.commit()
     except IngestError as error:
-        logger.warning('web ingest refused for user %s: %s', owner.id, error.code)
+        logger.warning('web ingest refused for user %s: %s', owner_id, error.code)
         return _refuse(recording, storage, f'clinic_ingest_{error.code}', MSG_FAILED,
                        409 if error.code == 'conflict' else 500)
     except Exception:
-        logger.error('web ingest failed for user %s', owner.id, exc_info=True)
+        logger.error('web ingest failed for user %s', owner_id, exc_info=True)
         return _refuse(recording, storage, 'clinic_ingest_failed', MSG_FAILED, 500)
     return dictation
