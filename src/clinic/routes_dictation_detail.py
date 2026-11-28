@@ -125,6 +125,8 @@ def create_blueprint(
     header exactly when the history is readable. A dictation the caller may not
     see answers 404 like an unknown one.
     """
+    from src.clinic.routes_dictation_properties import content_unlocked
+
     bp = Blueprint('clinic_dictation_detail', __name__)
 
     @bp.before_request
@@ -151,6 +153,10 @@ def create_blueprint(
             abort(404)
         snap = dictation_snapshot(dictation)
         flow = db.session.get(workflow.ClinicWorkflowDictation, dictation.id)
+        if not content_unlocked(current_user.id, dictation.id):
+            if not authorize(current_user, 'listen', dictation):
+                abort(404)
+            return jsonify(dictation_id=dictation.id, etag=snap['etag'], protection_required=True)
         recording = db.session.get(Recording, dictation.recording_id)
         recorded = None if recording is None else recording.meeting_date
         fallback = recorded is None
@@ -158,6 +164,17 @@ def create_blueprint(
         pool = None if dictation.pool_id is None else db.session.get(ClinicAuthorPool, dictation.pool_id)
         audit.record('recording.content.read', recording_id=dictation.recording_id,
                      actor_kind='session', actor_user_id=current_user.id, details={'part': 'detail'})
+        draft_fields = {}
+        if (recording is not None and flow is not None and flow.status == workflow.DRAFT
+                and current_user.id == dictation.author_user_id and authorize(current_user, 'review', dictation)):
+            draft_fields = dict(
+                draft_metadata=dict(
+                    title=recording.title, notes=recording.notes or '', priority=flow.priority,
+                    deadline_date=flow.deadline_date.isoformat() if flow.deadline_date else '',
+                ),
+                draft_edit_actions=[action for action in ('rename', 'priority')
+                                    if authorize(current_user, action, dictation) is True],
+            )
         return jsonify(
             dictation_id=dictation.id,
             etag=snap['etag'],
@@ -178,6 +195,7 @@ def create_blueprint(
                 acceptance=snap['review_state'],
                 output='RELEASED' if snap['active_release_id'] else 'NOT_RELEASED',
             ),
+            **draft_fields,
             **_capabilities(current_user, dictation, flow, snap, authorize, acceptance_policy),
         )
 

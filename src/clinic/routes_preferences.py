@@ -1,29 +1,41 @@
-"""HTTP surface for recipient, selection, workstation and key-binding preferences.
+"""HTTP surface for recipient, selection, workstation, key-binding and output preferences.
 
-PAR-ADM-006, PAR-ADM-007, PAR-ADM-011, PAR-CFG-001, PAR-OPS-003. A thin layer over
-``recipient_defaults``, ``last_selection``, ``workstation_preferences`` and
-``key_bindings``. The actor is always ``current_user``. A body never names an
-actor, user or role. Every write checks CSRF and the session. Allowances
-(``allowed_for``) and the author pool (``author_pool_for``) come from the
-caller's central policy, are read on every request, and so apply at save and
-at use time.
+PAR-ADM-006, PAR-ADM-007, PAR-ADM-011, PAR-CFG-001, PAR-OPS-003, PAR-EXP-001.
+A thin layer over ``recipient_defaults``, ``last_selection``,
+``workstation_preferences``, ``key_bindings`` and ``output_preferences``.
+The actor is always ``current_user``. A body never names an actor, user or
+role. Every write checks CSRF and the session. Output saves also require
+``If-Match`` equal to the stored version. Allowances (``allowed_for``) and the
+author pool (``author_pool_for``) come from the caller's central policy, are
+read on every request, and so apply at save and at use time.
 
-The OpenAPI catalog has no preference command yet, so these routes are not
-parity commands. Mounting ``blueprint`` in the app is left to the consumer
-package (w196-routes-identity).
+The app mounts these routes in clinic mode. Central writes are system-wide
+and require an active site administrator. Effective workflow presets use
+the session user and their server-selected author pool.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any
 
-from flask import Blueprint, abort, jsonify, request, session
+from flask import Blueprint, abort, current_app, jsonify, request, session
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from wtforms.validators import ValidationError
 
-from src.clinic import correction_modes, key_bindings, notification_preferences, pools, recipient_defaults as rd
+from src.clinic import (
+    correction_modes,
+    key_bindings,
+    notification_preferences,
+    output_preferences,
+    pools,
+    presets,
+    recipient_defaults as rd,
+)
+from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.last_selection import (
     Allowed,
@@ -32,13 +44,14 @@ from src.clinic.last_selection import (
     SelectionStore,
     restore,
 )
-from src.database import db
 from src.clinic.workstation_preferences import (
+    ALLOWLIST,
     PreferenceError,
     StaleVersion,
     WorkstationPreferences,
     session_transport_status,
 )
+from src.database import db
 
 PREFIX = "/api/clinic/v1/preferences"
 # Identity and authority come from the session, never from the request.
@@ -57,7 +70,21 @@ _STATUS = {
     "invalid_transport_policy": 503,
 }
 _TITLES = {400: "Ungültige Anfrage", 401: "Anmeldung erforderlich", 403: "Zugriff verweigert",
-           409: "Versionskonflikt", 422: "Auswahl nicht zulässig", 503: "Dienst nicht verfügbar"}
+           409: "Versionskonflikt", 412: "Version veraltet", 422: "Auswahl nicht zulässig",
+           428: "Voraussetzung fehlt", 503: "Dienst nicht verfügbar"}
+# Flat format ids the output screen saves. Each one is one stored target.
+_OUTPUT_FORMATS = {
+    "clipboard": {"channel": "clipboard", "target_alias": "clipboard", "format": "plain",
+                  "selected_by_default": True},
+    "formatted": {"channel": "clipboard", "target_alias": "formatted", "format": "formatted",
+                  "selected_by_default": True},
+    "txt": {"channel": "download", "target_alias": "txt", "format": "txt", "selected_by_default": True},
+    "rtf": {"channel": "download", "target_alias": "rtf", "format": "rtf", "selected_by_default": True},
+    "docx": {"channel": "download", "target_alias": "docx", "format": "docx", "selected_by_default": True},
+    "kis_draft": {"channel": "kis_draft", "target_alias": "kis_draft", "format": "plain",
+                  "selected_by_default": True},
+}
+_OUTPUT_BODY_KEYS = frozenset({"formats", "open_after_export", "expected_version"})
 
 
 def _problem(code: str, status: int | None = None, **extra: Any):
@@ -76,6 +103,87 @@ def _body() -> dict[str, Any]:
 
 def _selection_json(selection: Selection) -> dict[str, Any]:
     return {key: value for key, value in vars(selection).items()}
+
+
+def _require_central_admin() -> None:
+    if not _is_active_site_admin(db.session, current_user):
+        raise PreferenceError("unauthorized")
+    if request.args or (request.method == "DELETE" and request.get_data()):
+        raise PreferenceError("invalid_payload")
+
+
+def _valid_preset_value(key: str, value: Any) -> bool:
+    if key == "priority":
+        return type(value) is int and value in presets.ALLOWED_PRIORITIES
+    if key == "security":
+        return isinstance(value, str) and value in presets.ALLOWED_SECURITY_LEVELS
+    if key in ("use_speech_recognition", "with_approval"):
+        return type(value) is bool
+    if key == "typist" and (value is None or type(value) is int):
+        return value is None or value > 0
+    return isinstance(value, str) and len(value) <= 128 and bool(value.strip())
+
+
+def _if_match_version() -> int | tuple:
+    """Quoted decimal ``If-Match``. Missing is 428, anything else unreadable is 400."""
+    raw = request.headers.get("If-Match")
+    if raw is None or not raw.strip():
+        return _problem("precondition_required", 428)
+    match = re.fullmatch(r'"(0|[1-9][0-9]{0,18})"', raw.strip())
+    if match is None:
+        return _problem("bad_version", 400)
+    return int(match[1])
+
+
+def _targets_for_formats(formats: object) -> list[dict[str, Any]]:
+    if not isinstance(formats, list) or len(formats) > output_preferences.MAX_TARGETS:
+        raise rd.RecipientDefaultError("invalid_payload")
+    if any(type(name) is not str for name in formats) or len(set(formats)) != len(formats):
+        raise rd.RecipientDefaultError("invalid_payload")
+    targets = []
+    for name in formats:
+        spec = _OUTPUT_FORMATS.get(name)
+        if spec is None:
+            raise rd.RecipientDefaultError("invalid_payload")
+        targets.append(dict(spec))
+    return targets
+
+
+def _format_names(prefs: output_preferences.OutputPreferences) -> list[str]:
+    names: list[str] = []
+    for item in prefs.targets:
+        name = item.target_alias if item.target_alias in _OUTPUT_FORMATS else None
+        if name is None and item.format in _OUTPUT_FORMATS:
+            name = item.format
+        elif name is None and item.channel in _OUTPUT_FORMATS:
+            name = item.channel
+        if name is not None:
+            names.append(name)
+    return names
+
+
+def _output_json(prefs: output_preferences.OutputPreferences):
+    response = jsonify(
+        version=prefs.version, formats=_format_names(prefs), open_after_export=prefs.open_after_export,
+    )
+    response.headers["ETag"] = f'"{prefs.version}"'
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def _output_failure(error: output_preferences.PreferenceError):
+    if error.code == "stale_version":
+        return _problem("stale_version", 412)
+    if error.code == "corrupt":
+        return _problem("corrupt", 409)
+    return _problem(error.code, 400)
+
+
+def _saved_output(actor: int):
+    try:
+        return _output_json(output_preferences.get_preferences(actor))
+    except output_preferences.PreferenceError as error:
+        return _output_failure(error)
 
 
 class PreferenceRoutes:
@@ -103,8 +211,12 @@ class PreferenceRoutes:
             ("/last-selection", "last_selection", self._last_selection, ("GET", "PUT")),
             ("/workstations", "workstation_issue", self._workstation_issue, ("GET", "POST")),
             ("/workstations/<workstation_id>", "workstation", self._workstation, ("GET", "PUT")),
+            ("/workstation-locks/<key>", "workstation_lock", self._workstation_lock, ("PUT", "DELETE")),
+            ("/presets", "presets", self._resolved_presets, ("GET",)),
+            ("/presets/<key>", "system_preset", self._system_preset, ("PUT", "DELETE")),
             ("/correction-mode", "correction_mode", self._correction_mode, ("GET", "PUT")),
             ("/key-bindings", "key_bindings", self._key_bindings, ("GET", "PUT", "DELETE")),
+            ("/output", "output", self._output, ("GET", "PUT")),
             ("/notifications", "notifications", self._notifications, ("GET", "PUT")),
         ):
             bp.add_url_rule(PREFIX + rule, name, self._wrap(view), methods=list(methods))
@@ -140,6 +252,10 @@ class PreferenceRoutes:
                 return _problem(error.code, conflicts=[list(pair) for pair in error.conflicts])
             except key_bindings.BindingError as error:
                 return _problem(error.code)
+            except SQLAlchemyError as error:
+                db.session.rollback()
+                current_app.logger.error("Clinic preference %s failed (%s)", request.endpoint, type(error).__name__)
+                return _problem("preference_read_failed" if request.method == "GET" else "preference_write_failed")
 
         run.__name__ = view.__name__
         return run
@@ -236,6 +352,48 @@ class PreferenceRoutes:
         )
         return jsonify(version=version)
 
+    def _workstation_lock(self, key: str):
+        _require_central_admin()
+        if key not in ALLOWLIST:
+            raise PreferenceError("not_allowlisted")
+        if request.method == "DELETE":
+            self._workstations.unlock(key)
+        else:
+            body = _body()
+            if body.keys() != {"value"}:
+                raise PreferenceError("invalid_payload")
+            self._workstations.lock(key, body["value"])
+        return "", 204
+
+    def _resolved_presets(self):
+        actor = current_user.id
+        result = presets.resolve_presets(user_id=actor, pool_id=self._author_pool_for(actor))
+        keys = presets.SYSTEM_DEFAULTS
+        return jsonify(values={key: result.values[key] for key in keys},
+                       origins={key: result.origins[key] for key in keys},
+                       locked=sorted(result.locked.intersection(keys)))
+
+    def _system_preset(self, key: str):
+        _require_central_admin()
+        if key not in presets.SYSTEM_DEFAULTS:
+            raise PreferenceError("not_allowlisted")
+        if request.method == "DELETE":
+            presets.ClinicPreset.query.filter_by(scope="system", scope_id=presets.SYSTEM_SCOPE_ID, key=key).delete()
+        else:
+            body = _body()
+            is_locked = body.get("is_locked", False)
+            if "value" not in body or body.keys() - {"value", "is_locked"} or type(is_locked) is not bool:
+                raise PreferenceError("invalid_payload")
+            if not _valid_preset_value(key, body["value"]):
+                raise PreferenceError("bad_value")
+            try:
+                presets.set_preset(key, body["value"], is_locked=is_locked)
+            except IntegrityError:
+                db.session.rollback()
+                return _problem("conflict")
+        db.session.commit()
+        return "", 204
+
     # -- correction playback mode (W6) --------------------------------------
     def _correction_mode(self):
         """Only the signed-in user's own row is read or written."""
@@ -247,6 +405,32 @@ class PreferenceRoutes:
         body = _body()
         mode, version = correction_modes.set_mode(actor, body.get("mode"), body.get("expected_version"))
         return jsonify(mode=mode, version=version)
+
+    # -- output formats (PAR-EXP-001) ---------------------------------------
+    def _output(self):
+        """Selected export formats for the signed-in account only."""
+        actor = current_user.id
+        if request.method == "GET":
+            return _saved_output(actor)
+        body = _body()
+        if body.keys() - _OUTPUT_BODY_KEYS:
+            raise rd.RecipientDefaultError("invalid_payload")
+        version = _if_match_version()
+        if not isinstance(version, int):
+            return version
+        if body.get("expected_version", version) != version:
+            raise rd.RecipientDefaultError("invalid_payload")
+        flag = body.get("open_after_export", False)
+        if type(flag) is not bool:
+            raise rd.RecipientDefaultError("invalid_payload")
+        targets = _targets_for_formats(body.get("formats"))
+        try:
+            saved = output_preferences.save_preferences(
+                actor, targets, flag, expected_version=version,
+            )
+        except output_preferences.PreferenceError as error:
+            return _output_failure(error)
+        return _output_json(saved)
 
     # -- focused key and pedal bindings (PAR-OPS-003) -----------------------
     def _key_bindings(self):

@@ -27,7 +27,9 @@ from datetime import date, datetime, timezone
 from sys import maxsize
 from zoneinfo import ZoneInfo
 
-from src.clinic import recognition_state, policy, routes_worklist, web_ingest, workflow, worklist_entries
+from src.clinic import policy, pool_policy, recognition_state, routes_worklist, web_ingest, workflow, worklist_entries
+from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, PolicyError
+from src.clinic.acceptance_rules import can_decide
 from src.clinic.archive_policy import ClinicArchiveEntry
 from src.clinic.dictation_roles import project_roles
 from src.clinic.models import ClinicDictation
@@ -97,6 +99,24 @@ def sort_time(dictation: ClinicDictation, recording) -> tuple[datetime, str]:
     return _aware(dictation.created_at), "created"
 
 
+def _viewer_review_turn(subject, dictation, status, assignee, holder) -> bool:
+    if status not in (workflow.TO_ACCEPT, workflow.ACCEPTED):
+        return False
+    viewer = str(subject.user_id)
+    if holder is not None and holder['id'] != viewer:
+        return False
+    if status == workflow.ACCEPTED:
+        owner = holder or assignee
+        return owner is not None and owner['id'] == viewer and pool_policy.decide(subject, 'release', dictation).allowed
+    if not pool_policy.decide(subject, 'release', dictation).allowed:
+        return False
+    try:
+        rule = AcceptanceLedger().current(SCOPE_DICTATION, dictation.id).as_rule()
+    except PolicyError:
+        return False
+    return can_decide(rule, subject.user_id, pool_policy.author_pool_ids(subject.user_id))
+
+
 def list_recordings(
     entries: Iterable[routes_worklist.WorklistEntry],
     subject: policy.Subject,
@@ -152,6 +172,8 @@ def list_recordings(
 
     page, more = ranked[:limit], len(ranked) > limit
     roles = project_roles([item[2] for item in page], now)
+    assignees = {row["dictation_id"]: row.get("assignee")
+                 for row in routes_worklist._with_names([item[3].row for item in page])}
     outcomes = recognition_state.asr_outcomes(item[2] for item in page)
     contexts = worklist_entries.case_displays([item[2].id for item in page])
     archive_times = dict(db.session.query(ClinicArchiveEntry.dictation_id, ClinicArchiveEntry.archived_at)
@@ -183,6 +205,13 @@ def list_recordings(
             "case_display": contexts.get(dictation_id),
             "own_title": (recording.title or None) if dictation.author_user_id == subject.user_id else None,
         })
+        if assignees[dictation_id] is not None:
+            items[-1]["assignee"] = assignees[dictation_id]
+        if outcomes[dictation_id] == "completed":
+            items[-1]["text_created"] = True
+        if _viewer_review_turn(subject, dictation, entry.row['status'], assignees[dictation_id],
+                               roles[dictation_id]['lease_holder']):
+            items[-1]['viewer_review_turn'] = True
         if (entry.row.get("source_label") == routes_worklist.ORIGIN_LABELS["web-recorder"]
                 and (label := web_ingest.generated_recorder_title(recording.title))):
             items[-1]["capture_label"] = label

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -201,6 +202,28 @@ def test_plain_export_without_template_is_unchanged(world):
     assert response.status_code == 201
     assert response.json["status"] == "ready"
     assert "template_id" not in response.json
+
+
+def test_docx_template_can_be_placed_in_an_approved_alias(world, monkeypatch, tmp_path):
+    root = tmp_path / 'alias'
+    root.mkdir()
+    (tmp_path / 'output-destinations.json').write_text(json.dumps({'aliases': [{
+        'name': 'workflow', 'root': str(root), 'kind': 'workflow', 'label': 'Workflow', 'version': 1,
+    }]}), encoding='utf-8')
+    monkeypatch.setenv('CLINIC_CONFIG_DIR', str(tmp_path))
+    row = _template(world, _docx('Einleitung', MARK, 'Schluss'), mime=DOCX_MIME)
+    client, response = _post(world, world['author'], {
+        'format': 'docx', 'template_id': row.id, 'text_mode': 'plain',
+        'manual_name': 'Bericht', 'destination_alias': 'workflow',
+    })
+    assert response.status_code == 201, response.json
+    assert response.json['destination']['filename'] == 'Bericht.docx'
+    placed = (root / 'Bericht.docx').read_bytes()
+    job_id = response.json['id']
+    download = client.get(f"/api/clinic/v1/dictations/{world['dictation']}/exports/{job_id}/download")
+    assert download.status_code == 200
+    assert placed == download.data
+    assert 'Einleitung' in _body_text(placed) and 'Befundzeile eins' in _body_text(placed)
 
 
 def test_docx_inserts_plain_text_at_mark_and_keeps_header_and_footer(world):

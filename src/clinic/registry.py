@@ -21,6 +21,7 @@ MODEL_MODULES = (
     "workflow",
     "presets",
     "vocabulary",
+    "caution_rules",
     "correction",
     "correction_recognition_marks",
     "live_session",
