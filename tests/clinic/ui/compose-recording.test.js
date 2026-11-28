@@ -5,6 +5,7 @@ import {
     RECORDING_TEMPLATE, RecordingView, TEXT, createRecordingViewController, isAudioFile, receiptDictationId,
     registerRecordingView,
 } from '../../../static/js/clinic/compose-recording.js';
+import { acquireMicrophoneStream } from '../../../static/js/modules/composables/audio.js';
 
 function recorder(upload) {
     return {
@@ -60,7 +61,13 @@ describe('recording view controller', () => {
         expect(m.authorId).toBe('4');
         expect(Object.keys(c)).not.toContain('setAuthor');
         expect(Object.keys(c)).not.toContain('setPool');
-        expect(RECORDING_TEMPLATE).not.toMatch(/<select|author-picker|pool/i);
+        const draftForm = RECORDING_TEMPLATE.match(/<form\b[^>]*data-testid="draft-metadata"[^>]*>[\s\S]*?<\/form>/)?.[0] || '';
+        const recordingControls = draftForm ? RECORDING_TEMPLATE.replace(draftForm, '') : RECORDING_TEMPLATE;
+        expect(recordingControls).not.toMatch(/<select\b|author-picker|pool/i);
+        expect(draftForm.match(/<select\b[^>]*>/gi) || []).toEqual(draftForm ? [
+            expect.stringContaining(':value="m.draft.fields.priority"'),
+        ] : []);
+        expect(RECORDING_TEMPLATE).not.toMatch(/author-picker|pool/i);
         expect(RECORDING_TEMPLATE).not.toContain('c.text.author');
         expect(TEXT.author).toBe('Diktiert von');
     });
@@ -201,6 +208,41 @@ describe('recording view controller', () => {
         expect(c.model().message).toContain('Datei hochladen');
     });
 
+    it.each(['NotFoundError', 'OverconstrainedError'])('names an unplugged microphone (%s) without starting or saving', async (name) => {
+        const microphone = { deviceId: 'desk', inputs: [
+            { deviceId: 'desk', label: 'Diktiermikrofon' },
+            { deviceId: 'laptop', label: 'Notebook' },
+        ] };
+        const rec = recorder();
+        const error = new DOMException('Device unavailable', name);
+        const getUserMedia = vi.fn().mockRejectedValue(error);
+        rec.startRecording.mockImplementation(() => acquireMicrophoneStream({ getUserMedia }, {
+            deviceId: microphone.deviceId, requireDevice: true,
+        }));
+        const { c } = make({ recorder: rec, options: { microphone } });
+        c.setTitle('Bericht');
+        expect(c.model().microphoneOptions).toEqual(microphone.inputs);
+        expect(c.model()).toMatchObject({ selectedMicrophoneId: 'desk', needsMicrophoneAccess: false });
+        microphone.inputs = [{ deviceId: 'laptop', label: 'Notebook' }];
+        expect(await c.start()).toEqual({ ok: false, code: 'microphone_unavailable' });
+        expect(getUserMedia).toHaveBeenCalledOnce();
+        expect(getUserMedia).toHaveBeenCalledWith({ audio: expect.objectContaining({ deviceId: { exact: 'desk' } }) });
+        expect(c.model()).toMatchObject({ phase: 'ready', created: null });
+        expect(c.model().message).toContain('„Diktiermikrofon“ ist nicht verfügbar');
+        expect(c.model().message).not.toContain('Gespeichert');
+        expect((await c.sendRecording()).ok).toBe(false);
+        expect(rec.uploadRecordedAudio).not.toHaveBeenCalled();
+    });
+
+    it('marks the default when no named inputs have been exposed', () => {
+        const microphone = { deviceId: 'default', inputs: [{ deviceId: 'default', label: 'System' }, { deviceId: 'desk', label: '' }] };
+        const { c } = make({ options: { microphone } });
+        expect(c.model()).toMatchObject({
+            selectedMicrophoneId: '', needsMicrophoneAccess: true,
+            microphoneOptions: [{ deviceId: 'desk', label: 'Mikrofon 1' }],
+        });
+    });
+
     it('offers Zur Arbeitsliste and Öffnen only after success', async () => {
         const { c, onOpen, onWorklist } = make();
         expect(c.openCreated()).toBe(false);
@@ -213,6 +255,66 @@ describe('recording view controller', () => {
         expect(onOpen).toHaveBeenCalledWith({ dictationId: 'rec-1' });
         expect(TEXT.toWorklist).toBe('Zur Arbeitsliste');
         expect(TEXT.open).toBe('Öffnen');
+    });
+
+    it('exposes the clinic ID after saving a take without submitting it', async () => {
+        const request = vi.fn();
+        const rec = recorder(async () => ({ id: 7, dictation_id: 'draft-7' }));
+        const { c } = make({ recorder: rec, options: { client: { request } } });
+        await toReview(c);
+        expect(c.model().editableDraftId).toBeNull();
+        expect((await c.saveRecording()).ok).toBe(true);
+        expect(c.model()).toMatchObject({ editableDraftId: 'draft-7', canSubmit: true, message: TEXT.sent });
+        expect(request).not.toHaveBeenCalled();
+        request.mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'draft-7', etag: 'version' } })
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'draft-7', status: 'vorbereitung_online' } });
+        expect((await c.submit()).ok).toBe(true);
+        expect(c.model().editableDraftId).toBeNull();
+        expect(rec.uploadRecordedAudio).toHaveBeenCalledOnce();
+    });
+
+    it('reuses the category flow’s save action and allows editing before category selection', async () => {
+        const set = { id: 's1', name: 'Testbereich', version: 1, categories: ['Rot'], required: true };
+        const request = vi.fn().mockResolvedValueOnce({ outcome: 'ok', data: { sets: [set] } });
+        const rec = recorder(async () => ({ id: 7, dictation_id: 'draft-7' }));
+        const { c } = make({ recorder: rec, options: { client: { request } } });
+        await c.loadCategories();
+        await toReview(c);
+        expect(c.model()).toMatchObject({ recordActionLabel: TEXT.upload, canSaveRecording: false });
+        expect((await c.sendRecording()).ok).toBe(true);
+        expect(c.model()).toMatchObject({
+            recordActionLabel: TEXT.submit,
+            editableDraftId: 'draft-7',
+            categories: [{ ...set, value: '' }],
+        });
+        expect((await c.submit()).code).toBe('missing_category');
+        expect(request.mock.calls).toEqual([['/categories']]);
+    });
+
+    it('offers audio editing before the draft metadata is saved for submission', async () => {
+        const id = 'draft-7';
+        const request = vi.fn().mockResolvedValueOnce({
+            outcome: 'ok', data: {
+                dictation_id: id, etag: 'version', status_axes: { workflow: 'neu_angelegt' },
+                draft_metadata: { title: 'Bericht' }, draft_edit_actions: ['rename'], allowed_actions: ['send'],
+            },
+        }).mockResolvedValueOnce({ outcome: 'ok', data: { acceptance_required: false } });
+        const rec = recorder(async () => ({ id: 7, dictation_id: id }));
+        const { c } = make({ recorder: rec, options: { client: { request }, draftMetadata: true } });
+        await toReview(c);
+        expect(c.model()).toMatchObject({ recordActionLabel: 'Entwurf sichern', canSaveRecording: false, editableDraftId: null });
+        expect((await c.sendRecording()).ok).toBe(true);
+        expect(c.model()).toMatchObject({ editableDraftId: id, canEditDraft: true, canSubmit: false });
+        expect(rec.uploadRecordedAudio).toHaveBeenCalledOnce();
+        expect((await c.submit()).code).toBe('invalid_phase');
+    });
+
+    it('does not open the audio editor with a legacy recording-only receipt', async () => {
+        const { c } = make({ options: { client: { request: vi.fn() } } });
+        await toReview(c);
+        expect((await c.saveRecording()).ok).toBe(true);
+        expect(c.model().created).toEqual({ dictationId: 'rec-1' });
+        expect(c.model().editableDraftId).toBeNull();
     });
 
     it('starts the next dictation clean after success', async () => {
@@ -257,6 +359,40 @@ describe('recording view controller', () => {
         off();
         c.setTitle('xy');
         expect(seen.mock.calls.length).toBe(n);
+    });
+    it('defaults Stimmsteuerung off and applies a pause change only to the next take', async () => {
+        const rec = recorder();
+        const { c } = make({ recorder: rec });
+        expect(c.model().voxEnabled).toBe(false);
+        expect(c.model().voxStatus).toContain('Sprachpausen bleiben erhalten');
+        c.setTitle('erste');
+        await c.start();
+        c.pause();
+        expect(c.toggleVox()).toEqual({ ok: true, enabled: true });
+        expect(rec.startRecording.mock.calls).toEqual([[{ voxEnabled: false }]]);
+        expect(c.model().voxEnabled).toBe(true);
+        expect(c.model().voxStatus).toBe('Ein ab der nächsten Aufnahme.');
+        c.resume();
+        await c.stop();
+        expect(rec.discardRecording).not.toHaveBeenCalled();
+        await c.send();
+        c.another();
+        c.setTitle('zweite');
+        await c.start();
+        expect(rec.startRecording).toHaveBeenLastCalledWith({ voxEnabled: true });
+        expect(c.model().voxStatus).toBe('Diese Aufnahme wird stimmgesteuert.');
+        c.pause();
+        c.toggleVox();
+        expect(c.model().voxStatus).toContain('Diese Aufnahme bleibt stimmgesteuert');
+        expect(rec.discardRecording).not.toHaveBeenCalled();
+    });
+
+    it('exposes a keyboard-native switch without adding an input or clearing audio on toggle', () => {
+        expect(RECORDING_TEMPLATE).toContain('data-testid="vox-toggle"');
+        expect(RECORDING_TEMPLATE).toContain('role="switch"');
+        expect(RECORDING_TEMPLATE).toContain(':aria-checked="m.voxEnabled"');
+        expect(RECORDING_TEMPLATE).toContain('Stimmsteuerung');
+        expect(RECORDING_TEMPLATE).not.toContain('type="checkbox"');
     });
 });
 
@@ -505,11 +641,16 @@ describe('view registration and setup', () => {
         const app = { component: vi.fn() };
         registerRecordingView(app);
         expect(app.component).toHaveBeenCalledWith('clinic-recording-view', RecordingView);
-        expect(Object.keys(RecordingView.props)).toEqual(['client', 'currentUser', 'recorder', 'uploadFile', 'player', 'authorized', 'vue']);
+        expect(Object.keys(RecordingView.props)).toEqual(['client', 'currentUser', 'recorder', 'uploadFile', 'player', 'authorized', 'vue', 'microphone']);
         expect(RecordingView.emits).toEqual(['open', 'worklist']);
     });
 
     it('has german labels, status live region and touch targets', () => {
+        expect(RECORDING_TEMPLATE).toContain('role="group" aria-labelledby="crv-microphone-label"');
+        expect(RECORDING_TEMPLATE).toContain('<span id="crv-microphone-label">Mikrofon</span>');
+        expect(RECORDING_TEMPLATE).toContain(':aria-pressed="device.deviceId === m.selectedMicrophoneId"');
+        expect(RECORDING_TEMPLATE).toContain('@click="microphone.select(device.deviceId)"');
+        expect(RECORDING_TEMPLATE).toContain('v-if="m.needsMicrophoneAccess"');
         expect(RECORDING_TEMPLATE).toContain('role="status"');
         expect(RECORDING_TEMPLATE).toContain('aria-live="polite"');
         expect(RECORDING_TEMPLATE).toContain('min-height: 2.75rem');

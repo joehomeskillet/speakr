@@ -11,6 +11,7 @@
  */
 
 import { surfaceFor } from './tokens.js';
+import { gateAudioBlob } from './vox-gate.js';
 
 export const PHASES = Object.freeze(['title', 'ready', 'recording', 'paused', 'review', 'sending', 'sent', 'failed']);
 
@@ -60,26 +61,49 @@ export function receiptDictationId(value) {
 export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = () => null) {
     let samples;
     const retained = new WeakMap();
+    let takeVoxEnabled = false;
+    let gatedTake = null;
+
+    function startRecording({ voxEnabled = false } = {}) {
+        takeVoxEnabled = voxEnabled;
+        gatedTake = null;
+        return audio.startRecording();
+    }
 
     async function stopRecording() {
         const recorder = state.mediaRecorder.value;
         if (!state.isRecording.value || !recorder) return;
+        const applyVox = takeVoxEnabled;
         // MediaRecorder queues the final dataavailable and stop events after stop() returns.
         const stopped = new Promise(resolve => recorder.addEventListener('stop', resolve, { once: true }));
         await audio.stopRecording();
         await stopped;
+        if (!applyVox) return;
+        const chunks = state.audioChunks.value;
+        const originalUrl = state.audioBlobURL.value;
+        if (!chunks.length || !originalUrl) return;
+        const type = recorder.mimeType.split(';')[0];
+        const source = new Blob(chunks, { type });
+        const gated = await gateAudioBlob(source);
+        if (gated === source || state.audioChunks.value !== chunks || state.audioBlobURL.value !== originalUrl) return;
+        // Keep capture chunks intact. Preview and upload use the same derived audio.
+        state.audioBlobURL.value = URL.createObjectURL(gated);
+        gatedTake = { chunks, blob: gated };
+        URL.revokeObjectURL(originalUrl);
     }
 
     function recordedFile() {
         const chunks = state.audioChunks.value;
         if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
         if (chunks.length === 1 && chunks[0] instanceof File) return chunks[0];
+        const gated = gatedTake?.chunks === chunks ? gatedTake.blob : null;
+        if (gated) return new File([gated], 'aufnahme.wav', { type: gated.type });
         const type = state.mediaRecorder.value.mimeType.split(';')[0];
         return new File(chunks, 'aufnahme.webm', { type });
     }
 
     return {
-        startRecording: audio.startRecording,
+        startRecording,
         pauseRecording: audio.pauseRecording,
         resumeRecording: audio.resumeRecording,
         get elapsedSeconds() { return state.recordingTime?.value || 0; },
@@ -101,11 +125,13 @@ export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = (
             if (offlineDrafts()?.canUseLocalFiles !== true) throw new Error('local_denied');
             const url = URL.createObjectURL(file);
             if (state.audioBlobURL.value) URL.revokeObjectURL(state.audioBlobURL.value);
+            gatedTake = null;
             state.audioChunks.value = [file];
             state.audioBlobURL.value = url;
         },
         async discardRecording() {
             await stopRecording();
+            gatedTake = null;
             await audio.clearRecording();
         },
         async uploadRecordedAudio({ title }) {
@@ -133,7 +159,10 @@ export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = (
                 } catch (e) { /* a local cleanup failure cannot invalidate a server receipt */ }
             }
             // A new take gets its own chunk array as soon as capture starts.
-            if (state.audioChunks.value === chunks) await audio.clearRecording();
+            if (state.audioChunks.value === chunks) {
+                gatedTake = null;
+                await audio.clearRecording();
+            }
             return receipt;
         },
     };
@@ -187,7 +216,7 @@ export function createRecorderPhases(options) {
         return { ok: true };
     }
 
-    async function start() {
+    async function start(recordingOptions) {
         const blocked = guard(automaticTitle ? ['title', 'ready'] : ['ready']);
         if (blocked) return blocked;
         if (capturePending) return denied('capture_pending');
@@ -196,7 +225,7 @@ export function createRecorderPhases(options) {
         capturePending = true;
         set({ error: null });
         try {
-            if (await recorder.startRecording() === false) return denied('start_cancelled');
+            if (await recorder.startRecording(recordingOptions) === false) return denied('start_cancelled');
             if (mine !== generation) {
                 await recorder.discardRecording();
                 return denied('stale');
@@ -204,7 +233,8 @@ export function createRecorderPhases(options) {
             set({ phase: 'recording', title, error: null });
             return { ok: true };
         } catch (e) {
-            const code = ['NotAllowedError', 'SecurityError'].includes(e?.name) ? 'microphone_denied' : 'start_failed';
+            const code = ['NotAllowedError', 'SecurityError'].includes(e?.name) ? 'microphone_denied'
+                : ['NotFoundError', 'OverconstrainedError'].includes(e?.name) ? 'microphone_unavailable' : 'start_failed';
             if (mine === generation) set({ error: code });
             return denied(code);
         } finally {
@@ -226,8 +256,7 @@ export function createRecorderPhases(options) {
     function pause() {
         const blocked = guard(['recording']);
         if (blocked) return blocked;
-        recorder.pauseRecording();
-        set({ phase: 'paused' });
+        pauseActiveMedia('recording');
         return { ok: true };
     }
 
@@ -300,8 +329,19 @@ export function createRecorderPhases(options) {
     function stopPlayback() {
         const blocked = guard(['review']);
         if (blocked) return blocked;
-        media?.pause?.();
+        pauseActiveMedia('review');
         return { ok: true };
+    }
+
+    // Releasing already running media must still work after authorization is lost.
+    function pauseActiveMedia(phase) {
+        if (state.phase !== phase) return;
+        if (phase === 'recording') {
+            recorder.pauseRecording();
+            set({ phase: 'paused' });
+        } else if (phase === 'review') {
+            media?.pause?.();
+        }
     }
 
     async function send() {
@@ -395,7 +435,7 @@ export function createRecorderPhases(options) {
             return () => listeners.delete(listener);
         },
         setTitle, start, openFile, pause, resume, stop, rewind, play, send, cancel, reset,
-        beginning: rewind, end, skip, stopPlayback, setPlayer, syncPlayback, playbackFailed,
+        beginning: rewind, end, skip, stopPlayback, pauseActiveMedia, isPlaying: playing, setPlayer, syncPlayback, playbackFailed,
         controls, announcement, surface,
     };
 }

@@ -49,6 +49,7 @@ export const TEXT = Object.freeze({
     profile: 'Profil',
     connection: 'Verbindung',
     online: 'Online',
+    offlineBadge: 'Offline',
     offline: 'Offline. Serverpflichtige Aktionen sind nicht möglich.',
     lastContact: 'Letzter bestätigter Serverkontakt',
     noContact: 'noch keiner in dieser Sitzung',
@@ -71,6 +72,7 @@ export const TEXT = Object.freeze({
     cancel: 'Abbrechen',
     refresh: 'Neu prüfen',
     logout: 'Abmelden und lokale Entwürfe löschen',
+    logoutHelp: 'Lokale Entwürfe werden endgültig gelöscht. Auf dem Server gespeicherte Daten bleiben erhalten.',
     loggedOut: 'Abgemeldet. Alle lokalen Entwürfe wurden gelöscht.',
     restored: 'Entwurf wiederhergestellt.',
     discarded: 'Entwurf lokal gelöscht. Der Serverstand bleibt unverändert.',
@@ -363,13 +365,15 @@ export function createOfflineViewController(options) {
 
 // Class bundles for the V8 look: the app's utility reset wins over the element rules of clinic-v8.css, so headings and the
 // primary button carry their sizes here.
-const HEADINGS = '[&_h1]:[font-family:Inter,Segoe_UI,Arial,sans-serif] [&_h1]:text-[30px] [&_h1]:max-[760px]:text-[26px] [&_h1]:font-bold [&_h1]:leading-[1.2] [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] [&_h1]:text-[color:var(--v8-text)] '
-    + '[&_h2]:text-[16px] [&_h2]:font-bold [&_h2]:leading-[1.35] [&_h2]:tracking-[-0.2px] [&_h2]:mb-[14px] [&_h2]:text-[color:var(--v8-text)] [&_button]:px-[13px]';
-const DANGER = 'danger max-[760px]:min-h-11 [.dark_&]:!text-[color:var(--v8-text)] [.dark_&]:!border-[color:var(--burgundy)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!border-[color:var(--burgundy)]';
+const HEADINGS = '[&_h1]:font-sans [&_h1]:text-[30px] [&_h1]:max-[760px]:text-[26px] [&_h1]:font-bold [&_h1]:leading-[1.2] [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] [&_h1]:text-[color:var(--v8-text)] '
+    + '[&_h2]:font-sans [&_h2]:text-[16px] [&_h2]:font-bold [&_h2]:leading-[1.35] [&_h2]:tracking-[-0.2px] [&_h2]:mb-[14px] [&_h2]:text-[color:var(--v8-text)]';
+const CONTROLS = '[&_button]:!min-h-12 [&_button]:px-[13px] [&_input]:!min-h-12 '
+    + '[&_:is(a,button,input):focus-visible]:outline-[color:var(--v8-text)]';
+const DANGER = 'danger [.dark_&]:!text-[color:var(--v8-text)] [.dark_&]:!border-[color:var(--burgundy)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!border-[color:var(--burgundy)]';
 const NOTE_BURGUNDY = 'note burgundy [.dark_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)]';
 const NOTE_WARNING = 'note warning [.dark_&]:!bg-[var(--v8-s2)] [.dark_&]:!border-[color:var(--line)] [.dark_&]:!text-[color:var(--v8-text)] '
     + '[[data-theme=dark]_&]:!bg-[var(--v8-s2)] [[data-theme=dark]_&]:!border-[color:var(--line)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)]';
-const PRIMARY = 'primary max-[760px]:min-h-11 !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold !px-[13px] hover:!bg-[var(--brand2)]';
+const PRIMARY = 'primary !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold !px-[13px] hover:!bg-[var(--brand2)]';
 
 export const OfflineView = {
     name: 'ClinicOfflineView',
@@ -413,11 +417,15 @@ export const OfflineView = {
             const getWrapped = props.managed?.getWrapped || props.getWrapped;
             return c.unlock(getWrapped);
         };
-        return { c, s, TEXT, HEADINGS, PRIMARY, DANGER, noticeClass, profileLabel, contact, submit };
+        const confirmLogout = () => {
+            if (window.confirm(TEXT.logoutHelp)) return c.logout();
+        };
+        return { c, s, TEXT, HEADINGS, CONTROLS, PRIMARY, DANGER, noticeClass, profileLabel, contact, submit, confirmLogout };
     },
     template: `
-<section class="clinic-offline v8-page" :class="HEADINGS" aria-labelledby="clinic-offline-title">
-  <nav class="breadcrumb" aria-label="Brotkrumennavigation">
+<section class="clinic-offline v8-page [overflow-wrap:anywhere] max-[375px]:[&_.panel]:px-2 max-[280px]:[&_.keyvalues>div]:!grid-cols-1"
+         :class="[HEADINGS, CONTROLS]" aria-labelledby="clinic-offline-title">
+  <nav class="breadcrumb flex-wrap" aria-label="Brotkrumennavigation">
     <a href="#/aufnahmen">Speakr</a><span aria-hidden="true">›</span><span>{{ TEXT.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ TEXT.title }}</span>
   </nav>
   <div class="pagehead">
@@ -426,9 +434,8 @@ export const OfflineView = {
       <h1 id="clinic-offline-title">{{ TEXT.title }}</h1>
       <p class="subline">{{ TEXT.subline }}</p>
     </div>
-    <div class="head-actions"></div>
   </div>
-  <div class="grid">
+  <div class="grid max-[960px]:!grid-cols-1">
     <section class="panel" aria-labelledby="clinic-offline-drafts">
       <h2 id="clinic-offline-drafts">{{ TEXT.draftsAndRecovery }}</h2>
       <template v-if="s.phase === 'locked' || s.phase === 'unlocked'">
@@ -439,9 +446,9 @@ export const OfflineView = {
             <tbody>
               <template v-for="d in s.drafts" :key="d.key">
                 <tr data-testid="draft">
-                  <td><strong>{{ TEXT.draft }} {{ d.dictationId }}</strong><small>{{ TEXT.sequence }} {{ d.sequence }}</small></td>
+                  <td class="whitespace-normal"><strong>{{ TEXT.draft }} {{ d.dictationId }}</strong><small>{{ TEXT.sequence }} {{ d.sequence }}</small></td>
                   <td class="whitespace-normal">
-                    <div class="actions">
+                    <div class="actions whitespace-nowrap">
                       <button type="button" data-testid="restore"
                               :disabled="s.phase !== 'unlocked' || !s.online || s.busy" @click="c.restore(d.dictationId, d.sequence)">{{ TEXT.restore }}</button>
                       <button type="button" :class="DANGER" data-testid="discard" @click="c.askDiscard(d.key)">{{ TEXT.discard }}</button>
@@ -471,19 +478,26 @@ export const OfflineView = {
       <h2 id="clinic-offline-connection">{{ TEXT.connectionAndCheck }}</h2>
       <dl class="keyvalues">
         <div><dt>{{ TEXT.profile }}</dt><dd data-testid="profile">{{ profileLabel() }}</dd></div>
-        <div><dt>{{ TEXT.connection }}</dt><dd data-testid="connection"><span class="tag dot" :class="s.online ? 'neutral' : 'wait'">{{ s.online ? TEXT.online : TEXT.offline }}</span></dd></div>
+        <div><dt>{{ TEXT.connection }}</dt><dd data-testid="connection"><span class="tag dot" :class="s.online ? 'neutral' : 'wait'">{{ s.online ? TEXT.online : TEXT.offlineBadge }}</span></dd></div>
         <div><dt>{{ TEXT.lastContact }}</dt><dd>{{ contact() }}</dd></div>
       </dl>
       <p role="status" aria-live="polite" data-testid="notice" :class="noticeClass()">{{ s.phase === 'checking' ? TEXT.checking : s.notice }}</p>
-      <div class="actions mt-4">
-        <button type="button" :class="PRIMARY" data-testid="refresh" v-if="!s.loggedOut" :disabled="s.busy" @click="c.refresh()">{{ TEXT.refresh }}</button>
-        <button type="button" :class="DANGER" data-testid="logout" @click="c.logout()">{{ TEXT.logout }}</button>
+      <div v-if="!s.loggedOut" class="mt-4">
+        <div class="actions">
+          <button type="button" :class="PRIMARY" data-testid="refresh" :disabled="s.busy" @click="c.refresh()">{{ TEXT.refresh }}</button>
+        </div>
+        <div class="actions mt-4">
+          <button type="button" :class="DANGER" data-testid="logout" :disabled="s.busy"
+                  class="!inline-block max-w-full whitespace-normal !text-sm max-[375px]:!px-2 max-[375px]:!text-[13px]"
+                  aria-describedby="clinic-offline-logout-help" @click="confirmLogout()">{{ TEXT.logout }}</button>
+        </div>
+        <p id="clinic-offline-logout-help" class="hint !mt-2">{{ TEXT.logoutHelp }}</p>
       </div>
       <template v-if="s.phase === 'locked' || s.phase === 'unlocked'">
         <div v-if="s.phase === 'locked'" class="mt-4" role="group" :aria-label="TEXT.unlockSection">
           <div class="flex flex-col gap-1.5 mb-4 [&_label]:text-xs [&_label]:font-bold">
             <label for="clinic-offline-pass">{{ TEXT.passphrase }}</label>
-            <input id="clinic-offline-pass" type="password" autocomplete="off" v-model="s.passphrase" :disabled="!s.online"
+            <input id="clinic-offline-pass" class="!border-[color:var(--v8-text-2)]" type="password" autocomplete="off" v-model="s.passphrase" :disabled="!s.online"
                    @keydown.enter.prevent="submit()">
           </div>
           <div class="actions"><button type="button" :class="PRIMARY" data-testid="unlock" :disabled="!s.online" @click="submit()">{{ TEXT.unlock }}</button></div>
