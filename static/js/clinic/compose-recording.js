@@ -1234,7 +1234,8 @@ export const RECORDING_TEMPLATE = `
                style="display: grid; gap: var(--ui-space-2)">
             <span id="crv-active-microphone-label">Mikrofon</span>
             <button v-for="device in [{ deviceId: '', label: 'Standardmikrofon' }, ...m.microphoneOptions]" :key="device.deviceId"
-                    type="button" class="button" :aria-pressed="device.deviceId === m.selectedMicrophoneId"
+                    type="button" class="button" :class="{ accent: device.deviceId === m.selectedMicrophoneId }"
+                    :aria-pressed="device.deviceId === m.selectedMicrophoneId"
                     :disabled="m.microphoneSwitching" @click="c.chooseMicrophone(device.deviceId)"
                     style="${TOUCH}; white-space: normal; overflow-wrap: anywhere">
               {{ device.label }}
@@ -1258,7 +1259,7 @@ export const RECORDING_TEMPLATE = `
           <summary class="focus-visible:outline-ui-text" style="${TOUCH}; align-content: center; cursor: pointer">
             Aufnahmeformat ({{ microphone.formats.find(format => format.mimeType === microphone.mimeType)?.label || 'Automatisch' }})
           </summary>
-          <div class="actions" role="group" aria-label="Aufnahmeformat">
+          <div class="actions" role="group" aria-label="Aufnahmeformat" style="margin-top: var(--ui-space-2)">
             <button type="button" class="button" :aria-pressed="!microphone.mimeType" :disabled="!enabled('start')"
                     @click="microphone.selectFormat('')" style="${TOUCH}">Automatisch</button>
             <button v-for="format in microphone.formats" :key="format.mimeType" type="button" class="button"
@@ -1288,9 +1289,9 @@ export const RECORDING_TEMPLATE = `
         </div>
       </div>
       <div v-if="m.created" data-testid="created">
-        <draft-send-fields v-if="m.draft && !m.retryingTake && !['retryPending', 'submitted', 'notDraft'].includes(m.phase)" :m="m" :c="c" @reload="reloadDraft" />
+        <draft-send-fields v-if="m.draft && !m.retryingTake && !['retryPending', 'submitted', 'notDraft'].includes(m.phase)" :m="m" :c="c" :inert="protecting()" @reload="reloadDraft" />
         <required-categories v-if="!m.retryingTake && m.phase !== 'retryPending' && m.categories.length && (m.canSubmit || m.phase === 'submitting')"
-                             :items="m.categories" :disabled="!m.canSelectCategory" button-options @select="c.selectCategory" />
+                             :items="m.categories" :disabled="protecting() || !m.canSelectCategory" button-options @select="c.selectCategory" />
         <details v-if="m.canSubmit && !m.directSend && !m.retryingTake && m.phase !== 'retryPending'"
                  class="draft-protection" style="margin-bottom: var(--ui-space-3); text-align: left">
           <summary style="${TOUCH}; cursor: pointer; align-content: center">Diktat-Schutz (optional)</summary>
@@ -1304,15 +1305,18 @@ export const RECORDING_TEMPLATE = `
           <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" :disabled="protecting()" @click="c.submit()">{{ m.recordActionLabel }}</button>
         </div>
         <div v-else-if="m.mode === 'record' && m.phase === 'submitted'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
-          <button type="button" class="button primary" data-testid="open-created" style="${TOUCH}; width: 100%; font-size: 1rem" @click="c.openCreated()">Diktat öffnen</button>
+          <button type="button" class="button primary" data-testid="open-created" style="${TOUCH}; width: 100%; font-size: 1rem"
+                  :disabled="protecting()" @click="c.openCreated()">Diktat öffnen</button>
           <p v-if="m.submittedVisibility" role="status" data-testid="submitted-visibility" style="margin: var(--ui-space-2) 0 0">{{ m.submittedVisibility }}</p>
-          <a href="#/neu" data-testid="another" style="${LINK}" @click.prevent="c.another()">{{ c.text.title }}</a>
+          <a :href="protecting() ? null : '#/neu'" :aria-disabled="protecting() || null" data-testid="another"
+             style="${LINK}" @click.prevent="!protecting() && c.another()">{{ c.text.title }}</a>
         </div>
         <fieldset v-else-if="!m.directSend && m.phase !== 'retryPending'" class="actions" :disabled="protecting()"
                   style="justify-content: center; border: 0; padding: 0; margin: 0; min-inline-size: 0">
           <button v-if="!['submitted', 'notDraft'].includes(m.phase)" type="button" class="button primary" style="${TOUCH}"
                   :disabled="!m.canSubmit || m.categoriesLoading" data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
-          <a href="#/diktat" data-testid="open-created" style="${LINK}" @click.prevent="c.openCreated()">{{ m.mode === 'file' ? c.text.open : 'Diktat öffnen' }}</a>
+          <a :href="protecting() ? null : '#/diktat'" :aria-disabled="protecting() || null" data-testid="open-created"
+             style="${LINK}" @click.prevent="!protecting() && c.openCreated()">{{ m.mode === 'file' ? c.text.open : 'Diktat öffnen' }}</a>
           <button v-if="m.mode === 'file'" type="button" class="button" style="${TOUCH}" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
           <button type="button" class="button" style="${TOUCH}" data-testid="another" :disabled="m.draft?.saving || m.draft?.loading || m.phase === 'submitting'" @click="c.another()">{{ c.text.title }}</button>
         </fieldset>
@@ -1330,7 +1334,7 @@ export const RECORDING_TEMPLATE = `
     </div>
     <div v-if="m.editableDraftId" class="actions" style="justify-content: center; margin-top: var(--ui-space-3)">
       <button ref="audioEditButton" type="button" class="button" style="${TOUCH}"
-              data-testid="edit-created-audio" @click="openAudioEdits">Audio bearbeiten</button>
+              data-testid="edit-created-audio" :disabled="protecting()" @click="openAudioEdits">Audio bearbeiten</button>
     </div>
   </div>
 </section>`;
@@ -1398,7 +1402,10 @@ export const RecordingView = {
         const localPicker = V.ref(null);
         const protection = V.ref(null);
         const Protection = { ...DictationProtectionComponent(V), mounted() { void this.model.load(); } };
-        const protecting = () => protection.value?.model.state.status === 'busy';
+        const protecting = () => {
+            const state = protection.value?.model.state;
+            return state?.status === 'busy' && (state.lastAction === 'enable' || state.lastAction === 'disable');
+        };
         const editingDraft = V.ref(null);
         const audioEditButton = V.ref(null);
         function openAudioEdits() {

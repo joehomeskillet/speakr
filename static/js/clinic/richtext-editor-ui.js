@@ -330,12 +330,12 @@ export function useRichTextEditor(options) {
 
 const keyFormat = { b: 'bold', i: 'italic', u: 'underline' };
 
-/** Vue component. A correctionSave controller uses the shared correction save instead of the standalone save. */
+/** Vue editor for standalone saves, Live document saves, or a shared correction save. */
 export const RichTextEditor = {
     name: 'ClinicRichTextEditor',
     props: {
         client: { type: Object },
-        savePath: { type: String },
+        savePath: { type: String, default: '' },
         document: { type: Object },
         version: { type: Number, default: 0 },
         canEdit: { type: Boolean, default: true },
@@ -531,10 +531,10 @@ export const RichTextEditor = {
     <strong>{{ label('clinic.richtext.losses') }}</strong>
     <ul><li v-for="l in losses" :key="l.code">{{ l.message }}</li></ul>
   </div>
-  <button v-if="reloadDocument && status === 'stale'" type="button" class="button" :style="targetSize" @click="reload">
+  <button v-if="!correction && reloadDocument && status === 'stale'" type="button" class="button" :style="targetSize" @click="reload">
     {{ label('clinic.richtext.reload') }}
   </button>
-  <p v-else-if="status === 'stale'" role="alert">{{ label('clinic.richtext.stale') }}</p>
+  <p v-else-if="!correction && status === 'stale'" role="alert">{{ label('clinic.richtext.stale') }}</p>
   <p v-if="liveWriting && dirty && !announcement" role="note">Änderungen sind noch nicht gespeichert.</p>
   <p v-if="correction" role="status" aria-live="polite">{{ saveMessage }}</p>
   <div role="status" aria-live="polite">{{ announcement }}</div>
