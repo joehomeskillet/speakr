@@ -3128,6 +3128,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return response.json();
             };
             const clinicRecorder = clinicMenu?.createClinicRecorder(audioComposable, state, clinicUploadFile);
+            const clinicMicrophone = clinicRecorder ? {
+                get inputs() { return inputAudioDevices.value; },
+                get deviceId() { return selectedMicDeviceId.value; },
+                select: (deviceId) => { selectedMicDeviceId.value = deviceId; },
+                requestAccess: audioComposable.requestMicrophonePermission,
+            } : null;
             // Live-Diktat runs on an existing dictation: ?dictation=<id> or the id typed into the picker.
             const clinicLiveChoices = clinicWorklist ? clinicWorklist.createDictationChoices({ client: clinicWorklist.client, makeState: reactive, authorId: clinicWorklist.user.id }) : null;
             const clinicInitialLiveId = new URLSearchParams(window.location.search).get('dictation');
@@ -4855,14 +4861,21 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // (polling starts only with something in progress).
                 fetchJobQueueStatus(true);
 
-                // ?open=appearance: the header on the other pages opens
-                // these main-app dialogs by linking here.
+                // ?open=appearance and clinic notification handoffs from the
+                // shared header on other pages open inside the main app.
                 let openDialogDeepLink = null;
+                let clinicNotificationId = null;
                 try {
                     const params = new URLSearchParams(window.location.search);
                     const wanted = params.get('open');
-                    if (wanted === 'appearance') {
-                        openDialogDeepLink = wanted;
+                    const clinicNotice = clinicWorklist && wanted === 'clinic-dictation';
+                    if (wanted === 'appearance' || clinicNotice) {
+                        if (wanted === 'appearance') openDialogDeepLink = wanted;
+                        if (clinicNotice) {
+                            const candidate = params.get('dictation') || '';
+                            if (/^[A-Za-z0-9_-]{1,64}$/.test(candidate)) clinicNotificationId = candidate;
+                            params.delete('dictation');
+                        }
                         params.delete('open');
                         const qs = params.toString();
                         window.history.replaceState({}, '', window.location.pathname + (qs ? '?' + qs : '') + window.location.hash);
@@ -4952,6 +4965,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // closing it once its fetch resolves.
                 if (openDialogDeepLink === 'appearance') {
                     uiComposable.openColorSchemeModal();
+                }
+                if (clinicNotificationId) {
+                    // DetailView always fetches the named dictation and clears
+                    // its data when the current object policy refuses it.
+                    clinicDictationId.value = clinicNotificationId;
+                    currentView.value = 'clinic-detail';
                 }
                 if (wantUploadDeepLink) {
                     await nextTick();
@@ -5472,7 +5491,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 openClinicDictationView, closeClinicDictationView, openClinicEditorFromView,
                 // end V8 dictation views (v8-70)
                 // V8 menu views (v8-71)
-                clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile,
+                clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile, clinicMicrophone,
                 clinicLiveId, clinicLiveDraft, clinicLiveChoices, openClinicLive, openClinicMenuDictation,
                 // end V8 menu views (v8-71)
                 // V8 Verwaltung views (v8-114)

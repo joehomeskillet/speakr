@@ -3,7 +3,7 @@
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
@@ -138,35 +138,73 @@ def _exercise():
     assert post(admin_browser, typist, key=key).json == assigned.json
     assert post(admin_browser, lead, key=key).json['code'] == 'IDEMPOTENCY_CONFLICT'
     assert post(admin_browser, lead).json['code'] == 'STALE_VERSION'
-    assert worklist(typist_browser)[sent]['assignee'] == expected[1] | {'id': str(typist)}
+    stamped = worklist(typist_browser)[sent]
+    assert stamped['assignee'] == expected[1] | {'id': str(typist)}
+    assert stamped['assignee_user_id'] == typist and stamped['recipient'] == 'Typist'
+    first_at = _utc(stamped['assigned_at'])
+    with app.app_context():
+        stored = db.session.get(workflow.ClinicWorkflowDictation, sent).assigned_at
+        assert stored == first_at
 
     with app.app_context():
         generation = lease.acquire(sent, typist, datetime.now(timezone.utc)).generation
         workflow.transition(db.session(), sent, 'open')
+        db.session.get(workflow.ClinicWorkflowDictation, sent).assigned_at = datetime(
+            2020, 1, 1, tzinfo=timezone.utc)
         db.session.commit()
 
+    viewers = {lead: lead_browser, typist: typist_browser}
+    names = {lead: 'Lead', typist: 'Typist'}
+    previous = datetime(2020, 1, 1, tzinfo=timezone.utc)
     for version, recipient in enumerate((lead, typist, None), 1):
         reply = post(lead_browser, recipient, version=version)
         assert reply.status_code == 200, reply.json
         assert reply.json['assignee_user_id'] == recipient
+        if recipient is None:
+            cleared = worklist(lead_browser)[sent]
+            assert cleared['assignee_user_id'] is None
+            assert cleared['recipient'] is None and cleared['assigned_at'] is None
+        else:
+            row = worklist(viewers[recipient])[sent]
+            assert row['assignee_user_id'] == recipient and row['recipient'] == names[recipient]
+            current = _utc(row['assigned_at'])
+            assert current > previous
+            previous = current
     assert sent not in worklist(typist_browser)
     with app.app_context():
         assert lease.current(sent).expires_at <= datetime.now(timezone.utc)
         assert db.session.get(workflow.ClinicWorkflowDictation, sent).status == workflow.TO_CORRECT
         events = AuditEvent.query.filter_by(event='recording.edited', recording_id=recording_id).order_by(AuditEvent.id)
+        assignment_details = {'fields': ['assignee', f'dictation:{sent}']}
         assert [(row.actor_user_id, row.target_user_id, row.details) for row in events] == [
-            (admin, typist, {'fields': ['assignee']}),
+            (admin, typist, assignment_details),
             (lead, typist, {'fields': [
                 'lease.release', f'dictation:{sent}', f'generation:{generation}', f'from:{typist}',
             ]}),
-            (lead, lead, {'fields': ['assignee']}),
-            (lead, typist, {'fields': ['assignee']}),
-            (lead, None, {'fields': ['assignee']}),
+            (lead, lead, assignment_details),
+            (lead, typist, assignment_details),
+            (lead, None, assignment_details),
         ]
+        audit.record_in_tx('recording.edited', recording_id=recording_id,
+                           details={'fields': ['assignee', f'dictation:{draft}']}, force=True)
         pools.deny(lead, 'pool', pool_id=db.session.get(ClinicDictation, sent).pool_id,
                    actions=['reassign'], actor_id=admin)
     assert candidates(lead_browser).status_code == 403
     assert post(lead_browser, typist, version=4).status_code == 403
+
+    history = f'/api/clinic/v1/dictations/{sent}/history'
+    response = lead_browser[0].get(history)
+    assert response.status_code == 200, response.json
+    assignments = [row for row in response.json['events'] if row.get('action') == 'assignment_changed']
+    assert len(assignments) == 4
+    assert all(set(row) == {'kind', 'id', 'action', 'at'} for row in assignments)
+    assert _client(app, other_lead)[0].get(history).status_code == 404
+
+
+def _utc(value):
+    parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    assert parsed.utcoffset() == timedelta(0)
+    return parsed
 
 
 if __name__ == '__main__':

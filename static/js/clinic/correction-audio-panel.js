@@ -10,6 +10,7 @@ export const CorrectionAudioPanel = {
         lease: { type: Object, required: true },
         position: { type: Function, required: true },
         visible: { type: Boolean, required: true },
+        openOnMount: { type: Boolean, default: false },
     },
     emits: ['revision'],
     setup(props, { emit }) {
@@ -114,7 +115,14 @@ export const CorrectionAudioPanel = {
                 capture.stop();
             }
         }
-        V.watch(() => props.visible, visible => { if (!visible) close(); });
+        let autoOpen = props.openOnMount;
+        V.watch(() => props.visible, visible => {
+            if (!visible) close();
+            else if (autoOpen) {
+                autoOpen = false;
+                void toggle();
+            }
+        }, { immediate: true });
         V.watch(() => state.value.revisionId, () => { start.value = ''; end.value = ''; });
         V.onBeforeUnmount(close);
         return { expanded, state, controller, start, end, file, notice, captureState, canRecord,
