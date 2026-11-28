@@ -264,9 +264,12 @@
  {
   "id": "PAR-LIVE-005",
   "title": "Rich-Text-Bearbeitung und Versandformat",
-  "status": "missing",
-  "evidence": [],
-  "note": "Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden."
+  "status": "partial",
+  "evidence": [
+   "src/clinic/routes_richtext_graphics.py",
+   "tests/clinic/test_par_graphic_object_route.py"
+  ],
+  "note": "P-216: Geschützter Upload und Abruf lokaler PNG-Grafiken per Diktat und Inhalts-ID. Editoranschluss, Staging-Prüfung und BT-LIVE-005 bleiben offen."
  },
  {
   "id": "PAR-LIVE-006",
