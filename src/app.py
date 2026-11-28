@@ -1447,7 +1447,6 @@ def register_clinic_audio(flask_app):
     durable (clinic_dictation_protection). The mounted sdict export uses that same current
     revision. A source that cannot be read stays empty and is never replaced by synthetic audio.
     """
-    from flask import abort
     from src.clinic import (app_wiring, bundle_store, config, local_tts, policy, pool_policy,
                             revisions, richtext, routes_audio, routes_bundle, routes_clipboard, routes_correction,
                             routes_correction_documents, routes_dictation_properties, routes_live,
@@ -1457,7 +1456,6 @@ def register_clinic_audio(flask_app):
     from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
     from src.clinic.models import ClinicDictation
-    from src.clinic.rich_text_doc import RichTextError
     from src.clinic import routes_live_drafts
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
@@ -1491,21 +1489,7 @@ def register_clinic_audio(flask_app):
 
     def bundle_load(_actor, dictation_id):
         dictation = db.session.get(ClinicDictation, dictation_id)
-        if dictation is None:
-            return None
-        loaded = bundle_store.load(dictation, originals_root, load_sources)
-        if loaded is None:
-            return None
-        head = revisions.current_revision(dictation)
-        if head is not None and db.session.get(bundle_store.ClinicBundleDocument, head.id) is None:
-            try:
-                _, doc = richtext.load_latest_document(head.id)
-            except RichTextError:
-                abort(409)
-            if doc is not None:
-                return routes_bundle.BundleSession(
-                    doc=doc, audio=loaded.audio, version=loaded.version, audio_synced=loaded.audio_synced)
-        return loaded
+        return None if dictation is None else bundle_store.load(dictation, originals_root, load_sources)
 
     def bundle_persist(actor, dictation_id, doc, audio, expected):
         return bundle_store.persist(db.session.get(ClinicDictation, dictation_id), actor, doc, audio,
