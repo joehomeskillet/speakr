@@ -229,6 +229,14 @@ def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
         expect(view.get_by_text("Ihr Gerät sendet Aufnahmen an Speakr.", exact=False)).to_be_visible()
         if state == "empty":
             expect(config.get_by_text("Für Ihr Konto ist noch kein Sprachprofil gespeichert.", exact=True)).to_be_visible()
+            expect(config.locator("#res-asr-live, #res-asr-batch")).to_have_count(0)
+            settings = config.get_by_text("Quellen und Speichern einstellen", exact=True)
+            expect(config.get_by_role("combobox")).to_have_count(0)
+            settings.press("Enter")
+            expect(config.get_by_role("combobox")).to_have_count(2)
+            expect(config.get_by_label("Quellenzuordnung", exact=True)).to_have_value("shared")
+            expect(config.get_by_label("Speicherregel", exact=True)).to_have_value("never")
+            settings.press("Enter")
             expect(config.get_by_role("combobox")).to_have_count(0)
             expect(primary).to_be_enabled()
         else:
@@ -253,7 +261,13 @@ def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
         page.keyboard.press("Enter")
         expect(details.get_by_text("Eingabehinweise (Prompts)", exact=True)).to_be_visible()
         if state == "populated":
-            expect(details.get_by_text("webm · opus · 48000 Hz", exact=True)).to_be_visible()
+            output = details.locator("dt").get_by_text("Ausgabeformat", exact=True).locator("..")
+            fields = output.locator("dd > span")
+            expect(fields).to_have_text(["webm", "opus", "48000 Hz"])
+            for field in fields.all():
+                expect(field).to_be_visible()
+            assert fields.last.text_content() == "48000\u00a0Hz"
+            assert output.evaluate("row => row.scrollWidth <= row.clientWidth")
 
 
 def test_p15_first_profile_uses_existing_save_and_vocabulary_link(browser, app_base, role_states):
@@ -277,21 +291,32 @@ def test_p15_first_profile_uses_existing_save_and_vocabulary_link(browser, app_b
         expect(page.get_by_role("status").filter(has_text="Profilvorgabe gespeichert.")).to_be_visible()
 
         config = page.get_by_role("region", name="Profilkonfiguration")
-        config.get_by_text("Quellen und Speichern einstellen", exact=True).click()
+        settings = config.get_by_text("Quellen und Speichern einstellen", exact=True)
         mode = config.get_by_label("Quellenzuordnung", exact=True)
+        batch_source = config.get_by_label("Quelle für Hintergrund-Erkennung", exact=True)
+        rule = config.get_by_label("Speicherregel", exact=True)
+        settings.click()
         expect(mode).to_have_value("shared")
         mode.select_option("separate")
-        config.get_by_label("Quelle für Hintergrund-Erkennung", exact=True).select_option("headset")
-        config.get_by_label("Speicherregel", exact=True).select_option("ask")
+        batch_source.select_option("headset")
+        rule.select_option("ask")
         feedback = config.locator('.asr-save-feedback[role="status"]')
+        expect(feedback.filter(has_text="Ungespeicherte Änderungen")).to_be_visible()
         expect(feedback).not_to_contain_text("Profilvorgabe gespeichert.")
+        expect(page.get_by_role("status").filter(has_text="Profilvorgabe gespeichert.")).to_have_count(0)
         with page.expect_response(lambda res: res.url.endswith("/asr-profiles/selection")) as response:
             primary.click()
         assert response.value.ok
         updates = response.value.request.post_data_json
         assert (updates["profile_mode"], updates["batch_source"], updates["save_rule"]) == ("separate", "headset", "ask")
         expect(feedback).to_contain_text("Profilvorgabe gespeichert.")
+        expect(feedback.filter(has_text="Profilvorgabe gespeichert.")).to_be_visible()
         expect(mode).to_have_value("separate")
+        page.reload()
+        settings.click()
+        expect(mode).to_have_value("separate")
+        expect(batch_source).to_have_value("headset")
+        expect(rule).to_have_value("ask")
 
         page.get_by_role("link", name="Wortschatz prüfen", exact=True).click()
         expect(page).to_have_url(app_base + "/admin#/wortschatz")

@@ -203,6 +203,7 @@ export function createAsrProfilesController(deps) {
             profile: d.profile && typeof d.profile === 'object' ? d.profile : null,
             source: SOURCES.includes(d.source) ? d.source : base.source,
             saveRule: SAVE_RULES.includes(d.save_rule) ? d.save_rule : base.saveRule,
+            supportsSaveRule: SAVE_RULES.includes(d.save_rule),
             profileMode: PROFILE_MODES.includes(d.profile_mode) ? d.profile_mode : null,
             batchSource: d.profile_mode === 'separate' && SOURCES.includes(d.batch_source) ? d.batch_source : null,
             liveProfileId: d.live_profile_id == null ? null : String(d.live_profile_id),
@@ -360,11 +361,13 @@ export function createAsrProfilesController(deps) {
         return {
             title: label('clinic.asr.title'),
             ready: state.ready, loading: state.loading, busy: state.busy,
-            canSave: state.ready && !state.loading && !state.busy && complete && (dirty || (deps.adminLayout === true && !s.profile)),
+            canSave: state.ready && !state.loading && !state.busy && complete
+                && (dirty || (deps.adminLayout === true && !s.profile)),
             profileMode: d.profileMode,
             profileModes: PROFILE_MODES.map((v) => ({ value: v, label: label('clinic.asr.profileMode.' + v) })),
             batchSource: d.batchSource,
             saveRule: d.saveRule,
+            supportsSaveRule: s.supportsSaveRule,
             saveRules: SAVE_RULES.map((v) => ({ value: v, label: label('clinic.asr.saveRule.' + v) })),
             dirty,
             profile: s.profile ? { id: str(s.profile.id), name: str(s.profile.name), version: s.profile.version } : null,
