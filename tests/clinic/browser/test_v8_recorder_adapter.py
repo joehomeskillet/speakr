@@ -57,6 +57,7 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
             view.get_by_test_id("rec-start").click()
             page.wait_for_function("document.querySelector('#app').__vue_app__._instance.proxy.recordingTime >= 5")
             view.get_by_test_id("rec-stop").click()
+            view.get_by_test_id("recognition-switch").click()
             page.route("**/upload", lambda route: route.fulfill(status=503), times=1)
             view.get_by_test_id("rec-send").click()
             expect(view.get_by_test_id("status")).to_contain_text("Senden fehlgeschlagen")
@@ -66,6 +67,8 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
                 view.get_by_test_id("rec-send").click()
             assert upload.value.status == 202, upload.value.text()
             receipt = upload.value.json()
+            assert receipt["recording_type"] == "bericht"
+            assert receipt["use_speech_recognition"] is False
             assert re.fullmatch(r"Diktat \d{2}\.\d{2}\.\d{4} \d{2}:\d{2}", receipt["title"]), receipt
             expect(view.get_by_test_id("created-id")).to_have_text(receipt["dictation_id"])
             expect(view.get_by_test_id("submit-draft")).to_be_disabled()
@@ -90,9 +93,12 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
             assert upload.value.status == 202, upload.value.text()
             private = upload.value.json()
             assert private["recording_type"] == "notiz"
+            assert private["use_speech_recognition"] is True
             expect(view.get_by_test_id("status")).to_have_text("Aufnahme gespeichert.")
             view.get_by_test_id("open-created").click()
-            page.get_by_role("button", name="In den Papierkorb").click()
+            with page.expect_response(app_base + f'/api/clinic/v1/recordings/{private["dictation_id"]}/trash') as trash:
+                page.get_by_role("button", name="In den Papierkorb").click()
+            assert trash.value.status == 204, trash.value.text()
             page.get_by_test_id("nav-recordings").click()
             row = page.locator(f'[data-row][data-id="{private["dictation_id"]}"]')
             expect(row).to_have_count(0)
