@@ -37,6 +37,7 @@ AUTH: tuple[str, ...] = (
     'clinic_preferences.workstation_issue',
     'clinic_preferences.workstation',
     'clinic_preferences.correction_mode',
+    'clinic_preferences.notifications',
     'clinic_vocabulary.edit_entry',
     # Metadata field definitions (x28), mounted by register_clinic_identity in clinic mode only.
     # Reading is for any signed-in user; the handler lists inactive fields to admins only.
@@ -80,4 +81,7 @@ ADMIN: tuple[str, ...] = (
     'clinic_training.start',
     'clinic_training.status',
     'clinic_training.cancel',
+    'clinic_statistics.collection_policy',
+    'clinic_statistics.collection_period',
+    'clinic_statistics.collection_retention',
 )
