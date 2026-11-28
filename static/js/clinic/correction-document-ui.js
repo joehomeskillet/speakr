@@ -146,10 +146,10 @@ export function useCorrectionDocument({ editor, onEdit, seek, vue }) {
         onEdit(projection.value.text);
     }
 
-    function change(operation, ...args) {
+    function change(operation, selection) {
         if (readOnly.value) return false;
-        const result = operation(...args);
-        if (history.record({ text: rich.doc.value })) edited();
+        const result = operation();
+        if (history.record({ text: rich.doc.value, selection })) edited();
         return result;
     }
 
@@ -172,12 +172,15 @@ export function useCorrectionDocument({ editor, onEdit, seek, vue }) {
         });
     }
 
-    function restore(direction) {
+    function restore(direction, onSelection) {
         if (readOnly.value) return false;
+        const previous = history.present();
         const entry = history[direction]();
         if (!entry) return false;
         replaceDraft(entry.text);
         edited();
+        const selection = direction === 'undo' ? previous.selection?.before : entry.selection?.after;
+        if (selection) onSelection?.(selection);
         return true;
     }
 
@@ -243,15 +246,15 @@ export function useCorrectionDocument({ editor, onEdit, seek, vue }) {
     return {
         doc: rich.doc, version: rich.version, selection: rich.selection, announcement: rich.announcement,
         available, readOnly, historyState, select: rich.select,
-        editRun: (...args) => change(rich.editRun, ...args),
-        insertRun: (...args) => change(rich.insertRun, ...args),
-        paste: (...args) => change(rich.paste, ...args),
+        editRun: (nodeId, runId, text, selection) => change(() => rich.editRun(nodeId, runId, text), selection),
+        insertRun: (...args) => change(() => rich.insertRun(...args)),
+        paste: (...args) => change(() => rich.paste(...args)),
         toggleFormat(format, nodeId = rich.selection.value.nodeId, runId = rich.selection.value.runId) {
             const node = rich.doc.value.nodes.find((item) => item.id === nodeId);
             return Boolean(FORMATS.includes(format) && node?.runs.some((run) => run.id === runId)
-                && change(rich.toggleFormat, format, nodeId, runId));
+                && change(() => rich.toggleFormat(format, nodeId, runId)));
         },
-        moveParagraph, undo: () => restore('undo'), redo: () => restore('redo'),
+        moveParagraph, undo: (onSelection) => restore('undo', onSelection), redo: (onSelection) => restore('redo', onSelection),
         canSeek: (id) => playable.value.has(id), seekToSegment, highlightAt,
         activeRunId: computed(() => playable.value.has(active.value) ? active.value : null),
         reset, payload, acknowledge,
