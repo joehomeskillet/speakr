@@ -362,7 +362,13 @@ def test_dictation_files_round_trip(file_server, tmp_path):
     artifacts = ROOT / '.wp' / 'artifacts'
     with sync_playwright() as playwright, _launch(playwright) as browser:
         page = _login(browser, base, FILE_AUTHOR)
-        page.get_by_test_id('clinic-recordings-view').get_by_test_id('open-link').first.click()
+        row = page.get_by_test_id('clinic-recordings-view').get_by_test_id('open-link').first
+        did = row.get_attribute('data-id')
+        assert did
+        lease_url = f'{base}/api/clinic/v1/dictations/{did}/leases'
+        with page.expect_response(lambda r: r.url == lease_url and r.request.method == 'POST') as lease:
+            row.click()
+        assert lease.value.ok, lease.value.text()
         expect(page).to_have_url(re.compile(r'#/diktat$'))
         editor = page.get_by_test_id('clinic-correction-view')
         files = editor.get_by_test_id('session-files')
@@ -372,7 +378,6 @@ def test_dictation_files_round_trip(file_server, tmp_path):
         expect(files).to_have_attribute('open', '')
         text = editor.get_by_test_id('text')
         audio = editor.locator('audio')
-        editor.locator('[data-action=acquire]').click()
         expect(text).to_be_editable()
         expect(text).to_have_value('')
         status = editor.get_by_test_id('session-file-status')

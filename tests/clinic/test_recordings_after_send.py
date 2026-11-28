@@ -11,8 +11,8 @@ def unsubmitted_draft(tmp_path_factory, monkeypatch):
     seed = mount.SERVER.replace("status=workflow.TO_WRITE", "status=workflow.DRAFT")
     seed = seed.replace("Anamnese Husten seit drei Tagen.", "...")
     seed = seed.replace(
-        "    db.session.add(workflow.ClinicWorkflowDictation(",
-        "    pools.add_author_member(pool.id, author.id, actor_id=admin.id)\n"
+        "\n    db.session.add(workflow.ClinicWorkflowDictation(",
+        "\n    pools.add_author_member(pool.id, author.id, actor_id=admin.id)\n"
         "    db.session.add(workflow.ClinicWorkflowDictation(",
     )
     monkeypatch.setattr(mount, "SERVER", seed)

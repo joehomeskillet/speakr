@@ -873,6 +873,17 @@ const DraftSendFields = {
   </div>`,
 };
 
+const SendTargetPicker = {
+    props: ['m', 'c'],
+    template: `
+      <label for="crv-send-target" style="text-align: left">{{ m.sendPreview.default_label ? 'Anderes Ziel wählen' : 'Ziel wählen' }}</label>
+      <select id="crv-send-target" :value="m.selectedTarget" :disabled="m.retrySend || m.phase === 'submitting'"
+              @change="c.selectTarget(Number($event.target.value))" style="${FIELD_TOUCH}; min-width: 0">
+        <option :value="-1" :disabled="!m.sendPreview.default_label">{{ m.sendPreview.default_label ? 'Vorgabe verwenden' : 'Bitte wählen' }}</option>
+        <option v-for="(target, index) in m.sendPreview.options" :key="index" :value="index">{{ target.label }}</option>
+      </select>`,
+};
+
 export const RECORDING_TEMPLATE = `
 <CorrectionView v-if="editingDraft" :client="client" :current-user="currentUser" :dictation-id="editingDraft"
                 open-audio-edits @close="closeAudioEdits">
@@ -968,14 +979,7 @@ export const RECORDING_TEMPLATE = `
             Vorgabe <strong data-testid="send-default">{{ m.sendPreview.default_label }}</strong>
           </p>
           <p v-else style="margin: 0">{{ c.text.targetUnavailable }}</p>
-          <template v-if="m.sendPreview.options.length">
-            <label for="crv-send-target" style="text-align: left">{{ m.sendPreview.default_label ? 'Anderes Ziel wählen' : 'Ziel wählen' }}</label>
-            <select id="crv-send-target" :value="m.selectedTarget" :disabled="m.retrySend || m.phase === 'submitting'"
-                    @change="c.selectTarget(Number($event.target.value))" style="${FIELD_TOUCH}; min-width: 0">
-              <option :value="-1" :disabled="!m.sendPreview.default_label">{{ m.sendPreview.default_label ? 'Vorgabe verwenden' : 'Bitte wählen' }}</option>
-              <option v-for="(target, index) in m.sendPreview.options" :key="index" :value="index">{{ target.label }}</option>
-            </select>
-          </template>
+          <send-target-picker v-if="m.sendPreview.options.length" :m="m" :c="c" />
           <div class="actions" style="justify-content: center">
             <button v-if="m.sendPreview.default_label || m.sendPreview.options.length" type="button" class="button primary"
                     style="${TOUCH}" :disabled="!m.canConfirm" @click="c.submit()">{{ m.retrySend && m.phase !== 'submitting' ? 'Erneut einreichen' : 'Jetzt einreichen' }}</button>
@@ -1010,7 +1014,7 @@ export const RECORDING_TEMPLATE = `
 
 export const RecordingView = {
     name: 'ClinicRecordingView',
-    components: { CorrectionView, DraftSendFields, RequiredCategories },
+    components: { CorrectionView, DraftSendFields, RequiredCategories, SendTargetPicker },
     emits: ['open', 'worklist'],
     props: {
         client: { type: Object, default: null },
