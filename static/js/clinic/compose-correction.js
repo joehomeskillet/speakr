@@ -49,12 +49,12 @@ import { createWorkflowActions } from './workflow-actions-ui.js';
 
 export const COMPOSE_CORRECTION_VERSION = 1;
 
-const CLINIC_OPEN_MODES = Object.freeze(['author_case', 'player', 'correction']);
+const CLINIC_OPEN_MODES = Object.freeze(['author_case', 'player', 'correction', 'details']);
 
 /**
  * Where a list open event lands.
  * An own author case opened from the worklist goes to the case details.
- * The Aufnahmen row control keeps the editor: that click is not the worklist double-click.
+ * The Aufnahmen row body keeps its existing behavior and the arrow opens details.
  * A permitted typist reaches the player for audio still to write, and the correction editor
  * for a recognised case or a document. A denied row stays closed (null).
  */
@@ -66,6 +66,7 @@ export function resolveClinicOpenTarget(payload, context) {
     if (!CLINIC_OPEN_MODES.includes(mode)) return null;
     if (payload.dictationId === undefined || payload.dictationId === null || payload.dictationId === '') return null;
     const id = String(payload.dictationId);
+    if (mode === 'details') return { surface: 'details', dictationId: id, openMode: null };
     const user = ctx.user || {};
     const role = String(user.role || ctx.role || '').toLowerCase();
     const authorId = payload.author_user_id != null ? payload.author_user_id : payload.authorUserId;
@@ -106,7 +107,7 @@ export const TEXT = Object.freeze({
     toWorklist: 'Zur Arbeitsliste',
     workspace: 'Editorarbeitsbereich',
     dictatedBy: 'Diktiert von',
-    pool: 'Schreibkräfte-Pool',
+    pool: 'Schreibdienst',
     editing: 'Bearbeitung',
     workerHeld: 'Von Ihnen übernommen',
     workerForeign: 'Von anderer Person übernommen',
@@ -114,7 +115,7 @@ export const TEXT = Object.freeze({
     workerFree: 'Noch nicht übernommen',
     templateMenu: 'Textbaustein einfügen',
     openAssignment: 'Zuordnung offen',
-    noPool: 'Kein Pool zugewiesen',
+    noPool: 'Kein Schreibdienst zugeordnet',
     options: 'Wiedergabeoptionen',
     audioUnsynced: 'Text und Audio sind nicht synchronisiert.',
     highlightOn: 'Wortmarkierung ausschalten',

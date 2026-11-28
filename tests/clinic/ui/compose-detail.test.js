@@ -87,7 +87,7 @@ describe('compose-detail contract', () => {
     it('uses German labels, no colour literals, no browser storage and no patient name, title or notes', () => {
         const body = source.slice(source.indexOf('template:'));
         expect(TEXT.author).toBe('Diktiert von');
-        expect(TEXT.pool).toBe('Schreibkräfte-Pool');
+        expect(TEXT.pool).toBe('Schreibdienst');
         expect(TEXT.takeover).toBe('Übernahme');
         expect(body).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
         expect(source).not.toMatch(/localStorage|sessionStorage|indexedDB/);

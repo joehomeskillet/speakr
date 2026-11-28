@@ -3140,7 +3140,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const token = clinicMenu ? await clinicMenu.getUploadCsrfToken() : null;
                 const response = await fetch('/upload', { method: 'POST', headers: token ? { 'X-CSRFToken': token } : {}, body });
                 if (!response.ok) throw new Error('upload_failed');
-                return response.json();
+                const receipt = await response.json();
+                if (receipt?.dictation_id) clinicWorklist?.client.markDictationChanged();
+                return receipt;
             };
             const clinicOffline = shallowRef(null);
             if (clinicMenu) {

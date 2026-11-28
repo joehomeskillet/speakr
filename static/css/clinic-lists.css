@@ -68,19 +68,57 @@
     outline: 2px solid var(--v8-text);
 }
 .v8-ui .clinic-recordings-view .recording-row:focus-visible { outline-color: var(--v8-text); }
+.v8-ui #crv-pending-title { scroll-margin-block-start: var(--ui-space-2); }
+.v8-ui #crv-pending-title:focus { outline: 2px solid var(--v8-text); outline-offset: 2px; }
 .v8-ui .clinic-recordings-view :is(.record-search, .record-select:not(:disabled), .page-actions button, .cl-id-disclosure > summary) {
     min-height: 48px !important;
 }
 .v8-ui .clinic-recordings-view .cl-id-disclosure > summary { min-width: 48px; }
 .v8-ui .clinic-recordings-view .cl-id-disclosure > summary:focus-visible { outline-color: var(--v8-text); }
+.v8-ui .clinic-recordings-view .record-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--sp-2);
+    padding: 0 var(--sp-3) var(--sp-2);
+    background: var(--surface);
+}
+.v8-ui .clinic-recordings-view .record-actions .btn { min-height: 48px; }
+.v8-ui .clinic-recordings-view .record-actions .btn:focus-visible { outline-color: var(--v8-text); }
+.v8-ui .clinic-recordings-view .record-actions .btn--primary {
+    background: var(--bg-button);
+    border-color: var(--bg-button);
+    color: var(--text-button);
+}
+.v8-ui .clinic-recordings-view .record-actions .btn--primary:hover:not(:disabled) {
+    background: var(--bg-button-hover);
+    border-color: var(--bg-button-hover);
+}
+.v8-ui .clinic-recordings-view .record-actions .record-chevron {
+    display: inline-flex;
+    min-width: 48px;
+    color: var(--v8-text-2);
+}
 @media (min-width: 701px) {
     .v8-ui .clinic-recordings-view .recording-row {
-        grid-template-columns: 55px 36px minmax(0, 1fr) minmax(0, 24rem) 63px 18px;
+        grid-template-columns: 55px 36px minmax(0, 1fr) minmax(0, 24rem) 63px;
     }
+}
+@media (min-width: 1001px) {
+    .v8-ui .clinic-recordings-view .cl-reference-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        background: var(--surface);
+    }
+    .v8-ui .clinic-recordings-view .record-actions {
+        align-self: end;
+        min-inline-size: 11rem;
+        padding-block-start: calc(48px + var(--sp-2));
+    }
+    .v8-ui .clinic-recordings-view .cl-reference-row > .cl-id-disclosure[open] { grid-column: 1 / -1; }
 }
 @media (min-width: 701px) and (max-width: 1000px) {
     .v8-ui .clinic-recordings-view .recording-row {
-        grid-template-columns: 45px 33px minmax(0, 1fr) minmax(0, 35%) 52px 13px;
+        grid-template-columns: 45px 33px minmax(0, 1fr) minmax(0, 35%) 52px;
     }
     .v8-ui:has(.clinic-recordings-view) .topbar { flex-wrap: wrap; padding-block: var(--sp-2); }
     .v8-ui:has(.clinic-recordings-view) .topnav { order: 5; width: 100%; margin: 0; }
@@ -120,12 +158,11 @@
 :is(.clinic-recordings-view, .clinic-worklist-view) .cl-id-value textarea { width: 100%; min-width: 0; resize: none; font-size: 12px; overflow-wrap: anywhere; }
 
 @media (prefers-reduced-motion: reduce) {
-    .v8-ui .clinic-recordings-view .recording-row { transition: none; }
+    .v8-ui .clinic-recordings-view :is(.recording-row, .record-actions .btn) { transition: none; }
 }
 @media (max-width: 700px) {
     .v8-ui .clinic-recordings-view .recording-row { padding-block: 12px; }
     .v8-ui .clinic-recordings-view .recording-row > .status { grid-column: 2; grid-row: 3; margin-left: 0; }
-    .v8-ui .clinic-recordings-view .record-chevron { display: block; grid-column: 3; grid-row: 3; justify-self: end; }
     .v8-ui .clinic-worklist-view .listbody.has-detail { grid-template-columns: minmax(0, 1fr); }
     /* Native selects already reserve room for the arrow. Keep the mobile type size. */
     .clinic-recordings-view .record-toolbar select.record-select { padding-inline-end: 6px; }
@@ -133,8 +170,12 @@
     .clinic-recordings-view #crv-role-filters { grid-template-columns: minmax(0, 1fr); }
 }
 
-@media (min-width: 360px) and (max-width: 700px) {
-    .clinic-recordings-view #crv-role-filters { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+@media (min-width: 390px) and (max-width: 700px) {
+    .clinic-recordings-view #crv-role-filters {
+        grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
+        gap: var(--sp-1);
+    }
+    .v8-ui .clinic-recordings-view #crv-role-filters input.record-select { padding-inline-start: var(--sp-2); }
 }
 
 @media (max-width: 767px) {

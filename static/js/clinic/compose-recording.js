@@ -27,7 +27,7 @@
  */
 
 import { DictationProtectionComponent } from './dictation-protection-ui.js';
-import { createRecorderPhases, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
+import { createRecorderPhases, formatRecordingDuration, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
 import { createRecordLevelController, RECORD_LEVEL_TEMPLATE } from './record-level-ui.js';
 import { createPedalController } from './pedal-ui.js';
 import { CATEGORIES, RequiredCategories } from './categories-ui.js';
@@ -64,7 +64,7 @@ export const TEXT = Object.freeze({
     startFailed: 'Prüfen Sie Ihr Mikrofon oder wählen Sie „oder Datei hochladen“.',
     microphoneDenied: 'Erlauben Sie den Mikrofonzugriff in den Website-Einstellungen Ihres Browsers und starten Sie die Aufnahme erneut.',
     routingPending: 'Berechtigung wird geprüft …',
-    routingMissing: 'Ihr Konto ist noch keinem Autorenpool zugeordnet. Bitte wenden Sie sich an die Verwaltung.',
+    routingMissing: 'Ihr Konto ist noch nicht für Diktate freigeschaltet. Bitte wenden Sie sich an die Verwaltung.',
     routingError: 'Die Berechtigung konnte nicht geprüft werden. Bitte laden Sie die Seite neu.',
     recordFailed: 'Senden fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Aufnahme wird nicht lokal gespeichert.',
     recordRetained: 'Die Aufnahme liegt verschlüsselt unter „Offline und Wiederherstellung“. Der Server hat den Entwurf nicht bestätigt.',
@@ -146,7 +146,7 @@ export function isAudioFile(file) {
 const SEND_REFUSALS = Object.freeze({
     AUDIO_REQUIRED: 'Für diesen Entwurf liegt keine gültige Audiofassung vor.',
     NOT_DRAFT: 'Das Diktat ist kein neuer Entwurf mehr. Bitte den aktuellen Stand öffnen.',
-    NO_STAFF_POOL: 'Kein Schreibkräfte-Pool zugeordnet.',
+    NO_STAFF_POOL: 'Das Diktat wurde nicht gesendet. Es ist kein Schreibdienst zugeordnet.',
     STALE_VERSION: 'Der Entwurf wurde geändert. Bitte den aktuellen Stand prüfen.',
 });
 
@@ -186,6 +186,11 @@ export function createRecordingViewController(options) {
     let submission = null;
     let submitError = '';
     let pendingSend = null;
+    let plannedServices = [];
+    let confirmedServices = [];
+    const serviceNames = (names) => Array.isArray(names)
+        ? names.filter((name) => typeof name === 'string' && name.trim()) : [];
+    const singleService = (name) => /\bSchreibdienst\b/i.test(name) ? name : 'Schreibdienst ' + name;
     let draft = null;
     let resumedDraftId = opts.draftId || null;
     let pendingMetadata = null;
@@ -236,14 +241,16 @@ export function createRecordingViewController(options) {
     async function checkRouting() {
         routing = 'routingPending';
         notify();
-        let available;
+        let preflight;
         try {
             const response = await (opts.fetchPreflight || globalThis.fetch)('/api/config?recording_preflight=1', { cache: 'no-store' });
-            if (response.ok) available = (await response.json()).routable;
+            if (response.ok) preflight = await response.json();
         } catch {
             // A failed preflight must never enable capture.
         }
         if (state.disposed) return;
+        const available = preflight?.routable;
+        plannedServices = available === true ? serviceNames(preflight.staff_service_names) : [];
         routing = available === true ? null : available === false ? 'routingMissing' : 'routingError';
         notify();
     }
@@ -505,6 +512,7 @@ export function createRecordingViewController(options) {
             const res = await client.request(path + '/send', { method: 'POST', ...pendingSend });
             if (state.disposed) return denied('cancelled');
             if (res.outcome === 'ok' && res.data?.dictation_id === id && res.data.status) {
+                confirmedServices = serviceNames(res.data.staff_service_names);
                 submission = 'submitted';
                 return { ok: true };
             }
@@ -597,6 +605,7 @@ export function createRecordingViewController(options) {
         submission = null;
         submitError = '';
         pendingSend = null;
+        confirmedServices = [];
         pendingMetadata = null;
         draft = null;
         resumedDraftId = null;
@@ -683,6 +692,7 @@ export function createRecordingViewController(options) {
     function model() {
         const s = machine.getState();
         const fileBusy = state.filePhase === 'sending' || state.filePhase === 'sent';
+        const saved = opts.oneButton && state.mode === 'record' && allowed() && created() ? s.receipt : null;
         const separateSubmit = categorySets.length > 0 || ['loading', 'failed'].includes(categoryLoad);
         let recordActionLabel = s.phase === 'review' ? 'Senden' : 'Erneut senden';
         if (separateSubmit) recordActionLabel = created() ? TEXT.submit : s.phase === 'review' ? TEXT.upload : TEXT.retrySave;
@@ -701,6 +711,15 @@ export function createRecordingViewController(options) {
             author: displayName(user),
             authorId: String(user.id),
             title: s.title,
+            plannedDestination: opts.oneButton && allowed() && s.phase === 'review' && plannedServices.length
+                ? 'Wird gesendet an: ' + (plannedServices.length === 1
+                    ? singleService(plannedServices[0]) : 'Schreibdienste ' + plannedServices.join(', ')) : '',
+            recordingReceipt: saved ? {
+                title: typeof saved.title === 'string' && /^Diktat \d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/.test(saved.title) ? saved.title : '',
+                duration: formatRecordingDuration(saved.audio_duration),
+                arrived: confirmedServices.length === 1 ? 'Beim ' + singleService(confirmedServices[0]) + ' angekommen'
+                    : confirmedServices.length ? 'Bei den Schreibdiensten ' + confirmedServices.join(', ') + ' angekommen' : '',
+            } : null,
             titleLocked: !isTitleEditable(s.phase),
             microphoneOptions: microphoneOptions(),
             selectedMicrophoneId: opts.microphone?.deviceId === 'default' ? '' : opts.microphone?.deviceId || '',
@@ -887,6 +906,13 @@ export const RECORDING_TEMPLATE = `
     </p>
     <p v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
        :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}</p>
+    <div v-if="m.recordingReceipt" role="status" style="margin-bottom: var(--ui-space-4); overflow-wrap: anywhere">
+      <p data-testid="receipt-saved" style="margin: 0; font-weight: 650">Aufnahme gespeichert</p>
+      <p v-if="m.recordingReceipt.title || m.recordingReceipt.duration" style="margin: var(--ui-space-2) 0 0">
+        <span v-if="m.recordingReceipt.title" data-testid="receipt-title">{{ m.recordingReceipt.title }}</span><template v-if="m.recordingReceipt.title && m.recordingReceipt.duration"> · </template><span v-if="m.recordingReceipt.duration" data-testid="receipt-duration" :aria-label="'Aufnahmedauer ' + m.recordingReceipt.duration">{{ m.recordingReceipt.duration }}</span>
+      </p>
+      <p v-if="m.recordingReceipt.arrived" data-testid="receipt-arrived" style="margin: var(--ui-space-2) 0 0">{{ m.recordingReceipt.arrived }}</p>
+    </div>
     <template v-if="!m.routing || m.created">
       <template v-if="!m.created && m.mode === 'record'">
         <div class="vox-control" style="display: grid; justify-items: center; gap: var(--ui-space-2); margin: 0 auto var(--ui-space-4); max-width: 100%">
@@ -947,6 +973,7 @@ export const RECORDING_TEMPLATE = `
             </div>
             <p v-if="!outputSupported" data-testid="rec-output-note" style="margin: 0; color: var(--ui-text-muted, var(--ui-text))">Dieser Browser verwendet für die Wiedergabe immer den Systemausgang.</p>
           </div>
+          <p v-if="m.plannedDestination" data-testid="send-destination" style="margin: 0; overflow-wrap: anywhere">{{ m.plannedDestination }}</p>
           <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.sendRecording()">
             {{ m.recordActionLabel }}
           </button>
@@ -974,7 +1001,11 @@ export const RECORDING_TEMPLATE = `
                      :client="client" :dictation-id="m.created.dictationId" />
         </details>
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
-        <fieldset class="actions" :disabled="protecting()" style="justify-content: center; border: 0; padding: 0; margin: 0; min-inline-size: 0">
+        <div v-if="m.mode === 'record' && m.phase === 'submitted'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
+          <button type="button" class="button primary" data-testid="open-created" style="${TOUCH}; width: 100%; font-size: 1rem" @click="c.openCreated()">Diktat öffnen</button>
+          <a href="#/neu" data-testid="another" style="${LINK}" @click.prevent="c.another()">{{ c.text.title }}</a>
+        </div>
+        <fieldset v-else class="actions" :disabled="protecting()" style="justify-content: center; border: 0; padding: 0; margin: 0; min-inline-size: 0">
           <button v-if="!['submitted', 'notDraft'].includes(m.phase)" type="button" class="button primary" style="${TOUCH}"
                   :disabled="!m.canSubmit || m.categoriesLoading" data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
           <a href="#/diktat" data-testid="open-created" style="${LINK}" @click.prevent="c.openCreated()">{{ m.mode === 'file' ? c.text.open : 'Diktat öffnen' }}</a>
@@ -1140,10 +1171,7 @@ export const RecordingView = {
             if (!event.repeat) return action();
         }
         const enabled = (id) => m.value.controls.some((control) => control.id === id && !control.disabled);
-        const elapsed = V.computed(() => {
-            const seconds = props.recorder.elapsedSeconds || 0;
-            return [Math.floor(seconds / 60), seconds % 60].map((part) => String(part).padStart(2, '0')).join(':');
-        });
+        const elapsed = V.computed(() => formatRecordingDuration(props.recorder.elapsedSeconds || 0));
         const previewUrl = V.computed(() => props.recorder.previewUrl);
         const space = (event) => {
             if (event.code !== 'Space' || event.repeat || event.defaultPrevented
