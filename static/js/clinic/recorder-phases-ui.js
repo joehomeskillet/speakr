@@ -5,8 +5,9 @@
  * The recorder is injected, so its state and upload stay the single source.
  * A draft counts as saved only when the upload resolves with a server
  * receipt (an object carrying an id). A rejected, interrupted or receipt-less
- * upload ends in `failed` and can be retried. Title and audio stay in memory;
- * nothing is written to browser storage. Colours come from tokens.js.
+ * upload ends in `failed` and can be retried. Title and audio stay in memory.
+ * An unlocked managed staging store can retain an encrypted offline copy.
+ * Colours come from tokens.js.
  */
 
 import { surfaceFor } from './tokens.js';
@@ -63,9 +64,10 @@ export function formatRecordingDuration(seconds) {
 }
 
 /** Use the stock capture controls and send the finished microphone take through the clinic file upload. */
-export function createClinicRecorder(audio, state, uploadFile) {
+export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = () => null) {
     let samples;
     const takes = new WeakMap();
+    const retained = new WeakMap();
     let takeVoxEnabled = false;
     let gatedTake = null;
 
@@ -97,6 +99,16 @@ export function createClinicRecorder(audio, state, uploadFile) {
         URL.revokeObjectURL(originalUrl);
     }
 
+    function recordedFile() {
+        const chunks = state.audioChunks.value;
+        if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
+        if (chunks.length === 1 && chunks[0] instanceof File) return chunks[0];
+        const gated = gatedTake?.chunks === chunks ? gatedTake.blob : null;
+        if (gated) return new File([gated], 'aufnahme.wav', { type: gated.type });
+        const type = state.mediaRecorder.value.mimeType.split(';')[0];
+        return new File(chunks, 'aufnahme.webm', { type });
+    }
+
     return {
         startRecording,
         pauseRecording: audio.pauseRecording,
@@ -114,6 +126,16 @@ export function createClinicRecorder(audio, state, uploadFile) {
         },
         stopRecording,
         reviewSource: () => state.audioBlobURL.value,
+        canUseLocalFiles: () => offlineDrafts()?.canUseLocalFiles === true,
+        recordedFile,
+        openRecordedFile(file) {
+            if (offlineDrafts()?.canUseLocalFiles !== true) throw new Error('local_denied');
+            const url = URL.createObjectURL(file);
+            if (state.audioBlobURL.value) URL.revokeObjectURL(state.audioBlobURL.value);
+            gatedTake = null;
+            state.audioChunks.value = [file];
+            state.audioBlobURL.value = url;
+        },
         async discardRecording() {
             await stopRecording();
             gatedTake = null;
@@ -121,16 +143,31 @@ export function createClinicRecorder(audio, state, uploadFile) {
         },
         async uploadRecordedAudio({ title }) {
             const chunks = state.audioChunks.value;
-            if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
+            const file = recordedFile();
             const previous = takes.get(chunks);
             const take = previous || { id: globalThis.crypto.randomUUID(), title };
             takes.set(chunks, take);
-            const gated = gatedTake?.chunks === chunks ? gatedTake.blob : null;
-            const file = gated
-                ? new File([gated], 'aufnahme.wav', { type: gated.type })
-                : new File(chunks, 'aufnahme.webm', { type: state.mediaRecorder.value.mimeType.split(';')[0] });
-            const receipt = await uploadFile(file, take.title, { id: take.id, retry: Boolean(previous) });
-            if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
+            const drafts = offlineDrafts();
+            let binding = retained.get(chunks);
+            let receipt;
+            try {
+                receipt = await uploadFile(file, take.title, { id: take.id, retry: Boolean(previous) });
+                if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
+            } catch (error) {
+                if (drafts && (globalThis.navigator?.onLine === false || error instanceof TypeError)) {
+                    try {
+                        binding ||= { dictationId: crypto.randomUUID(), sequence: 0 };
+                        if (await drafts.saveTake(binding, file, take.title)) retained.set(chunks, binding);
+                    } catch (e) { /* the original upload failure still owns the retry state */ }
+                }
+                if (retained.has(chunks)) throw new Error('offline_retained');
+                throw error;
+            }
+            if (binding && drafts) {
+                try {
+                    await drafts.removeTake(binding);
+                } catch (e) { /* a local cleanup failure cannot invalidate a server receipt */ }
+            }
             // A new take gets its own chunk array as soon as capture starts.
             if (state.audioChunks.value === chunks) {
                 gatedTake = null;
@@ -214,6 +251,16 @@ export function createRecorderPhases(options) {
             capturePending = false;
             set({});
         }
+    }
+
+    function openFile(file) {
+        const blocked = guard(['title', 'ready', 'review', 'failed']);
+        if (blocked) return blocked;
+        if (capturePending) return denied('capture_pending');
+        media?.pause?.();
+        recorder.openRecordedFile(file);
+        set({ phase: 'review', title: state.title.trim() || localDictationTitle(), error: null });
+        return { ok: true };
     }
 
     function pause() {
@@ -315,15 +362,16 @@ export function createRecorderPhases(options) {
         media?.pause?.();
         set({ phase: 'sending', error: null });
         let receipt = null;
+        let error = 'no_receipt';
         try {
             receipt = await recorder.uploadRecordedAudio({ title: state.title.trim() || localDictationTitle() });
         } catch (e) {
-            receipt = null;
+            if (e?.message === 'offline_retained') error = 'offline_retained';
         }
         if (mine !== generation) return denied('stale');
         if (receiptDictationId(receipt) === null) {
-            set({ phase: 'failed', error: 'no_receipt' });
-            return denied('no_receipt');
+            set({ phase: 'failed', error });
+            return denied(error);
         }
         set({ phase: 'sent', receipt: receipt });
         return { ok: true, receipt: receipt };
@@ -396,7 +444,7 @@ export function createRecorderPhases(options) {
             listeners.add(listener);
             return () => listeners.delete(listener);
         },
-        setTitle, start, pause, resume, stop, rewind, play, send, cancel, reset,
+        setTitle, start, openFile, pause, resume, stop, rewind, play, send, cancel, reset,
         beginning: rewind, end, skip, stopPlayback, pauseActiveMedia, isPlaying: playing, setPlayer, syncPlayback, playbackFailed,
         controls, announcement, surface,
     };

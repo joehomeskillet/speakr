@@ -98,12 +98,14 @@ function scopeKey(row) {
 }
 
 /**
- * @param {{client?: object, reactive?: Function, listQuery?: string, scopeQuery?: string}} [options]
+ * @param {{client?: object, reactive?: Function, dictationId?: string, listQuery?: string, scopeQuery?: string}} [options]
  */
 export function createTemplatesManager(options) {
     const client = (options && options.client) || createClinicApiClient();
     const scopeQuery = options?.scopeQuery || '';
-    const listQuery = options?.listQuery || scopeQuery;
+    const dictationQuery = options?.dictationId == null ? '' : '?dictation_id=' + encodeURIComponent(options.dictationId);
+    const detailQuery = scopeQuery || dictationQuery;
+    const listQuery = options?.listQuery || detailQuery;
     const wrap = (options && options.reactive) || ((value) => value);
     const state = wrap({
         loaded: false,
@@ -112,6 +114,7 @@ export function createTemplatesManager(options) {
         stale: false,
         status: 'normal',
     });
+    let listRequest = 0;
     let pending = null; // { digest, key } of the draft that is being (re)tried
 
     function setStatus(status) {
@@ -171,8 +174,15 @@ export function createTemplatesManager(options) {
     }
 
     async function load() {
+        const request = ++listRequest;
         setStatus('processing');
+        if (dictationQuery) {
+            state.items = [];
+            state.selectedId = null;
+            state.loaded = false;
+        }
         const row = await client.request(TEMPLATES + listQuery);
+        if (dictationQuery && request !== listRequest) return refuse('cancelled');
         if (row.outcome !== 'ok') return failure(row, 'permission');
         const rows = (row.data && row.data.items) || [];
         for (const item of state.items) if (!rows.some((next) => next.id === item.id)) item.active = false;
@@ -196,7 +206,7 @@ export function createTemplatesManager(options) {
         if (!loaded.ok) return loaded;
         setStatus('processing');
         const details = await Promise.all(state.items.filter((row) => row.active)
-            .map((row) => client.request(TEMPLATES + '/' + encodeURIComponent(row.id) + scopeQuery)));
+            .map((row) => client.request(TEMPLATES + '/' + encodeURIComponent(row.id) + detailQuery)));
         const failed = details.find((row) => row.outcome !== 'ok');
         if (failed) return failure(failed, 'permission');
         merge(details.map((row) => row.data));

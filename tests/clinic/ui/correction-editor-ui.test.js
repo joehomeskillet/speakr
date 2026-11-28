@@ -169,6 +169,17 @@ describe('correction editor ui', () => {
         expect(down.editor.text.value).toBe('Befund unauffällig');
     });
 
+    it('fails closed when the current case no longer has access to templates', async () => {
+        const { editor, client } = make();
+        await editor.load();
+        expect(await editor.applyTemplate('t1')).toMatchObject({ ok: true });
+        client.request.mockResolvedValueOnce(fail('permission', 403));
+        expect(await editor.loadTemplates()).toMatchObject({ ok: false });
+        expect(editor.templates.items).toEqual([]);
+        expect(editor.template.value).toBeNull();
+        expect(client.request).toHaveBeenLastCalledWith('/templates?dictation_id=' + D);
+    });
+
     it('retries after a network failure with the same method', async () => {
         let attempts = 0;
         const routes = happy({
