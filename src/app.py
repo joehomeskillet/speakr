@@ -1242,6 +1242,9 @@ def register_clinic_worklist(flask_app):
     def load_entries(actor):
         return worklist_entries.load_entries(actor)
 
+    def layout_policy(_actor):
+        return routes_worklist._DEFAULT_LAYOUT, routes_worklist.layout_columns(worklist_entries.active_metadata_fields())
+
     def assign_regex(actor, dictation_id, fields):
         targets = {
             'title': 'title', 'dictation_name': 'title',
@@ -1302,9 +1305,10 @@ def register_clinic_worklist(flask_app):
     routes_workflow.register_commands(dispatch, workflow_authorize, acceptance_policy, ledger)
     routes_worklist.register_save_filter(dispatch, filters.create)
     flask_app.register_blueprint(routes_worklist.create_blueprint(
-        load_entries, filters, layouts, load_case_displays=worklist_entries.case_displays))
+        load_entries, filters, layouts, load_case_displays=worklist_entries.case_displays,
+        load_metadata_fields=worklist_entries.active_metadata_fields))
     flask_app.register_blueprint(routes_columns.create_columns_blueprint(
-        layouts, lambda _actor: (routes_worklist._DEFAULT_LAYOUT, routes_worklist.LAYOUT_COLUMNS), run_once))
+        layouts, layout_policy, run_once))
     flask_app.register_blueprint(routes_workflow.create_blueprint(
         authorize=workflow_authorize, run_once=run_once, allowed_actions=allowed_actions,
         record_audit=record_audit, trusted_context=context_is_trusted,
