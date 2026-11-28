@@ -21,19 +21,12 @@ from src.models import User
 from src.services import audit
 
 
-_FOLDER_FIELDS = {"approved_root", "file_pattern", "priority", "language_id", "asr_profile_id"}
-_TARGET_FIELDS = {"target_author_user_id", "target_pool_id"}
-_FLAGS = {"autosend_enabled", "eol_filter_enabled"}
-
-
 def _visible(config):
-    result = {key: config[key] for key in (
+    return {key: config[key] for key in (
         "id", "source_kind", "source_ref", "target_author_user_id", "target_pool_id", "policy_version",
+        *(_FOLDER_FIELDS if config["source_kind"] == "folder" else ()),
         "autosend_enabled", "eol_filter_enabled",
     )}
-    if config["source_kind"] == "folder":
-        result.update((key, config[key]) for key in _FOLDER_FIELDS)
-    return result
 
 
 def _targets():
@@ -49,27 +42,15 @@ def _targets():
     return people, [{"id": pid, "name": name, "author_id": uid} for pid, name, uid in pools.order_by(ClinicAuthorPool.name)]
 
 
+_FOLDER_FIELDS = {"approved_root", "file_pattern", "priority", "language_id", "asr_profile_id"}
+_TARGET_FIELDS = {"target_author_user_id", "target_pool_id"}
+_FLAGS = {"autosend_enabled", "eol_filter_enabled"}
+
+
 def _source_error(error):
     if error.code == "not_found":
         return jsonify(status=404, code="NOT_FOUND", title="Quelle nicht gefunden"), 404
     return _problem({"forbidden": "FORBIDDEN", "conflict": "REVISION_CONFLICT"}.get(error.code, "INVALID_PAYLOAD"))
-
-
-def list_sources():
-    actor = current_user.id
-    try:
-        sources._may_manage(actor)
-        items = []
-        for config in sources.list_source_configs(actor_user_id=actor):
-            try:
-                sources._clean_root(config["approved_root"])
-            except AgentChannelError:
-                continue
-            items.append(_visible(config))
-    except AgentChannelError as error:
-        return _source_error(error)
-    authors, pools = _targets() if items else ([], [])
-    return jsonify(items=items, authors=authors, pools=pools)
 
 
 def _check_csrf():
@@ -79,12 +60,8 @@ def _check_csrf():
         raise CommandProblem("FORBIDDEN") from None
 
 
-def _owned_source(actor, config_id):
-    if not isinstance(config_id, str) or not 1 <= len(config_id) <= 36 or "\x00" in config_id:
-        raise CommandProblem("INVALID_PAYLOAD")
-    config = sources.get_source_config(actor_user_id=actor, config_id=config_id)
-    sources._clean_root(config["approved_root"])
-    return config
+def _valid_source_id(config_id):
+    return isinstance(config_id, str) and 1 <= len(config_id) <= 36 and "\x00" not in config_id
 
 
 def _validate_options(body):
@@ -166,7 +143,10 @@ def delete_source(config_id=None):
             if not isinstance(body, dict) or body.keys() != {"config_id"}:
                 return _problem("INVALID_PAYLOAD")
             config_id = body["config_id"]
-        config = _owned_source(actor, config_id)
+        if not _valid_source_id(config_id):
+            return _problem("INVALID_PAYLOAD")
+        config = sources.get_source_config(actor_user_id=actor, config_id=config_id)
+        sources._clean_root(config["approved_root"])
         if config["source_kind"] != "folder":
             return _problem("INVALID_PAYLOAD")
         sources.delete_source_config(
@@ -182,46 +162,81 @@ def delete_source(config_id=None):
         return _source_error(error)
 
 
-def update_source(config_id):
+def list_sources():
     actor = current_user.id
     try:
         sources._may_manage(actor)
-        config = _owned_source(actor, config_id)
-        _check_csrf()
+        items = []
+        for config in sources.list_source_configs(actor_user_id=actor):
+            try:
+                sources._clean_root(config["approved_root"])
+            except AgentChannelError:
+                continue
+            items.append(_visible(config))
     except AgentChannelError as error:
         return _source_error(error)
-    except CommandProblem as error:
-        return _problem(str(error))
+    authors, pools = _targets() if items else ([], [])
+    return jsonify(items=items, authors=authors, pools=pools)
+
+
+def update_source(config_id):
+    if not _valid_source_id(config_id):
+        return _problem("INVALID_PAYLOAD")
+    actor = current_user.id
+    try:
+        sources._may_manage(actor)
+        config = sources.get_source_config(actor_user_id=actor, config_id=config_id)
+        sources._clean_root(config["approved_root"])
+    except AgentChannelError as error:
+        return _source_error(error)
+    try:
+        validate_csrf(request.headers.get("X-CSRF-Token"))
+    except ValidationError:
+        return _problem("FORBIDDEN")
     key = request.headers.get("Idempotency-Key", "")
     try:
         UUID(key)
     except ValueError:
         return _problem("INVALID_PAYLOAD")
     body = request.get_json(silent=True)
-    allowed = {"expected_version"} | _TARGET_FIELDS | _FLAGS
-    if config["source_kind"] == "folder":
-        allowed |= _FOLDER_FIELDS
+    folder_changes = {}
+    if isinstance(body, dict) and config["source_kind"] == "folder":
+        folder_changes = {name: body[name] for name in _FOLDER_FIELDS & body.keys()}
+        body = {name: value for name, value in body.items() if name not in folder_changes}
+    allowed = {"expected_version", "target_author_user_id", "target_pool_id",
+               "autosend_enabled", "eol_filter_enabled"}
     if not isinstance(body, dict) or not set(body) <= allowed or "expected_version" not in body:
         return _problem("INVALID_PAYLOAD")
     target_fields = _TARGET_FIELDS & body.keys()
-    changes = {name: value for name, value in body.items() if name != "expected_version"}
-    if not changes or (target_fields and target_fields != _TARGET_FIELDS):
+    if target_fields and target_fields != _TARGET_FIELDS:
+        return _problem("INVALID_PAYLOAD")
+    routing = bool(target_fields or folder_changes)
+    flags = [name for name in ("autosend_enabled", "eol_filter_enabled") if name in body]
+    if not routing and not flags:
         return _problem("INVALID_PAYLOAD")
     version = body["expected_version"]
-    if type(version) is not int or not 1 <= version < 2**31 - 1:
+    if type(version) is not int or version < 1 or any(type(body[name]) is not bool for name in flags):
+        return _problem("INVALID_PAYLOAD")
+    if version >= 2**31 - 1:
         return _problem("INVALID_PAYLOAD")
     try:
-        _validate_options(changes)
+        _validate_options(folder_changes)
         if target_fields:
-            _validate_target(actor, changes["target_author_user_id"], changes["target_pool_id"])
+            _validate_target(actor, body["target_author_user_id"], body["target_pool_id"])
     except CommandProblem as error:
         return _problem(str(error))
-    if "asr_profile_id" in changes and changes["asr_profile_id"] is None:
-        changes["asr_profile_id"] = ""
     scope = (actor, "route_import_source", config_id, key)
-    digest = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+    digest = hashlib.sha256(json.dumps(body | folder_changes, sort_keys=True).encode()).hexdigest()
+    if "asr_profile_id" in folder_changes and folder_changes["asr_profile_id"] is None:
+        folder_changes["asr_profile_id"] = ""
 
     def write():
+        changes = {}
+        if routing:
+            changes.update((name, body[name]) for name in target_fields)
+            changes.update(folder_changes)
+        for name in flags:
+            changes[name] = body[name]
         updated = sources.update_source_config(
             actor_user_id=actor, config_id=config_id, expected_version=version, commit=False,
             may_assign_author=lambda *_: current_user.is_admin, **changes)
