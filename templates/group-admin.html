@@ -124,7 +124,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css', v=app_version) }}">
     {% include 'includes/ui_theme.html' %}
 </head>
-<body class="bg-[var(--bg-primary)] text-[var(--text-primary)]">
+<body class="bg-[var(--bg-primary)] text-[var(--text-primary)]{% if clinic_mode %} v8-focus{% endif %}">
     {% set page_label = 'Group Management' %}
     {% set page_label_key = 'nav.groupManagement' %}
     {% include 'components/page-header.html' %}

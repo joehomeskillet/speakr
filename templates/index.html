@@ -98,7 +98,7 @@
     <script src="{{ url_for('static', filename='vendor/js/easymde.min.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='js/timezone-sync.js', v=app_version) }}" defer></script>
 </head>
-<body class="h-full bg-[var(--bg-primary)] text-[var(--text-primary)] transition-colors duration-300">
+<body class="h-full bg-[var(--bg-primary)] text-[var(--text-primary)] transition-colors duration-300{% if clinic_mode %} v8-focus{% endif %}">
     <div id="app" v-cloak
          data-current-user-name="{{ current_user.name or current_user.username }}"
          data-use-asr-endpoint="{{ use_asr_endpoint }}"

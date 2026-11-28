@@ -600,7 +600,7 @@
     {% include 'includes/ui_theme.html' %}
     <script src="{{ url_for('static', filename='js/timezone-sync.js', v=app_version) }}" defer></script>
 </head>
-<body class="bg-[var(--bg-primary)] text-[var(--text-primary)] h-full flex flex-col overflow-hidden">
+<body class="bg-[var(--bg-primary)] text-[var(--text-primary)] h-full flex flex-col overflow-hidden{% if clinic_mode %} v8-focus{% endif %}">
     {% set page_label = 'Account' %}
     {% set page_label_key = 'nav.account' %}
     {% include 'components/page-header.html' %}
