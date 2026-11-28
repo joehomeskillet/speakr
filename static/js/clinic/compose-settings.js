@@ -21,7 +21,7 @@
  * which carries expected_consent_id; the client adds X-CSRF-Token and Idempotency-Key).
  */
 
-import { createPreferencesComponent } from './preferences-ui.js';
+import { createPreferencesComponent, WORKSTATION_FIELDS, WORKSTATION_ORIGINS } from './preferences-ui.js';
 import { createHandmicController } from './handmic-webhid.js';
 import { CorrectionModes } from './correction-modes-ui.js';
 import { surfaceFor } from './tokens.js';
@@ -63,11 +63,7 @@ export const SessionTransportNotice = {
         :class="{ warning: blocked }" data-testid="session-transport-status">{{ message }}</p></div>`,
 };
 
-export const ORIGIN_LABELS = Object.freeze({
-    workstation: 'Persönlich (Arbeitsplatz)',
-    central: 'Zentral festgelegt',
-    ceiling: 'Zentral begrenzt',
-});
+export const ORIGIN_LABELS = WORKSTATION_ORIGINS;
 
 export const LABELS = Object.freeze({
     title: 'Einstellungen',
@@ -160,9 +156,10 @@ export function createSettingsController(deps) {
     // Same surface as the shared client; every answer is observed once.
     const tapped = {
         request: async (path, options) => {
-            const epoch = state.epoch;
+            const seen = state.epoch;
             const res = await client.request(path, options);
-            if (state.epoch === epoch) note(path, options, res);
+            if (disposed || seen !== state.epoch) return { outcome: 'cancelled' };
+            note(path, options, res);
             return res;
         },
         command: (...args) => client.command(...args),
@@ -324,7 +321,7 @@ const NOTE_BURGUNDY = 'note burgundy [.dark_&]:!text-[color:var(--v8-text)] [[da
 const NOTE_WARNING = 'note warning [.dark_&]:!bg-[var(--v8-s2)] [.dark_&]:!border-[color:var(--line)] [.dark_&]:!text-[color:var(--v8-text)] '
     + '[[data-theme=dark]_&]:!bg-[var(--v8-s2)] [[data-theme=dark]_&]:!border-[color:var(--line)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)]';
 const PRIMARY = 'primary max-[760px]:min-h-11 !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold !px-[13px] hover:!bg-[var(--brand2)]';
-const CHILD_BUTTONS = '[&_.btn]:!min-h-[38px] [&_.btn]:rounded-lg [&_.btn]:border [&_.btn]:border-[color:var(--line)] [&_.btn]:bg-[var(--surface)] [&_.btn]:px-[13px] [&_.btn]:text-[13px] [&_.btn]:font-semibold [&_.btn]:text-[color:var(--v8-text)] '
+const CHILD_BUTTONS = '[&_.btn]:!min-h-12 [&_.btn]:rounded-lg [&_.btn]:border [&_.btn]:border-[color:var(--line)] [&_.btn]:bg-[var(--surface)] [&_.btn]:px-[13px] [&_.btn]:text-[13px] [&_.btn]:font-semibold [&_.btn]:text-[color:var(--v8-text)] [&_.btn:disabled]:opacity-50 '
     + '[&_button[type=submit]]:!bg-[var(--ink)] [&_button[type=submit]]:!border-[color:var(--ink)] [&_button[type=submit]]:!text-[color:var(--v8-on-ink,var(--ui-surface))]';
 const CHOICES = '[&_legend]:mb-2 [&_legend]:text-[12px] [&_legend]:font-bold [&_fieldset]:m-0 [&_fieldset]:mb-4 [&_fieldset]:min-w-0 [&_fieldset]:border-0 [&_fieldset]:p-0 '
     + '[&_label.block]:flex [&_label.block]:items-center [&_label.block]:gap-2 [&_label.block]:text-[13px] [&_label.block]:font-medium';
@@ -611,16 +608,16 @@ export const SETTINGS_TEMPLATE = `
     <div class="grid equal">
       <div class="space-y-5 min-w-0">
         <section class="panel clinic-settings-prefs ${CHILD_BUTTONS} ${CHOICES}"><component :is="preferences" :key="'p:' + state.epoch"></component></section>
-        <section role="region" :aria-label="labels.origins" class="panel" data-testid="clinic-settings-origins">
-          <h2>{{ labels.origins }}</h2>
+        <details class="panel" data-testid="clinic-settings-origins">
+          <summary class="min-h-12 cursor-pointer">{{ labels.origins }}</summary>
           <p v-if="!rows().length" class="hint" role="status" aria-live="polite" data-testid="clinic-settings-empty">{{ labels.empty }}</p>
           <dl v-else class="keyvalues" :aria-label="labels.origins">
             <div v-for="r in rows()" :key="r.key" :data-key="r.key" :data-origin="r.origin">
-              <dt>{{ r.key }}</dt>
+              <dt>{{ fieldLabels[r.key]?.label || 'Arbeitsplatzwert' }}</dt>
               <dd><span class="tag" :class="r.locked ? 'burgundy' : 'neutral'">{{ r.label }}</span></dd>
             </div>
           </dl>
-        </section>
+        </details>
         <component :is="notifications" :key="'n:' + state.epoch"></component>
       </div>
       <div class="space-y-5 min-w-0">
@@ -652,7 +649,7 @@ export const SettingsView = {
             makeState: (o) => Vue.reactive(o),
         });
         const preferences = Vue.markRaw(createPreferencesComponent(Vue, ctrl.client, {
-            workstationId: props.workstationId, t: props.t || undefined,
+            workstationId: props.workstationId, issueWorkstation: true, t: props.t || undefined,
         }));
         const correction = Vue.markRaw(CorrectionModes);
         const pedal = Vue.markRaw(createPedalSettingsComponent(Vue));
@@ -666,6 +663,7 @@ export const SettingsView = {
         return {
             state: ctrl.state, labels: LABELS, rows: ctrl.originRows, client: ctrl.client, vue: props.vue,
             audio: NO_AUDIO, preferences, correction, pedal, handmic, consent, notifications, errorStyle,
+            fieldLabels: WORKSTATION_FIELDS,
         };
     },
 };
