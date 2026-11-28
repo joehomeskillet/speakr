@@ -519,9 +519,10 @@ export function WorklistLayoutControls(Vue) {
     <div class="cl-panel__foot cl-layout-actions">
       <p v-if="L.banner()" :role="L.banner().role" class="cl-note" style="flex-basis: 100%; margin: 0"
          :style="L.banner().style">{{ L.banner().text }}</p>
-      <button type="button" class="primary" :disabled="!L.canSave() || !L.state.dirty"
-              @click="L.save()">{{ LABELS.save }}</button>
-      <button type="button" class="secondary" :disabled="L.busy()" @click="L.load()">{{ LABELS.reload }}</button>
+      <button type="button" class="primary" style="flex: none; white-space: nowrap"
+              :disabled="!L.canSave() || !L.state.dirty" @click="L.save()">{{ LABELS.save }}</button>
+      <button type="button" class="secondary" style="flex: none; white-space: nowrap"
+              :disabled="L.busy()" @click="L.load()">{{ LABELS.reload }}</button>
       <button type="button" class="secondary" style="white-space: normal" :disabled="!L.canSave()"
               @click="restore">{{ LABELS.restore }}</button>
       <button v-if="L.state.undoLayout" type="button" class="secondary" :disabled="!L.canSave()"
