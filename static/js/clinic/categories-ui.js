@@ -325,7 +325,7 @@ export const RequiredCategories = {
   <h2 id="crv-categories-title">Pflichtkategorien</h2>
   <div v-for="item in items" :key="item.id" class="field">
     <label :for="'crv-category-' + item.id" class="break-words">{{ item.name }}</label>
-    <select :id="'crv-category-' + item.id" :value="item.value" required :disabled="disabled"
+    <select :id="'crv-category-' + item.id" class="!border-ui-text-muted" :value="item.value" required :disabled="disabled"
             @change="$emit('select', item.id, $event.target.value)">
       <option value="">Kategorie wählen</option>
       <option v-for="value in item.categories" :key="value" :value="value">{{ value }}</option>
