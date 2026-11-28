@@ -149,6 +149,8 @@ export function createRecordingViewController(options) {
     const client = opts.client || null;
     const authorized = typeof opts.authorized === 'function' ? opts.authorized : () => true;
     const allowed = () => authorized() !== false;
+    let knownMicrophone = null;
+    let attemptedMicrophone = '';
 
     const machine = createRecorderPhases({
         recorder: opts.recorder, player: opts.player || null, api: client,
@@ -160,8 +162,6 @@ export function createRecordingViewController(options) {
     let submission = null;
     let submitError = '';
     let pendingSend = null;
-    let knownMicrophone = null;
-    let attemptedMicrophone = '';
     // A host that calls checkRouting() right after mounting (RecordingView) starts without the pending state.
     let routing = opts.oneButton && !opts.preflightOnMount ? 'routingPending' : null;
 
