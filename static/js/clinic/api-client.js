@@ -144,6 +144,7 @@ export function createClinicApiClient() {
     let dictationChanges = 0;
     let context = { accountId: null, dictationId: null };
     const inflight = new Set();
+    function markDictationChanged() { dictationChanges += 1; }
 
     function switchContext(next) {
         const accountId = next && next.accountId != null ? String(next.accountId) : null;
@@ -188,6 +189,18 @@ export function createClinicApiClient() {
         const controller = new AbortController();
         inflight.add(controller);
         const unsafe = method !== 'GET' && method !== 'HEAD';
+        const dictationRequest = url.startsWith(ROOT + '/dictations/');
+        const sending = method === 'POST' && dictationRequest && url.endsWith('/send');
+        const finish = (response) => {
+            if ((unsafe && response.outcome === 'ok' && (dictationRequest || url === PARITY_COMMANDS))
+                || (sending && ['network', 'UNKNOWN'].includes(response.outcome))) markDictationChanged();
+            return response;
+        };
+        let timedOut = false;
+        const timeout = opts.timeoutMs > 0 ? setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+        }, opts.timeoutMs) : null;
         try {
             const token = unsafe ? await getUploadCsrfToken() : null;
             if (seen !== generation || controller.signal.aborted) return result('cancelled', { code: 'CANCELLED' });
@@ -208,8 +221,9 @@ export function createClinicApiClient() {
             };
             if (body !== undefined) init.body = body;
             let sent = await exchange(url, init, !unsafe, seen);
+            if (timedOut) return finish(result('network', { code: 'NETWORK' }));
             if (sent.cancelled) return result('cancelled', { code: 'CANCELLED' });
-            if (sent.network) return result('network', { code: 'NETWORK' });
+            if (sent.network) return finish(result('network', { code: 'NETWORK' }));
             if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
             let text = await readText(sent.response);
             if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
@@ -226,17 +240,15 @@ export function createClinicApiClient() {
                 if (init.body !== undefined) retryInit.body = init.body;
                 sent = await exchange(url, retryInit, false, seen);
                 if (sent.cancelled) return result('cancelled', { code: 'CANCELLED' });
-                if (sent.network) return result('network', { code: 'NETWORK' });
+                if (sent.network) return finish(result('network', { code: 'NETWORK' }));
                 if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
                 text = await readText(sent.response);
                 if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
             }
-            const response = classify(sent.response, text);
-            if (unsafe && response.outcome === 'ok' && (url.startsWith(ROOT + '/dictations/') || url === PARITY_COMMANDS)) {
-                dictationChanges += 1;
-            }
-            return response;
+            if (timedOut) return finish(result('network', { code: 'NETWORK' }));
+            return finish(classify(sent.response, text));
         } finally {
+            clearTimeout(timeout);
             inflight.delete(controller);
         }
     }
@@ -259,6 +271,7 @@ export function createClinicApiClient() {
         request: request,
         command: command,
         switchContext: switchContext,
+        markDictationChanged,
         get dictationChanges() { return dictationChanges; },
     };
 }

@@ -97,7 +97,10 @@ def _exercise() -> None:
     with app.app_context():
         staff = _staff_pool(admin, 'Staff', [(lead, 'admin'), (typist, 'member')])
         pools.link_staff_pool(pool, staff, actor_id=admin)
-    assert send(linked, {}).status_code == 200
+    assert client.get(preflight).json == {'routable': True}
+    linked_send = send(linked, {})
+    assert linked_send.status_code == 200
+    assert linked_send.json['staff_service_names'] == []
     for actor in (outsider, lead, typist):
         other, other_csrf = _client(app, actor)
         items = other.get(f'{API}/worklist/rows').json['items']

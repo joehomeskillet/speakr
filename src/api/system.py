@@ -272,15 +272,18 @@ def get_config():
             from src.clinic import pools, recipient_defaults, web_ingest
 
             pool_id = web_ingest.author_pool_for(actor.id)
-            routable = bool(pool_id and pools.routable_staff_pool_ids(pool_id))
-            if pool_id and not routable:
+            staff_pools = pools.routable_staff_pools(pool_id) if pool_id else []
+            target = None
+            if pool_id:
                 try:
                     target = recipient_defaults.submit(actor.id, pool_id, actor_id=actor.id)
                 except recipient_defaults.RecipientDefaultError:
-                    routable = False
-                else:
-                    routable = target.mode == 'self_correction'
-            response = jsonify(routable=routable)
+                    target = None
+            self_correction = target is not None and target.mode == 'self_correction'
+            if staff_pools and not self_correction:
+                response = jsonify(routable=True, staff_service_names=pools.staff_service_names(staff_pools))
+            else:
+                response = jsonify(routable=self_correction)
             response.headers['Cache-Control'] = 'no-store'
             return response
 

@@ -3,9 +3,9 @@
  * grouping, row formatting and the in-memory return state.
  *
  * Data comes from GET /api/clinic/v1/recordings (contract of package v8-01).
- * The server sorts by recording time descending; this module keeps that order,
- * groups consecutive rows by the Zurich day the server supplies and never
- * re-sorts. Only the fields named in the contract are read: no patient name,
+ * The server puts the viewer's pending sends first, then sorts by recording
+ * time descending. This module keeps that order and groups the remaining rows
+ * by the Zurich day the server supplies. Only the contract fields are read: no patient name,
  * title or notes. Nothing is written to browser storage or to URLs; filter,
  * loaded pages and scroll offset live in a memory object handed in by the
  * page (or the module default) so they survive a re-mount.
@@ -17,7 +17,13 @@ import { STATUS_LABELS, formatAudioDuration, formatDictationReference, getOpenMo
 export const RECORDINGS_UI_VERSION = 1;
 export const RECORDINGS_PAGE_SIZE = 50;
 export const ARCHIVE_STATUS = 'zu_archivieren';
-export const FILTER_KEYS = Object.freeze(['author_id', 'pool_id', 'status', 'from', 'to']);
+export const FILTER_KEYS = Object.freeze(['author_id', 'pool_id', 'status', 'from', 'to', 'recording_type']);
+export const RECORDING_TYPES = Object.freeze({
+    sitzung: 'Sitzung',
+    patientengespraech: 'Patientengespräch',
+    bericht: 'Bericht',
+    notiz: 'Persönliche Notiz',
+});
 const ACTIVE_STATUS_LABELS = Object.freeze(Object.fromEntries(
     Object.entries(STATUS_LABELS).filter(([status]) => status !== ARCHIVE_STATUS),
 ));
@@ -26,15 +32,23 @@ export const TEXT = Object.freeze({
     title: 'Aufnahmen',
     eyebrow: 'Deine Aufnahmen',
     subtitle: 'Alle Aufnahmen an einem Ort, nach Aufnahmezeit geordnet.',
+    pending: 'Noch nicht beim Schreibdienst',
+    pendingSaved: 'Diese Aufnahmen sind gespeichert.',
+    checkReceipt: 'Empfang noch offen. Öffnen Sie das Diktat, um den Stand zu sehen.',
     searchLabel: 'Aufnahmen durchsuchen',
-    searchPlaceholder: 'Person, Pool oder Fall-ID suchen …',
-    periodAny: 'Gesamter Zeitraum',
+    searchPlaceholder: 'Person, Schreibdienst, Fallnummer',
+    periodAny: 'Alle Zeiten',
     periodToday: 'Heute',
     period7: 'Letzte 7 Tage',
     period30: 'Letzte 30 Tage',
     periodCustom: 'Eigener Zeitraum',
     periodLabel: 'Zeitraum der Aufnahme',
     statusLabel: 'Status der Aufnahme',
+    typeLabel: 'Art',
+    typeAll: 'Alle',
+    privateRecording: 'Nur für Sie',
+    checkText: 'Text prüfen',
+    openDetails: 'Details öffnen',
     sortLabel: 'Aufnahmedatum',
     sortNewest: 'Neueste zuerst',
     sortSelect: 'Aufnahmen chronologisch sortieren',
@@ -54,34 +68,34 @@ export const TEXT = Object.freeze({
     loadMore: 'Mehr laden',
     loadingMore: 'Lädt weitere Aufnahmen …',
     refresh: 'Aktualisieren',
-    retry: 'Erneut versuchen',
+    retry: 'Erneut laden',
     empty: 'Noch keine Aufnahmen',
     noMatch: 'Keine passenden Aufnahmen',
     failed: 'Die Aufnahmen konnten nicht geladen werden.',
-    stale: 'Die angezeigten Daten sind möglicherweise veraltet.',
+    stale: 'Hier sehen Sie den zuletzt geladenen Stand.',
     denied: 'Keine Berechtigung für diese Ansicht.',
     open: 'Öffnen',
     time: 'Aufnahmezeit',
     author: 'Diktiert von',
-    pool: 'Schreibkräfte-Pool',
+    pool: 'Schreibdienst',
     lease: 'Übernahme',
     status: 'Status',
     duration: 'Dauer',
-    caseId: 'Fall-ID',
-    noPool: 'Kein Pool zugewiesen',
+    caseId: 'Fallnummer',
+    noPool: 'Kein Schreibdienst zugeordnet',
     noAuthor: 'Unbekannt',
     none: '–',
     apply: 'Anwenden',
     reset: 'Zurücksetzen',
     resetFilters: 'Filter zurücksetzen',
     filters: 'Filter',
-    roleFilters: 'Pool und Diktierende',
+    roleFilters: 'Schreibdienst und Diktierende',
     filtersShow: 'Filter anzeigen',
     filtersHide: 'Filter ausblenden',
     authorId: 'Diktiert von',
-    poolId: 'Schreibkräfte-Pool',
+    poolId: 'Schreibdienst',
     authorAny: 'Alle Diktierenden',
-    poolAny: 'Alle Pools',
+    poolAny: 'Alle Schreibdienste',
     statusAny: 'Alle Status',
     range: 'Zeitraum',
     activeFilters: 'Aktive Filter',
@@ -196,11 +210,41 @@ export function statusBadge(status) {
     }
 }
 
-export function processingLabel(state) {
-    return ({ QUEUED: 'Transkription wartet', PENDING: 'Transkription wartet',
-        PROCESSING: 'Transkription läuft', RUNNING: 'Transkription läuft',
-        FAILED: 'Transkription fehlgeschlagen', COMPLETED: 'Transkription abgeschlossen',
-        SUCCEEDED: 'Transkription abgeschlossen' })[String(state || '').toUpperCase()] || '';
+function nextStep(item, pools, userId) {
+    const mine = (person) => userId != null && person?.id != null && String(person.id) === String(userId);
+    const wait = (label) => ({ label: label + ' – Sie müssen nichts tun', needsAction: false });
+    const act = (step) => ({ label: 'Sie sind dran: ' + step, needsAction: true });
+    const writer = (step) => {
+        if (item.lease_holder) {
+            return mine(item.lease_holder) ? act(step) : wait('In Bearbeitung durch ' + (nameOf(item.lease_holder) || 'eine andere Person'));
+        }
+        if (item.assignee) {
+            return mine(item.assignee) ? act(step) : wait(nameOf(item.assignee) ? 'Bei ' + nameOf(item.assignee) : 'Einer anderen Person zugeteilt');
+        }
+        if (pools.length) return wait('Beim Schreibdienst ' + pools.join(', '));
+        return wait('Wartet auf eine Zuteilung');
+    };
+    switch (item.workflow_status) {
+        case 'aufgabe': return wait('Aufgabe geplant');
+        case 'neu_angelegt':
+            return mine(item.dictated_by) ? act('Diktat an den Schreibdienst senden')
+                : wait(nameOf(item.dictated_by) ? 'Entwurf bei ' + nameOf(item.dictated_by) : 'Noch nicht gesendet');
+        case 'vorbereitung_offline':
+        case 'vorbereitung_online': return wait('Das System bereitet das Diktat vor');
+        case 'zu_schreiben': return writer('Diktat schreiben');
+        case 'zu_korrigieren': return writer('Text prüfen');
+        case 'in_bearbeitung': return writer('Diktat weiterbearbeiten');
+        case 'abzunehmen':
+            return item.viewer_review_turn === true ? act('Text zur Abnahme prüfen')
+                : wait('Wartet auf die zuständige Person zur Abnahme');
+        case 'abgenommen':
+            return item.viewer_review_turn === true ? act('Text freigeben')
+                : wait('Wartet auf die zuständige Person zur Freigabe');
+        case 'fertiggestellt': return wait('Fertig');
+        case 'zu_archivieren': return wait(item.archived_at ? 'Archiviert' : 'Zum Ablegen vorgemerkt');
+        case 'zu_loeschen': return wait('Zum Löschen vorgemerkt');
+        default: return { label: 'Der nächste Schritt ist nicht bekannt', needsAction: false };
+    }
 }
 
 const nameOf = (person) => (person && typeof person.display_name === 'string' && person.display_name ? person.display_name : null);
@@ -213,12 +257,37 @@ const STATUS_TINT = Object.freeze({
     abgenommen: 'erledigt', fertiggestellt: 'erledigt', zu_archivieren: 'erledigt', zu_loeschen: 'erledigt',
 });
 
+const TRANSCRIPTION_PHASE = Object.freeze({
+    QUEUED: 'Transkription wartet',
+    PENDING: 'Transkription wartet',
+    PROCESSING: 'Transkription läuft',
+    RUNNING: 'Transkription läuft',
+    FAILED: 'Transkription fehlgeschlagen',
+});
+
 /** One contract item to the flat shape the template renders. Reads contract fields only. */
-export function toViewRow(item) {
+export function toViewRow(item, userId) {
     const source = item && item.time_source;
     const fallback = source !== 'recorded';
-    const pools = (Array.isArray(item.staff_pools) ? item.staff_pools : []).map((p) => p && p.name).filter(Boolean);
+    const kind = item.recording_type ?? 'bericht';
+    const typeLabel = Object.hasOwn(RECORDING_TYPES, kind) ? RECORDING_TYPES[kind] : '';
+    const isReport = kind === 'bericht';
+    const pools = (isReport && Array.isArray(item.staff_pools) ? item.staff_pools : []).map((p) => p && p.name).filter(Boolean);
     const badge = statusBadge(item.workflow_status);
+    const own = userId != null && String(item.dictated_by?.id) === String(userId);
+    const sendAttention = isReport && own && ['unsent', 'unconfirmed'].includes(item.send_attention) ? item.send_attention : null;
+    let next;
+    if (!isReport) next = { label: typeLabel ? TEXT.privateRecording : 'Der nächste Schritt ist nicht bekannt', needsAction: false };
+    else if (sendAttention === 'unconfirmed') next = { label: TEXT.checkReceipt, needsAction: true };
+    else next = nextStep(item, pools, userId);
+    const processingState = String(item.processing_status || '').toUpperCase();
+    const processingActive = ['QUEUED', 'PENDING', 'PROCESSING', 'RUNNING'].includes(processingState);
+    let processing = '';
+    if (item.text_created === true) processing = 'Text erstellt';
+    else if (processingActive) processing = 'Text wird erstellt';
+    else if (processingState === 'FAILED') processing = 'Text konnte nicht erstellt werden';
+    const transcriptionPhase = item.text_created !== true && Object.hasOwn(TRANSCRIPTION_PHASE, processingState)
+        ? TRANSCRIPTION_PHASE[processingState] : '';
     const seconds = Number.isFinite(item.duration_ms) ? Math.round(item.duration_ms / 1000) : null;
     const time = formatTime(item.sort_time || item.recorded_at);
     const heading = item.case_display ? TEXT.caseId + ' ' + item.case_display : item.capture_label || TEXT.dictation;
@@ -228,12 +297,15 @@ export function toViewRow(item) {
     return {
         key: String(item.dictation_id),
         dictationId: item.dictation_id == null ? '' : String(item.dictation_id),
+        canCorrect: item.viewer_can_correct === true,
         reference,
         day: item.day || null,
         time,
         datetime: item.sort_time || item.recorded_at || '',
-        statusClass: Object.prototype.hasOwnProperty.call(STATUS_TINT, item.workflow_status) ? STATUS_TINT[item.workflow_status] : 'neu',
-        ariaLabel: [heading + (!item.case_display && !item.capture_label && reference ? ' ' + reference : ''), TEXT.author + ' ' + authorName, TEXT.pool + ' ' + poolText, item.day ? formatLongDay(item.day) : '', time, badge.label,
+        typeLabel,
+        isReport,
+        statusClass: isReport ? (Object.hasOwn(STATUS_TINT, item.workflow_status) ? STATUS_TINT[item.workflow_status] : 'neu') : '',
+        ariaLabel: [heading + (!item.case_display && !item.capture_label && reference ? ' ' + reference : ''), TEXT.author + ' ' + authorName, isReport ? TEXT.pool + ' ' + poolText : '', item.day ? formatLongDay(item.day) : '', time,
             seconds === null ? '' : formatAudioDuration(seconds)].filter(Boolean).join(', '),
         isFallback: fallback,
         fallbackLabel: fallback ? TEXT.fallbackBadge : '',
@@ -245,15 +317,19 @@ export function toViewRow(item) {
         leaseHolder: nameOf(item.lease_holder) || TEXT.none,
         status: badge.label,
         statusStyle: badge.style,
-        processing: processingLabel(item.processing_status),
-        processingActive: ['QUEUED', 'PENDING', 'PROCESSING', 'RUNNING'].includes(String(item.processing_status || '').toUpperCase()),
+        nextStep: next.label,
+        needsAction: next.needsAction,
+        sendAttention,
+        processing,
+        transcriptionPhase,
+        processingActive,
         duration: seconds === null ? TEXT.none : formatAudioDuration(seconds),
         caseDisplay: item.case_display || '',
         ownTitle: typeof item.own_title === 'string' ? item.own_title.trim() : '',
         workflowStatus: item.workflow_status || null,
         heading,
         captureLabel: item.capture_label || '',
-        hasLease: nameOf(item.lease_holder) !== null,
+        hasLease: isReport && nameOf(item.lease_holder) !== null,
         fallbackText: source === 'imported' ? TEXT.fallbackImportedText : (source === 'created' ? TEXT.fallbackCreatedText : ''),
         searchText: [nameOf(item.dictated_by), pools.join(' '), item.case_display, '#' + item.dictation_id, item.dictation_id].filter(Boolean).join(' ').toLowerCase(),
     };
@@ -304,9 +380,10 @@ export function optionList(map, selected) {
 }
 
 /** Query path for one page; empty filters are left out. */
-export function buildPath(filters, cursor, limit) {
+export function buildPath(filters, cursor, limit, pendingFirst = false) {
     const params = new URLSearchParams();
     params.set('limit', String(limit || RECORDINGS_PAGE_SIZE));
+    if (pendingFirst) params.set('pending_first', '1');
     if (cursor) params.set('cursor', cursor);
     for (const key of FILTER_KEYS) {
         const value = filters && filters[key] != null ? String(filters[key]).trim() : '';
@@ -316,12 +393,12 @@ export function buildPath(filters, cursor, limit) {
 }
 
 /** Appends a page and skips dictations that are already loaded. */
-export function mergePage(existing, incoming) {
+export function mergePage(existing, incoming, userId) {
     const seen = new Set(existing.map((r) => r.key));
     const next = existing.slice();
     for (const item of incoming) {
         if (!item || item.dictation_id == null) continue;
-        const row = toViewRow(item);
+        const row = toViewRow(item, userId);
         if (seen.has(row.key)) continue;
         seen.add(row.key);
         next.push(row);
@@ -329,7 +406,7 @@ export function mergePage(existing, incoming) {
     return next;
 }
 
-export const emptyFilters = () => Object.freeze({ author_id: '', pool_id: '', status: '', from: '', to: '' });
+export const emptyFilters = () => Object.freeze({ author_id: '', pool_id: '', status: '', from: '', to: '', recording_type: '' });
 
 /** Return state holder: lives in memory only, never in browser storage. */
 export function createRecordingsMemory() {
@@ -354,11 +431,14 @@ export function createRecordingsController(options) {
     const reactive = (V && V.reactive) || ((o) => o);
     const memory = options.memory || defaultMemory;
     const pageSize = options.pageSize || RECORDINGS_PAGE_SIZE;
+    const accountId = user.id == null ? null : String(user.id);
+    const pendingFirst = options.pendingFirst === true && Boolean(accountId);
 
     const state = reactive({
         rows: [], nextCursor: null, loaded: false, loading: false, loadingMore: false,
         error: null, denied: false, stale: false,
         filters: { ...emptyFilters() }, draft: { ...emptyFilters() }, query: '',
+        pendingCount: 0, unsentCount: 0,
     });
     const registry = { authors: new Map(), pools: new Map() };
     const optionState = reactive({ authors: [], pools: [] });
@@ -388,7 +468,8 @@ export function createRecordingsController(options) {
         picker.period = PERIODS.some((p) => p.key === key) ? key : 'all';
         if (picker.period !== 'custom') Object.assign(state.draft, periodRange(picker.period));
     }
-    const visibleRows = () => (String(state.query || '').trim() ? state.rows.filter((r) => matchesQuery(r, state.query)) : state.rows);
+    const visibleRows = () => (String(state.query || '').trim()
+        ? state.rows.filter((r) => r.sendAttention || matchesQuery(r, state.query)) : state.rows);
     let scrollTop = 0;
     let sequence = 0;
     let loadedRevision = client.dictationChanges;
@@ -406,12 +487,14 @@ export function createRecordingsController(options) {
             rows: state.rows.slice(), nextCursor: state.nextCursor, loadedRevision, loadedPages,
             filters: { ...state.filters }, draft: { ...state.draft }, query: state.query, scrollTop,
             options: { authors: [...registry.authors], pools: [...registry.pools] },
+            accountId, pendingCount: state.pendingCount, unsentCount: state.unsentCount,
+            denied: state.denied, error: state.error,
         };
     }
 
     function fail(res) {
         if (res && res.outcome === 'permission') {
-            Object.assign(state, { denied: true, rows: [], nextCursor: null, error: null });
+            Object.assign(state, { denied: true, rows: [], nextCursor: null, error: null, pendingCount: 0, unsentCount: 0 });
         } else {
             state.error = (res && res.message) || TEXT.failed;
             state.stale = state.rows.length > 0;
@@ -420,9 +503,22 @@ export function createRecordingsController(options) {
 
     async function fetchPage(cursor) {
         const mine = ++sequence;
-        const res = await client.request(buildPath(state.filters, cursor, pageSize), { method: 'GET' });
+        const res = await client.request(buildPath(state.filters, cursor, pageSize, pendingFirst),
+            { method: 'GET', timeoutMs: 12000 });
         if (disposed || mine !== sequence) return null; // superseded by a newer request
         return res;
+    }
+
+    const sendCounts = (data) => ({ pendingCount: data.pending_count || 0, unsentCount: data.unsent_count || 0 });
+
+    function pendingLabel() {
+        const { pendingCount: count, unsentCount, loading, error, denied } = state;
+        if (!count || loading || error || denied) return '';
+        if (count === unsentCount) return count === 1 ? 'Sie haben 1 Diktat, das noch nicht gesendet ist.'
+            : 'Sie haben ' + count + ' Diktate, die noch nicht gesendet sind.';
+        if (!unsentCount) return 'Für ' + count + (count === 1 ? ' Diktat fehlt' : ' Diktate fehlt')
+            + ' noch die Bestätigung vom Schreibdienst.';
+        return count + ' Diktate warten auf Versand oder Bestätigung.';
     }
 
     /** Loads the first page for the applied filters; replaces rows and cursor. */
@@ -440,9 +536,9 @@ export function createRecordingsController(options) {
             refreshOptions();
             loadedRevision = revision;
             loadedPages = 1;
-            state.rows = mergePage([], Array.isArray(data.items) ? data.items : []);
+            state.rows = mergePage([], Array.isArray(data.items) ? data.items : [], user.id);
             state.nextCursor = data.next_cursor || null;
-            state.stale = false;
+            Object.assign(state, sendCounts(data), { stale: false });
         } else fail(res);
         scrollTop = 0;
         persist();
@@ -462,7 +558,7 @@ export function createRecordingsController(options) {
             collectOptions(registry, data.items);
             refreshOptions();
             loadedPages += 1;
-            state.rows = mergePage(state.rows, Array.isArray(data.items) ? data.items : []);
+            state.rows = mergePage(state.rows, Array.isArray(data.items) ? data.items : [], user.id);
             state.nextCursor = data.next_cursor || null;
         } else fail(res);
         persist();
@@ -494,6 +590,7 @@ export function createRecordingsController(options) {
         let rows = [];
         let cursor = null;
         let response;
+        let counts;
         let pages = 0;
         do {
             response = await fetchPage(cursor);
@@ -506,14 +603,15 @@ export function createRecordingsController(options) {
                 return response;
             }
             const data = response.data || {};
+            if (pages === 0) counts = sendCounts(data);
             const items = Array.isArray(data.items) ? data.items : [];
             collectOptions(registry, items);
-            rows = mergePage(rows, items);
+            rows = mergePage(rows, items, user.id);
             cursor = data.next_cursor || null;
             pages += 1;
         } while (cursor && pages < loadedPages);
         refreshOptions();
-        Object.assign(state, { rows, nextCursor: cursor, loading: false, denied: false, stale: false, error: null });
+        Object.assign(state, counts, { rows, nextCursor: cursor, loading: false, denied: false, stale: false, error: null });
         loadedRevision = revision;
         loadedPages = pages;
         persist();
@@ -524,10 +622,11 @@ export function createRecordingsController(options) {
     async function start() {
         if (disposed) return null;
         const snap = memory.snapshot;
-        if (snap) {
+        if (snap?.accountId === accountId && !snap.denied && !snap.error) {
             Object.assign(state, {
                 rows: snap.rows.slice(), nextCursor: snap.nextCursor, loaded: true,
                 filters: { ...snap.filters }, draft: { ...snap.draft }, query: snap.query || '',
+                pendingCount: snap.pendingCount, unsentCount: snap.unsentCount,
             });
             scrollTop = snap.scrollTop || 0;
             if (snap.options) {
@@ -545,17 +644,25 @@ export function createRecordingsController(options) {
 
     function setScroll(value) {
         scrollTop = Number.isFinite(value) && value > 0 ? value : 0;
-        if (memory.snapshot) memory.snapshot.scrollTop = scrollTop;
+        if (memory.snapshot?.accountId === accountId) memory.snapshot.scrollTop = scrollTop;
     }
 
     /** Reports the row to the page with the same payload the worklist uses. */
-    function open(row) {
+    function open(row, mode) {
         if (disposed || !row || !row.dictationId) return false;
+        if (mode === 'correction' && !row.canCorrect) return false;
         persist();
         if (typeof options.onOpen === 'function') {
-            options.onOpen({ dictationId: row.dictationId, mode: getOpenMode({ status: row.workflowStatus }, user.role) });
+            options.onOpen({ dictationId: row.dictationId, mode: mode ?? getOpenMode({ status: row.workflowStatus }, user.role) });
         }
         return true;
+    }
+
+    function groups() {
+        const rows = visibleRows();
+        const pending = rows.filter((r) => r.sendAttention);
+        const days = groupByDay(rows.filter((r) => !r.sendAttention));
+        return pending.length ? [{ key: 'pending', pending: true, title: TEXT.pending, rows: pending }, ...days] : days;
     }
 
     function dispose() {
@@ -578,10 +685,10 @@ export function createRecordingsController(options) {
         hasQuery: () => String(state.query || '').trim() !== '',
         /** A search is active while more pages exist: the search only covers the loaded rows. */
         searchPartial: () => String(state.query || '').trim() !== '' && Boolean(state.nextCursor),
-        scrollTop: () => scrollTop, hasFilters, groups: () => groupByDay(visibleRows()),
+        scrollTop: () => scrollTop, hasFilters, groups, pendingLabel,
         text: TEXT, statusOptions: ACTIVE_STATUS_LABELS,
         errorStyle: (() => {
-            const s = surfaceFor('error');
+            const s = surfaceFor('normal');
             return { background: s.background, color: s.color, border: '1px solid ' + s.border };
         })(),
     };
