@@ -85,7 +85,7 @@ describe('compose-live contract', () => {
         const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
         expect(imports).toEqual([
             './api-client.js', './compose-correction.js', './lease-ui.js',
-            './richtext-editor-ui.js', './tokens.js', './live-session-ui.js',
+            './richtext-editor-ui.js', './read-aloud-ui.js', './tokens.js', './live-session-ui.js',
         ]);
     });
 

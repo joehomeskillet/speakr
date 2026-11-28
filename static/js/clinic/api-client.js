@@ -118,7 +118,7 @@ function browserFetch() {
 }
 
 function headersFor(method, token, options) {
-    const headers = { Accept: 'application/json, application/problem+json' };
+    const headers = { Accept: (options.wav ? 'audio/wav, ' : '') + 'application/json, application/problem+json' };
     if (token) {
         headers['X-CSRFToken'] = token;
         headers['X-CSRF-Token'] = token;
@@ -211,11 +211,26 @@ export function createClinicApiClient() {
                 headers: headersFor(method, token, opts),
                 signal: controller.signal,
             };
+            if (opts.wav) init.redirect = 'error';
             if (body !== undefined) init.body = body;
             let sent = await exchange(url, init, !unsafe, seen);
             if (sent.cancelled) return result('cancelled', { code: 'CANCELLED' });
             if (sent.network) return result('network', { code: 'NETWORK' });
             if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
+            async function readWav(response) {
+                if (!opts.wav || !response.ok || response.headers?.get('content-type')?.split(';')[0] !== 'audio/wav') return null;
+                try {
+                    const blob = await response.blob();
+                    if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
+                    return blob.size ? result('ok', { status: response.status, data: blob })
+                        : result('UNKNOWN', { status: response.status, code: 'UNKNOWN' });
+                } catch {
+                    return seen !== generation ? result('cancelled', { code: 'CANCELLED' })
+                        : result('UNKNOWN', { status: response.status, code: 'UNKNOWN' });
+                }
+            }
+            const audio = opts.wav && await readWav(sent.response);
+            if (audio) return audio;
             let text = await readText(sent.response);
             if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
             if (unsafe && text !== null && isCsrfRejection(sent.response.status, text)) {
@@ -228,11 +243,14 @@ export function createClinicApiClient() {
                     headers: headersFor(method, refreshed, opts),
                     signal: init.signal,
                 };
+                if (opts.wav) retryInit.redirect = init.redirect;
                 if (init.body !== undefined) retryInit.body = init.body;
                 sent = await exchange(url, retryInit, false, seen);
                 if (sent.cancelled) return result('cancelled', { code: 'CANCELLED' });
                 if (sent.network) return result('network', { code: 'NETWORK' });
                 if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
+                const retryAudio = opts.wav && await readWav(sent.response);
+                if (retryAudio) return retryAudio;
                 text = await readText(sent.response);
                 if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
             }

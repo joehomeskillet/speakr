@@ -1442,7 +1442,7 @@ def register_clinic_audio(flask_app):
     Called at startup only in clinic mode, after register_clinic_worklist, and reuses the one
     ParityDispatch (start/stop live session are registered on it). Object decisions go through
     pool_policy.decide; an active site admin may open audio of any user (W12, audited by the
-    audio handler). TTS without a local engine or declared capability answers CAPABILITY_UNAVAILABLE.
+    audio handler). TTS without a verified local capability answers CAPABILITY_UNAVAILABLE.
     Derived rendering reads the stored originals (app_wiring.make_source_loader); the protection store is
     durable (clinic_dictation_protection). The mounted sdict export uses that same current
     revision. A source that cannot be read stays empty and is never replaced by synthetic audio.
@@ -1501,13 +1501,16 @@ def register_clinic_audio(flask_app):
 
     def tts_load(actor, kind, object_id):
         dictation = db.session.get(ClinicDictation, object_id) if kind == routes_tts.SELECTION_KIND else None
-        head = None if dictation is None else revisions.current_revision(dictation)
-        if head is None or not may(actor, 'play', dictation):
+        if dictation is None or not may(actor, 'play', dictation):
+            return None
+        head = revisions.current_revision(dictation)
+        if head is None:
             return None
         return routes_tts.Loaded(
             document=local_tts.CanonicalText(text=head.body, version=bundle_store.text_version(dictation)),
             subject=policy.build_subject(actor),
-            recording=policy.build_facts(dictation.recording_id, dictation.author_user_id))
+            recording=policy.build_facts(dictation.recording_id, dictation.author_user_id),
+            text_revision_id=head.id)
 
     def edit_live(actor, dictation_id):
         return may(actor, 'edit', db.session.get(ClinicDictation, dictation_id))
@@ -1538,7 +1541,8 @@ def register_clinic_audio(flask_app):
     flask_app.register_blueprint(routes_alignment.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation), run_once=run_once))
     register_clinic_handler('clinic_alignment', alignment_job.handle)
-    flask_app.register_blueprint(routes_tts.TtsApi(tts_load, lambda: None, None).blueprint)
+    flask_app.register_blueprint(routes_tts.TtsApi.for_local_speaches(
+        tts_load, os.environ.get('CLINIC_TTS_ENDPOINT', '')).blueprint)
     flask_app.register_blueprint(routes_clipboard.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         source_for=routes_output.output_source, ledger={}))
