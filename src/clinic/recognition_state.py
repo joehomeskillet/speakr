@@ -1,9 +1,16 @@
 """Project the recognition outcome onto the dictation's preparation step."""
 
+from datetime import datetime, timezone
+
 from sqlalchemy import case, event, func
-from sqlalchemy.orm import load_only, object_session
+from sqlalchemy.orm import Session, load_only, object_session
+
+from src.clinic import workflow
+from src.clinic.asr_profiles import ClinicAsrProfile
+from src.clinic.asr_wait_policy import config_from_options, view_state
 
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.models import ClinicDictation
 from src.models import ProcessingJob, Recording
 
 _ASR_JOBS = ('transcribe', 'reprocess_transcription', 'convert', 'stitch', 'merge')
@@ -21,6 +28,10 @@ _ASR_CONTENT_PATTERN = '[^' + (
 
 def asr_outcomes(dictations, *, initial_only=False):
     """Detailed outcomes in batches; no per-dictation original or job scans."""
+    return {key: state for key, (state, _) in _asr_details(dictations, initial_only=initial_only).items()}
+
+
+def _asr_details(dictations, *, initial_only=False):
     from collections import defaultdict
     from src.clinic.legacy_backfill import ORIGIN_REF_PREFIXES
     from src.clinic.models import ClinicOriginal, ClinicTranscriptRevision
@@ -47,9 +58,14 @@ def asr_outcomes(dictations, *, initial_only=False):
             load_only(Recording.id, Recording.user_id, Recording.status)
         ).filter(Recording.id.in_(recording_ids))}
         states = defaultdict(set)
-        for rid, state in session.query(ProcessingJob.recording_id, ProcessingJob.status).filter(
-                ProcessingJob.recording_id.in_(recording_ids), ProcessingJob.job_type.in_(job_types)):
+        active_since = {}
+        for rid, state, created in session.query(
+                ProcessingJob.recording_id, ProcessingJob.status, func.min(ProcessingJob.created_at)
+        ).filter(ProcessingJob.recording_id.in_(recording_ids), ProcessingJob.job_type.in_(job_types)
+                 ).group_by(ProcessingJob.recording_id, ProcessingJob.status):
             states[rid].add(state)
+            if state in ('queued', 'processing'):
+                active_since[rid] = min(active_since.get(rid, created), created)
         # A late ASR tip also counts when a human revision is the visible head.
         # Classify both incoming and historical immutable receipts in the DB.
         # Return one flag per dictation, never transcript bodies or per-row binds.
@@ -76,7 +92,8 @@ def asr_outcomes(dictations, *, initial_only=False):
                 outcome = 'skipped'
             else:
                 outcome = 'none'
-            outcomes[d.id] = outcome
+            queued_at = min((active_since[r.id] for r in linked if r.id in active_since), default=None)
+            outcomes[d.id] = (outcome, queued_at)
     return outcomes
 
 
@@ -89,11 +106,26 @@ def asr_outcome(dictation, *, outcomes=None, detailed=False):
             'skipped': 'none'}.get(state, state)
 
 
+def skip_wait(session: Session, dictation: ClinicDictation, now: datetime) -> workflow.ClinicWorkflowDictation:
+    """Leave preparation after the ASR wait, without cancelling the background job."""
+    row = session.get(workflow.ClinicWorkflowDictation, dictation.id,
+                      populate_existing=True, with_for_update=True)
+    if row is None or row.status not in (workflow.PREP_ONLINE, workflow.PREP_OFFLINE):
+        raise workflow.WorkflowError('not_preparing')
+    outcome, queued_at = _asr_details([dictation])[dictation.id]
+    if outcome not in ('queued', 'processing') or queued_at is None:
+        raise workflow.WorkflowError('asr_not_running')
+    profile = session.query(ClinicAsrProfile).filter_by(user_id=dictation.author_user_id).one_or_none()
+    config = config_from_options(profile.options if profile else None)
+    elapsed = max(0, int((now - queued_at.replace(tzinfo=timezone.utc)).total_seconds()))
+    wait = view_state('running', elapsed, manual_started=False, config=config)
+    if not wait.can_start_manual:
+        raise workflow.WorkflowError('asr_wait_disabled' if config.wait_disabled else 'asr_wait_not_elapsed')
+    return workflow.transition(session, dictation.id, 'skip_recognition')
+
+
 def settle(session, dictation_id):
     """Advance a prepared dictation in the caller's transaction."""
-    from src.clinic import workflow
-    from src.clinic.models import ClinicDictation
-
     row = session.get(workflow.ClinicWorkflowDictation, dictation_id,
                       populate_existing=True, with_for_update=True)
     if row is None or row.status not in (workflow.PREP_ONLINE, workflow.PREP_OFFLINE):
