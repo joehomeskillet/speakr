@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import CheckConstraint, ForeignKeyConstraint, UniqueConstraint, func, text
 
+from src.clinic.recording_type import REPORT
 from src.database import db
 
 
@@ -59,10 +60,23 @@ class ClinicDictation(db.Model):
         db.Integer, db.ForeignKey("user.id"), nullable=False, index=True
     )
     version_counter = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    # NULL identifies legacy dictations whose ASR defaults still apply.
+    configured_recording_type = db.Column("recording_type", db.String(20), nullable=True)
     # clinic_pool is a separate work package; until it exists this is a plain
     # UUID reference without a foreign key.
     pool_id = db.Column(db.String(36), nullable=True, index=True)
     created_at = _created_at()
+
+    @property
+    def recording_type(self) -> str:
+        return self.configured_recording_type or REPORT
+
+
+def create_tables(bind=None) -> None:
+    from src.utils.database import add_column_if_not_exists
+
+    add_column_if_not_exists(bind or db.engine, ClinicDictation.__tablename__,
+                             "recording_type", "VARCHAR(20)")
 
 
 class ClinicOriginal(db.Model):

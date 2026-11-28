@@ -52,7 +52,7 @@ describe('role columns (V8 P02)', () => {
     it('lists three separate role columns and no "Zuständig"/"Autor" label for a person', () => {
         const labels = Object.fromEntries(LIST_COLUMNS.map((c) => [c.key, c.label]));
         expect(labels.dictated_by).toBe('Diktiert von');
-        expect(labels.staff_pools).toBe('Schreibkräfte-Pool');
+        expect(labels.staff_pools).toBe('Schreibdienst');
         expect(labels.lease_holder).toBe('Übernommen von');
         expect(Object.values(labels)).not.toContain('Zuständig');
         expect(Object.values(labels)).not.toContain('Autor');

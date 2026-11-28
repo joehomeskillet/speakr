@@ -14,8 +14,22 @@ import v8_browser_support as support
 from v8_browser_support import ROLES, login
 
 
-@pytest.fixture(scope="module")
-def app_base(tmp_path_factory):
+_STAGING_GRANT = '''
+import os
+from time import time
+from src.clinic.config import dev_defaults
+os.environ['CLINIC_PROFILE'] = 'staging'
+os.environ['CLINIC_OFFLINE_TEST_PROXY_SECRET'] = 'synthetic-ingress-fixture-' * 2
+with app.app_context():
+    author = User.query.filter_by(email=emails['author']).one()
+    dev_defaults()['web_client'].update(
+        managed_offline_enabled=True,
+        managed_offline_test_grant=dict(browser_id='a' * 64, account_version=author.get_id(),
+                                        version=1, quota_bytes=1024 * 1024, expires_at=int(time()) + 300))
+'''
+
+
+def _serve_p04_app(tmp_path):
     # P-030 requires explicit grants for each action, including on the author's own draft.
     seed = support.SERVER.replace(
         "server = make_server",
@@ -23,23 +37,63 @@ def app_base(tmp_path_factory):
         "server = make_server",
         1,
     )
-    with support.serve_app(tmp_path_factory.mktemp("p04"), seed) as base:
+    return support.serve_app(tmp_path, seed)
+
+
+@pytest.fixture(scope="module")
+def app_base(tmp_path_factory):
+    with _serve_p04_app(tmp_path_factory.mktemp("p04")) as base:
         yield base
 
 
-def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
+@pytest.fixture
+def recorder_retry_base(tmp_path):
+    # Chromium's synthetic takes can be identical and resolve to a previously submitted draft.
+    with _serve_p04_app(tmp_path) as base:
+        yield base
+
+
+@pytest.mark.parametrize("size", support.VIEWPORTS)
+@pytest.mark.parametrize("theme", support.THEMES)
+def test_recorder_can_retry_and_opens_no_upload_modal(recorder_retry_base, size, theme):
+    app_base = recorder_retry_base
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
             executable_path=os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE") or None,
             args=["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
         )
         try:
-            context = browser.new_context(storage_state=login(browser, app_base, ROLES["author"]))
+            width, height = support.VIEWPORTS[size]
+            context = browser.new_context(
+                storage_state=login(browser, app_base, ROLES["author"]),
+                viewport={"width": width, "height": height},
+                **support.theme_context_options(theme),
+            )
+            context.add_init_script(support.theme_init_script(theme))
             page = context.new_page()
             page.goto(app_base + "/#/neu")
             view = page.get_by_test_id("clinic-recording-view")
+
+            def capture(state):
+                if out := os.environ.get("P04_ARTIFACTS"):
+                    page.wait_for_function(
+                        "dark => document.documentElement.classList.contains('dark') === dark",
+                        arg=theme == "dark",
+                    )
+                    if state == "review":
+                        page.wait_for_function("""() => {
+                            const audio = document.querySelector('[data-testid="clinic-recording-view"] audio');
+                            return audio?.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+                                && Number.isFinite(audio.duration) && !audio.seeking && audio.currentTime === 0;
+                        }""")
+                        page.evaluate("() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+                    stem = Path(out) / f"pb03-p04-{state}-{size}-{theme}"
+                    page.screenshot(path=stem.with_suffix(".png"), full_page=True, animations="disabled", caret="hide")
+                    support.save_rendered_dom(page, stem.with_suffix(".html"))
+
             expect(view.get_by_test_id("rec-start")).to_be_enabled()
             expect(view.locator("input")).to_have_count(0)
+            capture("empty")
             posts = []
             page.on("request", lambda req: posts.append(req.url)
                     if req.method == "POST" and req.url.startswith(app_base + "/upload") else None)
@@ -53,9 +107,12 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
             view.get_by_test_id("rec-start").click()
             page.wait_for_function("document.querySelector('#app').__vue_app__._instance.proxy.recordingTime >= 5")
             view.get_by_test_id("rec-stop").click()
+            expect(view.get_by_test_id("send-destination")).to_have_text("Vorgesehen für: Schreibdienst V860")
+            capture("review")
             page.route("**/upload", lambda route: route.fulfill(status=503), times=1)
             view.get_by_test_id("rec-send").click()
             expect(view.get_by_test_id("status")).to_contain_text("Senden fehlgeschlagen")
+            expect(view.get_by_test_id("receipt-saved")).to_have_count(0)
             assert page.url.endswith("/#/neu")
 
             with page.expect_response(app_base + "/upload") as upload:
@@ -65,10 +122,18 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
             assert re.fullmatch(r"Diktat \d{2}\.\d{2}\.\d{4} \d{2}:\d{2}", receipt["title"]), receipt
             expect(view.get_by_test_id("created-id")).to_have_text(receipt["dictation_id"])
             expect(view.get_by_test_id("submit-draft")).to_be_disabled()
+            expect(view.get_by_test_id("receipt-saved")).to_have_text("Aufnahme gespeichert")
+            expect(view.get_by_test_id("receipt-title")).to_have_text(receipt["title"])
+            expect(view.get_by_test_id("receipt-arrived")).to_have_count(0)
+            expect(view.get_by_test_id("draft-metadata")).to_be_visible()
+            capture("saved")
             view.get_by_test_id("save-draft").click()
             expect(view.get_by_test_id("submit-draft")).to_be_enabled()
             view.get_by_test_id("submit-draft").click()
             expect(view.get_by_test_id("status")).to_have_text("Eingereicht.")
+            expect(view.get_by_test_id("receipt-arrived")).to_have_text("Beim Schreibdienst V860 angekommen")
+            expect(view.get_by_role("button", name="Diktat öffnen")).to_be_visible()
+            capture("submitted")
             assert page.url.endswith("/#/neu")
             assert page.evaluate("window.stockUploadUsed") is False
             assert posts == [app_base + "/upload"] * 2
@@ -78,6 +143,98 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
             expect(row).to_contain_text(receipt["title"])
         finally:
             browser.close()
+
+
+def test_only_attested_managed_browser_retains_take_when_network_drops(tmp_path):
+    source = support.SERVER.replace('server = make_server(', _STAGING_GRANT + '\nserver = make_server(')
+    with support.serve_app(tmp_path, source) as base, sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE') or None,
+            args=['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
+        )
+        try:
+            session = login(browser, base, ROLES['author'])
+            for managed in (False, True):
+                context = browser.new_context(storage_state=session, service_workers='block')
+                try:
+                    _check_offline_take(context, base, managed)
+                finally:
+                    context.close()
+        finally:
+            browser.close()
+
+
+def _check_offline_take(context, base, managed):
+    page = context.new_page()
+    path = '/api/clinic/v1/offline-web/capability'
+    headers = {'x-clinic-channel': 'managed_web_offline'}
+    if managed:
+        headers.update({'x-clinic-client-cert-sha256': 'a' * 64,
+                        'x-clinic-offline-proxy-secret': 'synthetic-ingress-fixture-' * 2})
+
+    def attest(request_page):
+        request_page.route('**' + path, lambda route: route.continue_(headers={**route.request.headers, **headers}))
+
+    def unlock(offline_page):
+        offline_page.get_by_label('Passphrase').fill('synthetic offline passphrase')
+        offline_page.get_by_test_id('unlock').click()
+        expect(offline_page.get_by_test_id('lock')).to_be_visible()
+
+    attest(page)
+    with page.expect_response(base + path) as checked:
+        page.goto(base + '/#/offline')
+    assert checked.value.json()['available'] is managed
+    if managed:
+        unlock(page)
+    else:
+        expect(page.get_by_test_id('notice')).to_contain_text('nicht freigegeben')
+
+    page.evaluate("location.hash = '#/neu'")
+    view = page.get_by_test_id('clinic-recording-view')
+    view.get_by_test_id('rec-start').click()
+    page.wait_for_function("document.querySelector('#app').__vue_app__._instance.proxy.recordingTime >= 5")
+    view.get_by_test_id('rec-stop').click()
+    context.set_offline(True)
+    view.get_by_test_id('rec-send').click()
+    expect(view.get_by_test_id('created-id')).to_have_count(0)
+    if not managed:
+        expect(view.get_by_test_id('status')).to_contain_text('wird nicht lokal gespeichert')
+        assert not page.evaluate("(async () => (await indexedDB.databases()).some(d => d.name === 'clinic-managed-offline'))()")
+        return
+
+    expect(view.get_by_test_id('status')).to_contain_text('liegt verschlüsselt')
+    assert page.evaluate("""() => new Promise((resolve, reject) => {
+        const request = indexedDB.open('clinic-managed-offline');
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+            const read = request.result.transaction('encrypted').objectStore('encrypted').getAll();
+            read.onsuccess = () => {
+                request.result.close();
+                resolve(read.result.some(record => !!record.ct && !record.audio && !record.title));
+            };
+            read.onerror = () => reject(read.error);
+        };
+    })""")
+    context.set_offline(False)
+    recovery = context.new_page()
+    attest(recovery)
+    recovery.goto(base + '/#/offline')
+    unlock(recovery)
+    with recovery.expect_download() as restored:
+        recovery.get_by_test_id('restore').click()
+    assert restored.value.path().read_bytes().startswith(b'\x1a\x45\xdf\xa3')  # WebM header
+    recovery.close()
+
+    page.route('**/upload', lambda route: route.fulfill(status=503), times=1)
+    view.get_by_test_id('rec-send').click()
+    expect(view.get_by_test_id('status')).to_contain_text('liegt verschlüsselt')
+    expect(view.get_by_test_id('created-id')).to_have_count(0)
+    with page.expect_response(base + '/upload') as upload:
+        view.get_by_test_id('rec-send').click()
+    assert upload.value.status == 202, upload.value.text()
+    expect(view.get_by_test_id('created-id')).to_have_text(upload.value.json()['dictation_id'])
+    page.evaluate("location.hash = '#/offline'")
+    expect(page.get_by_test_id('no-drafts')).to_be_visible()
 
 
 @pytest.mark.parametrize('size', support.VIEWPORTS)

@@ -103,7 +103,7 @@ export const TEXT = Object.freeze({
     toWorklist: 'Zur Arbeitsliste',
     workspace: 'Editorarbeitsbereich',
     dictatedBy: 'Diktiert von',
-    pool: 'Schreibkräfte-Pool',
+    pool: 'Schreibdienst',
     editing: 'Bearbeitung',
     workerHeld: 'Von Ihnen übernommen',
     workerForeign: 'Von anderer Person übernommen',
@@ -111,7 +111,7 @@ export const TEXT = Object.freeze({
     workerFree: 'Noch nicht übernommen',
     templateMenu: 'Textbaustein einfügen',
     openAssignment: 'Zuordnung offen',
-    noPool: 'Kein Pool zugewiesen',
+    noPool: 'Kein Schreibdienst zugeordnet',
     options: 'Wiedergabeoptionen',
     audioUnsynced: 'Text und Audio sind nicht synchronisiert.',
     highlightOn: 'Wortmarkierung ausschalten',
@@ -307,6 +307,8 @@ export function createCorrectionViewController(options) {
     let alignmentRoot = null;
     let knownRevision;
     let disposed = false;
+    let opening = null;
+    let closing = false;
     const stops = [];
     const audioListeners = [];
     let tempo = null;
@@ -731,16 +733,44 @@ export function createCorrectionViewController(options) {
         return applied;
     }
 
-    async function start() {
-        if (disposed) return null;
-        modes.start();
-        pedalReady = startPedal();
-        return load();
+    async function open() {
+        if (opts.openMode === 'correction') {
+            const res = await client.request('/dictations/' + encodeURIComponent(dictationId) + '/leases');
+            if (!disposed && res.outcome === 'ok' && res.data?.may_acquire === true) await editor.acquire();
+        }
+        const res = await load();
+        if (!disposed && !res?.ok && opts.openMode === 'correction'
+            && editor.lease.value.status === 'held') await editor.release();
+        return res;
+    }
+
+    function start() {
+        if (disposed) return Promise.resolve(null);
+        if (!opening) {
+            modes.start();
+            pedalReady = startPedal();
+            opening = open();
+        }
+        return opening;
     }
 
     /** Unsaved edits are saved before the page is told to close; a failed save keeps the view open. */
     async function close() {
-        if (disposed) return false;
+        if (disposed || closing) return false;
+        closing = true;
+        try {
+            if (opening) await opening;
+            if (disposed || !(await saveBeforeClose())) return false;
+            if (editor.lease.value.status === 'held') await editor.release();
+            if (disposed) return false;
+            if (typeof opts.onClose === 'function') opts.onClose({ dictationId });
+            return true;
+        } finally {
+            closing = false;
+        }
+    }
+
+    async function saveBeforeClose() {
         // A save can settle an older pending operation and leave newer text dirty (reconcile first),
         // or the text can change while the save is awaited: save again, bounded, until nothing is dirty.
         // A save already in flight (autosave follow-up) is awaited, not counted as a failure or a pass.
@@ -758,7 +788,6 @@ export function createCorrectionViewController(options) {
                 return false;
             }
         }
-        if (typeof opts.onClose === 'function') opts.onClose({ dictationId });
         return true;
     }
 
@@ -956,7 +985,8 @@ export const CorrectionBody = {
             dictationId: props.dictationId,
             currentUser: props.currentUser,
             vue: props.vue || undefined,
-            contract: 'v8', // the mounted view runs the V8 save contract: lease controller, reconcile first, +-5 s step
+                         contract: 'v8', // the mounted view runs the V8 save contract: lease controller, reconcile first, +-5 s step
+            openMode: props.openMode,
             recordingId: props.recordingId || undefined,
             createAudioContext: props.createAudioContext || undefined,
             onClose: () => { if (ctx && typeof ctx.emit === 'function') ctx.emit('close'); },
