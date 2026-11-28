@@ -188,6 +188,7 @@ export function createClinicApiClient() {
         const controller = new AbortController();
         inflight.add(controller);
         const unsafe = method !== 'GET' && method !== 'HEAD';
+        const readOnlyPreview = method === 'POST' && /^\/dictations\/[^/?]+\/documents\/preview(?:\?.*)?$/.test(url.slice(ROOT.length));
         try {
             const token = unsafe ? await getUploadCsrfToken() : null;
             if (seen !== generation || controller.signal.aborted) return result('cancelled', { code: 'CANCELLED' });
@@ -246,7 +247,6 @@ export function createClinicApiClient() {
                 const expiresAt = sent.response.headers?.get('X-Offline-Grant-Expires-At');
                 if (expiresAt) response.grantExpiresAt = Number(expiresAt);
             }
-            const readOnlyPreview = method === 'POST' && /^\/dictations\/[^/?]+\/documents\/preview(?:\?.*)?$/.test(url.slice(ROOT.length));
             if (unsafe && response.outcome === 'ok' && !readOnlyPreview
                 && (url.startsWith(ROOT + '/dictations/') || url === PARITY_COMMANDS)) {
                 dictationChanges += 1;
