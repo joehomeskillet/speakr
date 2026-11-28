@@ -192,7 +192,7 @@ describe('list behaviour', () => {
         expect(items[0].label).toBe('Status: Zu schreiben');
     });
 
-    it('a named filter reloads with filter_id and pauses polling; clearing resumes it', async () => {
+    it('a named filter reloads with filter_id and keeps polling; clearing keeps polling too', async () => {
         const client = fakeClient(base([row('1')]));
         const c = controllerFor(client, { intervalMs: 1000 });
         await c.start();
@@ -201,8 +201,8 @@ describe('list behaviour', () => {
         const last = client.calls.filter((x) => x.path.startsWith('/worklist/rows')).pop();
         expect(last.path).toContain('filter_id=f1');
         expect(last.path).toContain('search=F-1');
-        expect(c.refresh.isRunning.value).toBe(false);
-        expect(c.paused.value).toBe(true);
+        expect(c.refresh.isRunning.value).toBe(true);
+        expect(c.view.filterId).toBe('f1');
         await c.applyFilter(null, '');
         expect(c.refresh.isRunning.value).toBe(true);
         c.dispose();
