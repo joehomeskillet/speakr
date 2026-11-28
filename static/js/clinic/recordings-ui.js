@@ -263,6 +263,12 @@ export function toViewRow(item, userId) {
     if (item.text_created === true) processing = 'Text erstellt';
     else if (processingActive) processing = 'Text wird erstellt';
     else if (processingState === 'FAILED') processing = 'Text konnte nicht erstellt werden';
+    const preparing = ['vorbereitung_offline', 'vorbereitung_online'].includes(item.workflow_status);
+    const processingDetail = !preparing && item.text_created !== true ? ({
+        QUEUED: 'Transkription wartet', PENDING: 'Transkription wartet',
+        PROCESSING: 'Transkription läuft', RUNNING: 'Transkription läuft',
+        FAILED: 'Transkription fehlgeschlagen',
+    })[processingState] : null;
     const seconds = Number.isFinite(item.duration_ms) ? Math.round(item.duration_ms / 1000) : null;
     const time = formatTime(item.sort_time || item.recorded_at);
     const heading = item.case_display ? TEXT.caseId + ' ' + item.case_display : item.capture_label || TEXT.dictation;
@@ -293,6 +299,7 @@ export function toViewRow(item, userId) {
         needsAction: next.needsAction,
         sendAttention,
         processing,
+        processingDetail,
         processingActive,
         duration: seconds === null ? TEXT.none : formatAudioDuration(seconds),
         caseDisplay: item.case_display || '',
