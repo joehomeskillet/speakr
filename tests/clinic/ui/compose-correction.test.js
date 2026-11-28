@@ -261,8 +261,14 @@ describe('dictation files', () => {
 });
 
 describe('compose-correction contract', () => {
-    it.each(['plain', 'document'])('opens a local draft from the %s selection hotkey and writes only on submit', async (mode) => {
-        const client = fakeClient(base({ 'GET /dictations/d1/correction': ok(correction({ links: [] })) }));
+    it.each([false, true])('opens an editable draft from the hotkey and writes only on submit (document mode: %s)', async (documentMode) => {
+        const text = 'Hallo   Welt heute';
+        const nodes = documentMode ? [{ id: 'p1', kind: 'paragraph', level: 0, runs: [
+            { id: 'r1', text, bold: false, italic: false, underline: false, audio_anchor_id: null },
+        ] }] : [{ id: 'g1', kind: 'graphic', object_id: 'a'.repeat(64), alt_text: 'Logo' }];
+        const client = fakeClient(base({
+            'GET /dictations/d1/correction': ok(correction({ text, document: { schema_version: 1, nodes } })),
+        }));
         const vue = {
             ref: (value) => ({ value }), shallowRef: (value) => ({ value }),
             computed: (fn) => ({ get value() { return fn(); } }), nextTick: async () => {},
@@ -270,16 +276,13 @@ describe('compose-correction contract', () => {
         const ui = CorrectionBody.setup({ client, vue, dictationId: 'd1', currentUser: { id: 9 } });
         await ui.c.start();
         await ui.c.editor.acquire();
+        expect(ui.documentMode.value).toBe(documentMode);
         const area = { selectionStart: 0, selectionEnd: 0, focus: vi.fn() };
-        if (mode === 'plain') {
-            ui.doc.available.value = false;
-            ui.c.editor.setText('Hallo   Welt heute');
-            ui.setTextEl(area);
+        if (documentMode) {
+            ui.setRunRoot({ querySelector: (selector) => selector === '[data-run-id="r1"]' ? area : null });
+            ui.onRunSelection({ type: 'focus' }, 'p1', 'r1');
         } else {
-            expect(ui.documentMode.value).toBe(true);
-            const [node] = ui.doc.doc.value.nodes;
-            ui.doc.editRun(node.id, node.runs[0].id, 'Hallo   Welt heute');
-            ui.setRunRoot({ querySelector: () => area });
+            ui.setTextEl(area);
         }
         const press = (extra = {}) => ui.onTextKeydown({ ctrlKey: true, altKey: true, key: 'p', preventDefault: vi.fn(), ...extra });
         press();
@@ -320,6 +323,8 @@ describe('compose-correction contract', () => {
         ].map((mod) => `./${mod}.js`).sort();
         const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
         expect(imports).toHaveLength(new Set(imports).size);
+        expect(imports).toContain('./vocabulary-ui.js');
+        expect(imports).toHaveLength(19);
         expect(imports.sort()).toEqual(expected);
     });
 
