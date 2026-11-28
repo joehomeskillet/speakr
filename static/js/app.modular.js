@@ -3115,9 +3115,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             ];
             const clinicMenuToolbarVisible = computed(() => clinicMenuActions.some((entry) => entry.view === currentView.value));
             // Recorded takes and selected files share the same upload and server receipt.
-            const clinicUploadFile = async (file, recordingTitle) => {
+            const clinicUploadFile = async (file, recordingTitle, { useSpeechRecognition = true, clientUploadId } = {}) => {
                 const body = new FormData();
                 body.append('file', file);
+                body.append('use_speech_recognition', String(useSpeechRecognition));
+                if (clientUploadId) body.append('client_upload_id', clientUploadId);
                 if (recordingTitle !== undefined) {
                     body.append('title', recordingTitle);
                     body.append('from_recorder', 'true');
