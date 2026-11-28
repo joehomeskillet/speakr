@@ -100,6 +100,9 @@ const count = (client, method, suffix) => client.calls.filter((c) => c.method ==
 it('inserts an eligible text block at the selection as one undoable edit', async () => {
     let eligible = true;
     const client = fakeClient(base({
+        'GET /dictations/d1/correction': ok(correction({ document: { schema_version: 1, nodes: [
+            { id: 'g1', kind: 'graphic', object_id: 'a'.repeat(64), alt_text: 'Logo' },
+        ] } })),
         'GET /resources/text-blocks': ok({ items: [{ id: 'block-1', title: 'Testbaustein' }], next_cursor: null }),
         'GET /resources/text-blocks/block-1': () => eligible
             ? ok({ insert_text: 'Praxis' }) : fail('http', 404, 'nicht gefunden'),
@@ -110,6 +113,7 @@ it('inserts an eligible text block at the selection as one undoable edit', async
     try {
         await view.c.start();
         await view.c.editor.acquire();
+        expect(view.documentMode.value).toBe(false);
         expect(view.canEdit.value).toBe(true);
         const editor = { selectionStart: 6, selectionEnd: 10, setSelectionRange: vi.fn(), focus: vi.fn() };
         view.setTextEl(editor);
@@ -148,16 +152,15 @@ describe('compose-correction contract', () => {
     });
 
     it('composes the editor and finish building blocks and reuses tokens and api-client', () => {
-        for (const mod of [
+        const expected = [
             'correction-editor-ui', 'correction-alignment-ui', 'correction-waveform-ui', 'playback-tempo-ui',
             'correction-modes-ui', 'correction-save-ui', 'audio-markers-ui', 'playback-gain-ui',
-            'finish-options-ui', 'workflow-actions-ui',
-        ]) expect(source).toContain(`./${mod}.js`);
-        expect(source).toContain("from './tokens.js'");
-        expect(source).toContain("from './api-client.js'");
-        const imports = [...source.matchAll(/from '(\.\/(?!correction-player-position\.js')[^']+)'/g)].map((m) => m[1]);
+            'correction-toolbar-ui', 'richtext-editor-ui', 'finish-options-ui', 'workflow-actions-ui',
+            'correction-player-position', 'worklist-ui', 'tokens', 'api-client', 'compose-settings',
+        ].map((mod) => `./${mod}.js`).sort();
+        const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
         expect(imports).toHaveLength(new Set(imports).size);
-        expect(imports).toHaveLength(13);
+        expect(imports.sort()).toEqual(expected);
     });
 
     it('uses German labels, tokens only, keyboard-operable native controls and no browser storage', () => {

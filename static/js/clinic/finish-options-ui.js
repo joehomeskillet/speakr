@@ -129,11 +129,11 @@ export const FinishOptions = {
     },
     template: `
 <div class="v8-page" @keydown="onKeydown">
-  <button type="button" class="primary" :disabled="disabled" @click="open">Fertigstellen</button>
-  <dialog ref="dialog" class="panel" aria-label="Fertigstellen" @cancel.prevent="close">
+  <button type="button" class="primary" data-action="release" style="min-height: 48px" :disabled="disabled" @click="open">Fertigstellen</button>
+  <dialog ref="dialog" class="panel [&_button]:min-h-12 [&_label]:flex [&_label]:min-h-12 [&_label]:items-center [&_label]:gap-2" aria-label="Fertigstellen" @cancel.prevent="close">
     <div class="dialoghead"><h2 ref="title" tabindex="-1">Fertigstellen</h2></div>
     <template v-if="c.state.step === 'release'">
-      <p class="hint" style="overflow-wrap:anywhere">Textrevision: {{ c.state.revision }}</p>
+      <p class="hint">Der geprüfte Text und der Fallkontext werden abgeschlossen.</p>
       <fieldset :disabled="c.state.busy">
         <legend>1. Freigabe bestätigen</legend>
         <p><label><input v-model="c.state.content" type="checkbox"> Inhalt geprüft</label></p>
@@ -141,8 +141,8 @@ export const FinishOptions = {
       </fieldset>
       <div class="actions">
         <button type="button" :disabled="c.state.busy" @click="close">Abbrechen</button>
-        <button type="button" :disabled="c.state.busy || !c.state.content || !c.state.context" @click="c.release(false)">Ohne Ausgabe fertigstellen</button>
-        <button type="button" class="primary" :disabled="c.state.busy || !c.state.content || !c.state.context" @click="c.release(true)">Fertigstellen und Ausgabe wählen</button>
+        <button type="button" :disabled="c.state.busy || !c.state.content || !c.state.context" @click="c.release(true)">Fertigstellen und Ausgabe wählen</button>
+        <button type="button" class="primary" :disabled="c.state.busy || !c.state.content || !c.state.context" @click="c.release(false)">Ohne Ausgabe fertigstellen</button>
       </div>
     </template>
     <template v-else-if="c.state.step">
