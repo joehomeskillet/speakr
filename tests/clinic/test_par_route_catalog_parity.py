@@ -1,18 +1,29 @@
-"""Parity and structural tests for the partitioned clinic route catalogs (P-018)."""
+"""Parity and structural tests for the partitioned clinic route catalogs (P-018).
+
+A package that adds, removes or changes a clinic route also adds, removes or changes the
+matching lines in tests/clinic/data/clinic_route_table.txt (one line per route and mode:
+"<on|off> <endpoint> <rule json>"). Regenerate it with
+``venv/bin/python tests/clinic/test_par_route_catalog_parity.py --write-baseline``.
+The parity check sorts both tables so Git union merges can reorder lines.
+"""
 
 from __future__ import annotations
 
 import ast
-import hashlib
 import json
 import os
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
 
-from src.clinic import (
+ROOT = Path(__file__).resolve().parents[2]
+if __name__ == "__main__":
+    sys.path.insert(0, str(ROOT))
+
+from src.clinic import (  # noqa: E402
     policy,
     route_policy,
     route_policy_admin,
@@ -21,7 +32,6 @@ from src.clinic import (
     route_policy_output,
 )
 
-ROOT = Path(__file__).resolve().parents[2]
 CATALOGS = (
     route_policy_output,
     route_policy_editor,
@@ -29,13 +39,31 @@ CATALOGS = (
     route_policy_admin,
 )
 
-# Full tables from 7acabaf4 plus the P-189, P-036, P-083, P-042, P-174, P-117
-# and P-123 clinic endpoints, serialized with json.dumps(sort_keys=True).
-# Intentional route changes must update the snapshot together with their registration tests.
-BASELINE_TABLE_SHA256 = {
-    False: "88f25130a4c4514b82b166e06829ec5427fb26343a2cba42f37b0614fb03502e",
-    True: "340eb0acf2934aedc97ef515014ec9e59a73ef1017640b133a304f03533354ba",
-}
+BASELINE_FILE = Path(__file__).parent / "data" / "clinic_route_table.txt"
+
+
+def _baseline_lines() -> list[str]:
+    return BASELINE_FILE.read_text(encoding="utf-8").splitlines()
+
+
+def _table_lines(mode: str, table: dict) -> list[str]:
+    return sorted(
+        f"{mode} {endpoint} {json.dumps(rule, sort_keys=True, separators=(',', ':'))}"
+        for endpoint, rule in table.items()
+    )
+
+
+def _assert_same_lines(expected: list[str], actual: list[str], label: str) -> None:
+    expected_counts = Counter(expected)
+    actual_counts = Counter(actual)
+    missing = sorted((expected_counts - actual_counts).elements())
+    extra = sorted((actual_counts - expected_counts).elements())
+    assert sorted(expected) == sorted(actual), (
+        f"{label} differs from baseline file.\n"
+        f"in baseline but not built ({len(missing)}):\n  " + "\n  ".join(missing) + "\n"
+        f"built but not in baseline ({len(extra)}):\n  " + "\n  ".join(extra)
+    )
+
 
 _CHILD_INSPECT = r'''
 import json
@@ -57,11 +85,18 @@ print("RESULT " + json.dumps({
 def _inspect_app(tmp_path: Path, clinic: bool) -> dict:
     env = {
         **os.environ,
+        "PYTHON_DOTENV_DISABLED": "1",
         "SQLALCHEMY_DATABASE_URI": f"sqlite:///{tmp_path / 'catalog.db'}",
         "UPLOAD_FOLDER": str(tmp_path / "uploads"),
         "RATELIMIT_ENABLED": "false",
         "DISABLE_VOICE_EMBEDDING_CHECK": "true",
         "ENABLE_AUTO_PROCESSING": "false",
+        "SPEAKR_SKIP_BACKGROUND_TASKS": "true",
+        # App startup requires a transcription configuration even for route inspection.
+        "USE_ASR_ENDPOINT": "false",
+        "TRANSCRIPTION_CONNECTOR": "openai_whisper",
+        "TRANSCRIPTION_BASE_URL": "http://127.0.0.1:1/v1",
+        "TRANSCRIPTION_API_KEY": "test-key",
     }
     env.pop("CLINIC_MODE", None)
     if clinic:
@@ -137,9 +172,20 @@ def test_catalog_endpoints_match_built_clinic_table(monkeypatch):
             for endpoint in getattr(module, attr):
                 catalog_entries[endpoint] = kind
 
-    assert len(catalog_entries) == 156
-    assert not (set(catalog_entries) & set(off_table))
-    assert set(on_table) - set(off_table) == set(catalog_entries)
+    baseline = _baseline_lines()
+    baseline_on = {line.split(" ", 2)[1] for line in baseline if line.startswith("on ")}
+    baseline_off = {line.split(" ", 2)[1] for line in baseline if line.startswith("off ")}
+    expected_catalog = baseline_on - baseline_off
+    missing = sorted(expected_catalog - set(catalog_entries))
+    extra = sorted(set(catalog_entries) - expected_catalog)
+    assert not missing and not extra, f"catalog endpoints missing: {missing}; extra: {extra}"
+    overlap = sorted(set(catalog_entries) & set(off_table))
+    assert not overlap, f"catalog endpoints also in the clinic-off table: {overlap}"
+    on_extra = sorted(set(on_table) - set(off_table) - set(catalog_entries))
+    on_missing = sorted(set(catalog_entries) - (set(on_table) - set(off_table)))
+    assert not on_extra and not on_missing, (
+        f"clinic-on table has endpoints not in the catalogs: {on_extra}; catalog endpoints absent from it: {on_missing}"
+    )
     for endpoint, kind in catalog_entries.items():
         assert on_table[endpoint] == route_policy.RouteRule(kind)
 
@@ -184,11 +230,9 @@ def test_inventory_missing_stale_and_recording_scope(clinic, clinic_off_snapshot
             assert rule["arg"] in by_endpoint[endpoint], endpoint
 
 
-@pytest.mark.parametrize("clinic", [False, True])
-def test_complete_table_matches_before_partition(clinic, clinic_off_snapshot, clinic_on_snapshot):
-    snapshot = clinic_on_snapshot if clinic else clinic_off_snapshot
-    serialized = json.dumps(snapshot["table"], sort_keys=True).encode()
-    assert hashlib.sha256(serialized).hexdigest() == BASELINE_TABLE_SHA256[clinic]
+def test_complete_table_matches_before_partition(clinic_off_snapshot, clinic_on_snapshot):
+    actual = _table_lines("off", clinic_off_snapshot["table"]) + _table_lines("on", clinic_on_snapshot["table"])
+    _assert_same_lines(_baseline_lines(), actual, "clinic route table")
 
 
 def test_duplicate_endpoint_across_catalogs_is_rejected(monkeypatch):
@@ -196,3 +240,19 @@ def test_duplicate_endpoint_across_catalogs_is_rejected(monkeypatch):
     monkeypatch.setattr(route_policy_output, "AUTH", route_policy_output.AUTH + ("clinic_audio.get_current",))
     with pytest.raises(ValueError, match="classified twice"):
         route_policy._build()
+
+
+if __name__ == "__main__":
+    from argparse import ArgumentParser
+    from tempfile import TemporaryDirectory
+
+    parser = ArgumentParser(description="Regenerate the clinic route table baseline.")
+    parser.add_argument("--write-baseline", action="store_true", required=True)
+    parser.parse_args()
+
+    with TemporaryDirectory() as off_dir, TemporaryDirectory() as on_dir:
+        off_snapshot = _inspect_app(Path(off_dir), clinic=False)
+        on_snapshot = _inspect_app(Path(on_dir), clinic=True)
+
+    lines = _table_lines("off", off_snapshot["table"]) + _table_lines("on", on_snapshot["table"])
+    BASELINE_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
