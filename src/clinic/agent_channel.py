@@ -304,8 +304,8 @@ def clean_id(value, what):
     return value
 
 
-def _agent_or_fail(agent_id):
-    agent = db.session.get(ClinicAgent, agent_id)
+def _agent_or_fail(agent_id, *, lock=False):
+    agent = db.session.get(ClinicAgent, agent_id, with_for_update=lock, populate_existing=lock)
     if agent is None:
         raise AgentChannelError("not_found", "agent")
     return agent
@@ -324,9 +324,11 @@ def register_agent(policy, *, actor_user_id, display_name, allowed_sources, cred
         credential_fingerprint=_fingerprint(credential_fingerprint),
     )
     db.session.add(agent)
+    db.session.flush()
+    key = derive_agent_key(policy, agent.id, agent.key_version).hex()
+    result = {"agent_id": agent.id, "allowed_sources": sources, "intent_signing_key_hex": key}
     db.session.commit()
-    return {"agent_id": agent.id, "allowed_sources": sources,
-            "intent_signing_key_hex": derive_agent_key(policy, agent.id, agent.key_version).hex()}
+    return result
 
 
 @transactional
@@ -337,17 +339,19 @@ def set_agent_enabled(policy, *, actor_user_id, agent_id, enabled):
 
 
 @transactional
-def rotate_signing_key(policy, *, actor_user_id, agent_id):
-    """New key version; unfinished intents were signed with the old key and are cancelled."""
+def rotate_signing_key(policy, *, actor_user_id, agent_id, commit=True):
+    """Rotate the key and cancel unfinished intents. The caller can commit with its audit row."""
     authorise(policy, actor_user_id, "manage_agent")
-    agent = _agent_or_fail(agent_id)
+    agent = _agent_or_fail(agent_id, lock=True)
     agent.key_version += 1
     for intent in ClinicAgentIntent.query.filter(
         ClinicAgentIntent.agent_id == agent_id, ClinicAgentIntent.status.in_(("OPEN", "IN_PROGRESS", "STORED"))
     ):
         intent.status = "CANCELLED"
-    db.session.commit()
-    return {"intent_signing_key_hex": derive_agent_key(policy, agent.id, agent.key_version).hex()}
+    key = derive_agent_key(policy, agent.id, agent.key_version).hex()
+    if commit:
+        db.session.commit()
+    return {"intent_signing_key_hex": key}
 
 
 def authenticate_agent(credential_fingerprint):

@@ -116,6 +116,7 @@ export function useCorrectionEditor(options) {
     const loading = refs.ref(false);
     const error = refs.shallow(null);
     const audio = refs.shallow({ status: 'idle', revisionId: null, etag: null, src: null, message: '' });
+    const audioSynced = refs.ref(null);
     const template = refs.shallow(null);
     const templatesError = refs.ref('');
     const canEdit = refs.ref(false);
@@ -157,6 +158,7 @@ export function useCorrectionEditor(options) {
         const mine = ++seq;
         loading.value = true;
         error.value = null;
+        audioSynced.value = null;
         audio.value = { ...audio.value, status: 'loading', message: '' };
         recompute();
         say(LABELS.loading);
@@ -178,6 +180,7 @@ export function useCorrectionEditor(options) {
             return problem;
         }
         text.value = data.text;
+        audioSynced.value = typeof data.audio_synced === 'boolean' ? data.audio_synced : null;
         recordingId.value = Number.isSafeInteger(data.recording_id) && data.recording_id > 0 ? data.recording_id : null;
         textRevisionId.value = data.text_revision_id;
         // The server issues the validator (revision + lease generation); an older server only names the revision.
@@ -231,7 +234,7 @@ export function useCorrectionEditor(options) {
     }
 
     return {
-        text, recordingId, textRevisionId, etag, dirty, manual, loading, error, audio, template,
+        text, recordingId, textRevisionId, etag, dirty, manual, loading, error, audio, audioSynced, template,
         templates: manager.state, templatesError, lease: leaseState, canEdit, announcement,
         load, applyTemplate, setText, dispose, audioSource,
         availableLeaseActions: () => leaseActions(leaseState.value),

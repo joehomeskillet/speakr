@@ -9,7 +9,7 @@ from flask import current_app, g
 from flask_login import LoginManager, login_user
 from flask_wtf.csrf import generate_csrf
 
-from src.clinic import caution_words, finalize_gates, lease, revisions, routes_correction, workflow
+from src.clinic import caution_rules, caution_words, finalize_gates, lease, revisions, routes_correction, workflow
 from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger
 from src.clinic.audio_revisions import init_audio_revision
 from src.clinic.correction import ClinicMarker, marker_events
@@ -124,6 +124,42 @@ def test_release_requires_both_markers_and_normal_context_checks(scene):
         scene.finalize(trusted=False)
     assert db.session.query(ClinicRelease).count() == 0
     assert scene.finalize().replayed is False
+
+
+def test_published_lists_gate_release_and_require_confirmation_for_the_current_version(scene):
+    for hit in scene.hits:
+        assert scene.confirm(hit.marker_id).status_code == 200
+    caution_rules.publish(caution_rules.GLOBAL_KEY, ['Links, rechts'], scene.author.id, 0)
+    marker_count = db.session.query(ClinicMarker).count()
+    with pytest.raises(workflow.WorkflowError, match='open_review_flags'):
+        scene.finalize()
+
+    (first,) = scene.client.get(scene.url).json['review_markers']
+    assert (first['label'], first['anchor_offset']) == ('Links, rechts', 3)
+    assert db.session.query(ClinicMarker).count() == marker_count
+    assert scene.confirm(first['id']).status_code == 200
+    assert scene.client.get(scene.url).json['review_markers'] == []
+
+    caution_rules.publish(caution_rules.pool_key(scene.dictation.pool_id), ['rechts'], scene.author.id, 0)
+    assert scene.confirm(first['id']).status_code == 409
+    current = scene.client.get(scene.url).json['review_markers']
+    assert [hit['label'] for hit in current] == ['Links, rechts', 'rechts']
+    with pytest.raises(workflow.WorkflowError, match='open_review_flags'):
+        scene.finalize()
+    for hit in current:
+        assert scene.confirm(hit['id']).status_code == 200
+    assert scene.finalize().replayed is False
+
+
+def test_published_global_list_also_applies_without_an_author_pool(scene):
+    scene.dictation.pool_id = None
+    db.session.commit()
+    caution_rules.publish(caution_rules.GLOBAL_KEY, ['Links'], scene.author.id, 0)
+    (marker,) = scene.client.get(scene.url).json['review_markers']
+    assert marker['label'] == 'Links'
+    assert finalize_gates.open_review_flags(scene.dictation, scene.head) == 1
+    assert scene.confirm(marker['id']).status_code == 200
+    assert finalize_gates.open_review_flags(scene.dictation, scene.head) == 0
 
 
 def test_stale_confirmation_cannot_clear_markers_on_a_new_revision(scene):

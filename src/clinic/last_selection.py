@@ -352,6 +352,13 @@ class PresetUserPreferences:
             set_preset(
                 LAST_SELECTION_KEY, document, scope="user", scope_id=str(user_id), session=self._session,
             )
+            if self._session is None:  # request session: nobody else commits this row
+                from src.database import db
+                try:
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                    raise
 
         _preference_call(write)
 
@@ -414,11 +421,13 @@ class SelectionStore:
         return result
 
     def _saved(self, user_id: int) -> Selection | None:
-        saved = self._selections.get(user_id)
-        if saved is not None or self._preferences is None:
-            return saved
+        if self._preferences is None:
+            return self._selections.get(user_id)
+        # The preference row is the source of truth: another worker may have written it.
         loaded = decode_preference(user_id, self._read(user_id))
-        if loaded is not None:
+        if loaded is None:
+            self._selections.pop(user_id, None)
+        else:
             self._selections[user_id] = loaded
         return loaded
 
