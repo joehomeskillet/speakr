@@ -37,6 +37,7 @@ import { createClinicApiClient } from './api-client.js';
 import { scopedClient } from './compose-correction.js';
 import { createLeaseController } from './lease-ui.js';
 import { LiveHandoff } from './live-handoff-ui.js';
+import { LiveTransfer } from './live-transfer-ui.js';
 import { RichTextEditor } from './richtext-editor-ui.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { createLiveSessionController, liveActions } from './live-session-ui.js';
@@ -659,7 +660,7 @@ function useLiveDocument(V, props, state) {
 const LiveBody = {
     name: 'ClinicLiveBody',
     props: BODY_PROPS,
-    components: { LiveHandoff, RichTextEditor },
+    components: { LiveHandoff, LiveTransfer, RichTextEditor },
     setup(props) {
         const V = props.vue || globalThis.Vue;
         if (!V) throw new Error('Vue is required to mount the live view');
@@ -716,7 +717,8 @@ const LiveBody = {
         const markSubmitted = () => { submitted.value = true; void writing.release(); };
         const canLeave = () => !richEditor?.value?.dirty
             || globalThis.confirm('Ungespeicherte Änderungen gehen verloren. Live-Diktat verlassen?');
-        return { c, state, pending, confirmed, local, writing, richEditor, canLeave, handoffLocked, submitted,
+        const transferClient = props.client || createClinicApiClient();
+        return { c, state, pending, confirmed, local, writing, richEditor, canLeave, handoffLocked, submitted, transferClient,
             showHandoff, handoffReady, markSubmitted, FOCUS, DISABLED, box, TEXT, ICON_PATHS };
     },
     template: `
@@ -734,6 +736,7 @@ const LiveBody = {
         @lock="handoffLocked = $event" @refresh="writing.refreshAfterHandoffConflict" @submitted="markSubmitted" />
     </div>
   </div>
+  <LiveTransfer :client="transferClient" :dictation-id="state.dictationId" :vue="vue" />
   <section class="editor-workspace" :aria-label="TEXT.transcript">
     <div class="editor-heading" style="flex-wrap: wrap; gap: 8px 16px">
       <div class="document-title" style="flex-wrap: wrap; gap: 4px 12px">
