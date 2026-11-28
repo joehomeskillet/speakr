@@ -15,10 +15,9 @@ const TEMPLATES = {
 
 describe('operations pages follow the V8 prototype structure', () => {
     for (const [name, template] of Object.entries(TEMPLATES)) {
-        it(name + ' has page head, eyebrow, panel and the page root class', () => {
+        it(name + ' has page head, panel and the page root class', () => {
             expect(template).toContain('v8-page');
             expect(template).toContain('class="pagehead"');
-            expect(template).toContain('class="eyebrow"');
             expect(template).toContain('<h1');
             expect(template).toContain('class="subline"');
             expect(template).toContain('class="panel"');
@@ -29,6 +28,13 @@ describe('operations pages follow the V8 prototype structure', () => {
             expect(template).not.toContain('pill-status');
         });
     }
+
+    it('keeps context for global jobs and dictation output', () => {
+        expect(JobsView.template).toContain('<div v-if="!c.scoped()" class="eyebrow">{{ c.text.eyebrow }}</div>');
+        expect(OutputView.template).toContain('<div class="eyebrow">{{ TEXT.eyebrow }}</div>');
+        expect(IMPORT_TEMPLATE).not.toContain('class="eyebrow"');
+        expect(ACTIVITY_TEMPLATE).not.toContain('class="eyebrow"');
+    });
 
     it('the root class string carries the page marker and heading restore', () => {
         expect(V8_PAGE.split(' ')).toContain('v8-page');

@@ -104,7 +104,6 @@ export const TEXT = Object.freeze({
     history: 'Verlauf',
     close: 'Details schliessen',
     noPool: 'Kein Pool zugewiesen',
-    eyebrow: 'Aufnahmenverwaltung',
     subline: 'Diktate nach Schreibkräfte-Pool und diktierender Person bearbeiten.',
     kpiAll: 'Alle Diktate',
     kpiOpen: 'Offen',
@@ -893,7 +892,6 @@ export const WorklistView = {
          @keydown.f5.exact.capture="c.onRefreshKey" @keydown="c.onHistoryKey($event)">
   <div class="page-head">
     <div>
-      <div class="eyebrow">{{ c.text.eyebrow }}</div>
       <div class="hline">
         <h1 id="cwv-title" tabindex="-1">{{ caseView ? 'Diktate zum Fall' : c.text.title }}</h1>
         <span class="count-pill" data-testid="result-count">{{ c.entryCount(c.view.total ?? c.counts.value.all) }}</span>

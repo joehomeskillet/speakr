@@ -379,7 +379,6 @@ export function columnsComponent(vue, options) {
 <section role="region" aria-labelledby="clinic-col-title" :aria-busy="editor.state.status === 'processing'" class="v8-page v8-admin-page">
   <header class="pagehead">
     <div>
-      <div class="eyebrow">Verwaltung</div>
       <h1 id="clinic-col-title">${LABELS.title}</h1>
       <p class="subline">Bezeichnung, Anzeigetyp und XML-Pfad der Metadatenspalten festlegen.</p>
     </div>
@@ -390,25 +389,25 @@ export function columnsComponent(vue, options) {
     <p v-else-if="editor.state.loaded && !editor.state.fields.length" role="status" class="empty">Keine Spalten vorhanden.</p>
     <form class="mb-4 flex flex-wrap items-end gap-3 [&>label]:min-w-[11rem] [&>label]:flex-1 max-sm:[&>button]:w-full" aria-label="${LABELS.create}" @submit.prevent="submit">
       <label>
-        <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.name}</span>
+        <span class="mb-1 block text-xs font-medium text-[var(--text-muted)]">${LABELS.name}</span>
         <input type="text" class="field font-mono" v-model="draft.name" maxlength="64" required>
       </label>
       <label>
-        <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.label}</span>
+        <span class="mb-1 block text-xs font-medium text-[var(--text-muted)]">${LABELS.label}</span>
         <input type="text" class="field" v-model="draft.label" maxlength="128" required>
       </label>
       <label>
-        <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.displayType}</span>
+        <span class="mb-1 block text-xs font-medium text-[var(--text-muted)]">${LABELS.displayType}</span>
         <select class="field" v-model="draft.displayType">
           <option v-for="type in editor.displayTypes" :key="type" :value="type">{{ editor.typeLabels[type] }}</option>
         </select>
       </label>
       <label>
-        <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.xmlPath}</span>
+        <span class="mb-1 block text-xs font-medium text-[var(--text-muted)]">${LABELS.xmlPath}</span>
         <input type="text" class="field font-mono" v-model="draft.xmlPath" maxlength="${MAX_XML_PATH}">
       </label>
       <label>
-        <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.displayFormat}</span>
+        <span class="mb-1 block text-xs font-medium text-[var(--text-muted)]">${LABELS.displayFormat}</span>
         <input type="text" class="field font-mono" v-model="draft.displayFormat" maxlength="${MAX_FORMAT}">
       </label>
       <button type="submit" class="btn btn--primary" :disabled="editor.state.status === 'processing'">${LABELS.add}</button>
@@ -419,21 +418,21 @@ export function columnsComponent(vue, options) {
         <p class="mb-3 font-mono text-xs text-[var(--text-muted)]">{{ row.name }}</p>
         <div class="flex flex-wrap items-end gap-3 [&>label]:min-w-[11rem] [&>label]:flex-1 max-sm:[&>button]:w-full">
           <label>
-            <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.label}</span>
+            <span class="mb-1 block text-xs font-medium text-[var(--text-muted)]">${LABELS.label}</span>
             <input type="text" class="field" :value="row.label" :disabled="!row.available || !row.readable || !row.active" @change="editor.setLabel(row.name, $event.target.value)">
           </label>
           <label>
-            <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.displayType}</span>
+            <span class="mb-1 block text-xs font-medium text-[var(--text-muted)]">${LABELS.displayType}</span>
             <select class="field" :value="row.displayType" :disabled="!row.available || !row.readable || !row.active" @change="editor.setDisplayType(row.name, $event.target.value)">
               <option v-for="type in editor.displayTypes" :key="type" :value="type">{{ editor.typeLabels[type] }}</option>
             </select>
           </label>
           <label>
-            <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.xmlPath}</span>
+            <span class="mb-1 block text-xs font-medium text-[var(--text-muted)]">${LABELS.xmlPath}</span>
             <input type="text" class="field font-mono" :value="row.xmlPath" maxlength="${MAX_XML_PATH}" :disabled="!row.available || !row.readable || !row.active" @change="editor.setXmlPath(row.name, $event.target.value)">
           </label>
           <label>
-            <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">${LABELS.displayFormat}</span>
+            <span class="mb-1 block text-xs font-medium text-[var(--text-muted)]">${LABELS.displayFormat}</span>
             <input type="text" class="field font-mono" :value="row.displayFormat" maxlength="${MAX_FORMAT}" :disabled="!row.available || !row.readable || !row.active" @change="editor.setDisplayFormat(row.name, $event.target.value)">
           </label>
           <button type="button" class="btn btn--primary" :disabled="!row.available || !row.readable || !row.active || row.stale" @click="editor.save(row.name)">${LABELS.save}</button>

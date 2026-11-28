@@ -379,7 +379,6 @@ const LiveBody = {
   <nav class="breadcrumb" aria-label="Pfad"><span>Speakr</span><span aria-hidden="true">›</span><span>{{ TEXT.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ TEXT.title }}</span></nav>
   <div class="pagehead">
     <div>
-      <div class="eyebrow">{{ TEXT.eyebrow }}</div>
       <h1 id="clv-title" style="${H1}">{{ TEXT.title }}</h1>
       <p class="subline">{{ TEXT.subline }}</p>
     </div>

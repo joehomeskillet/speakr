@@ -8,7 +8,11 @@ Screenshots: <out>/<build commit>__<page>_<view>_<role>_<viewport>_<theme>.png
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import pytest
+from playwright.sync_api import expect
 
 import v8_browser_support as support
 
@@ -23,6 +27,91 @@ def app_base(tmp_path_factory):
               "os.environ['TRANSCRIPTION_BASE_URL'] = 'http://127.0.0.1:9/v1'\n" + source)
     with support.serve_app(tmp_path_factory.mktemp("v8-matrix21"), source) as base:
         yield base
+
+
+FIRMWARE_SEED = '''
+with app.app_context():
+    from datetime import datetime, timezone
+    from src.clinic.agent_channel import ClinicAgent, ClinicAgentInventory
+    from src.clinic.firmware_catalog import set_target
+
+    set_target("LFH9600", "1.10", 0)
+    set_target("LFH9620", "2.1", 0)
+    agent = ClinicAgent(display_name="Test-Import", allowed_sources='["test-usb"]',
+                        credential_fingerprint="ab" * 32)
+    db.session.add(agent)
+    db.session.flush()
+    for source, device, version in (("Recorder 1", "LFH9600", "1.10.0"),
+                                    ("Recorder 2", "LFH9620", "2.0"),
+                                    ("Recorder 3", "LFH9600", None)):
+        db.session.add(ClinicAgentInventory(
+            agent_id=agent.id, source_id=source, root_id="test-usb", relative_path="test.dss",
+            size=1000, mtime_utc=datetime(2026, 11, 20, tzinfo=timezone.utc), sha256="c" * 64,
+            snapshot_version="1.10", device_type=device, firmware_version=version))
+    db.session.commit()
+'''
+
+
+@pytest.fixture(scope="module", params=("rows", "empty"))
+def firmware_base(request, tmp_path_factory, app_base):
+    label = request.param
+    if label == "empty":
+        yield label, app_base
+        return
+    source = support.SERVER.replace("server = make_server", FIRMWARE_SEED + "\nserver = make_server")
+    with support.serve_app(tmp_path_factory.mktemp("p168-firmware"), source) as base:
+        yield label, base
+
+
+@pytest.mark.parametrize("size", support.VIEWPORTS)
+@pytest.mark.parametrize("theme", support.THEMES)
+def test_p09_firmware(browser, firmware_base, size, theme, axe_js):
+    label, base = firmware_base
+    width, height = support.VIEWPORTS[size]
+    state = support.login(browser, base, support.ROLES["admin"])
+    with browser.new_context(viewport={"width": width, "height": height}, storage_state=state,
+                             **support.theme_context_options(theme)) as context:
+        context.add_init_script(support.theme_init_script(theme))
+        page = context.new_page()
+        errors, firmware_requests = [], []
+        page.on("pageerror", lambda exc: errors.append(str(exc)))
+        page.on("request", lambda req: firmware_requests.append((req.method, req.url))
+                if "/firmware" in req.url else None)
+        support._open_shell_view(page, base, "#/import")
+        panel = page.get_by_test_id("firmware-panel")
+        expect(panel.get_by_test_id("firmware-blocked")).to_have_text("Firmware-Flash gesperrt (WG-IMP-010)")
+        if label == "rows":
+            catalog = panel.get_by_test_id("firmware-catalog")
+            expect(catalog.get_by_role("row", name="LFH9600 1.10")).to_be_visible()
+            expect(catalog.get_by_role("row", name="LFH9620 2.1")).to_be_visible()
+            comparison = panel.get_by_test_id("firmware-comparison")
+            expect(comparison.get_by_role("row", name="Recorder 1 LFH9600 Gemeldet: 1.10.0 Im Katalog: 1.10 Aktuell")).to_be_visible()
+            expect(comparison.get_by_role("row", name="Recorder 2 LFH9620 Gemeldet: 2.0 Im Katalog: 2.1 Älter")).to_be_visible()
+            expect(comparison.get_by_role("row", name="Recorder 3 LFH9600 Gemeldet: Keine Angabe Im Katalog: 1.10 Unbekannt")).to_be_visible()
+        else:
+            expect(panel.get_by_test_id("firmware-catalog-empty")).to_be_visible()
+            expect(panel.get_by_test_id("firmware-reports-empty")).to_be_visible()
+        expect(panel.get_by_role("button")).to_have_count(0)
+        assert firmware_requests == [("GET", base + "/api/clinic/v1/imports/firmware")]
+        assert page.evaluate("document.documentElement.classList.contains('dark')") == (theme == "dark")
+        assert panel.locator(".table-wrap").evaluate_all("els => els.every(el => el.scrollWidth <= el.clientWidth + 1)")
+        assert not errors, errors
+        if axe_js:
+            page.evaluate(axe_js)
+            violations = panel.evaluate("(el, tags) => axe.run(el, {runOnly: {type: 'tag', values: tags}})",
+                                        support.AXE_TAGS)["violations"]
+            assert not violations, violations
+        if output := os.environ.get("P168_ARTIFACTS"):
+            out = Path(output)
+            out.mkdir(parents=True, exist_ok=True)
+            stem = out / f"p09-{label}-{size}-{theme}"
+            panel.scroll_into_view_if_needed()
+            page.screenshot(path=stem.with_suffix(".png"), full_page=True, animations="disabled")
+            stem.with_suffix(".html").write_text(page.content(), encoding="utf-8")
+        if size == "390x844":
+            page.set_viewport_size({"width": 320, "height": height})
+            assert panel.locator(".table-wrap").evaluate_all(
+                "els => els.every(el => el.scrollWidth <= el.clientWidth + 1)")
 
 
 def _case_id(case) -> str:

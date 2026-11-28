@@ -24,7 +24,6 @@ const ACTIVE_STATUS_LABELS = Object.freeze(Object.fromEntries(
 
 export const TEXT = Object.freeze({
     title: 'Aufnahmen',
-    eyebrow: 'Deine Aufnahmen',
     subtitle: 'Alle Aufnahmen an einem Ort, nach Aufnahmezeit geordnet.',
     searchLabel: 'Aufnahmen durchsuchen',
     searchPlaceholder: 'Person, Pool oder Fall-ID suchen …',

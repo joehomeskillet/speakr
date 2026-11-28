@@ -98,7 +98,7 @@
     <script src="{{ url_for('static', filename='vendor/js/easymde.min.js', v=app_version) }}"></script>
     <script src="{{ url_for('static', filename='js/timezone-sync.js', v=app_version) }}" defer></script>
 </head>
-<body class="h-full bg-[var(--bg-primary)] text-[var(--text-primary)] transition-colors duration-300">
+<body class="h-full bg-[var(--bg-primary)] text-[var(--text-primary)] transition-colors duration-300{% if clinic_mode %} v8-focus{% endif %}">
     <div id="app" v-cloak
          data-current-user-name="{{ current_user.name or current_user.username }}"
          data-use-asr-endpoint="{{ use_asr_endpoint }}"
@@ -275,8 +275,7 @@
                 </div>
                 <!-- end V8 menu views (v8-71) -->
                 <!-- V8 Verwaltung views (v8-114): the administration pages inside the clinic shell. Hash routes #/verwaltung/<page>;
-                     the page is shown only when the API authorises its probe (templates/admin.html rule). The page head (eyebrow,
-                     title, subline, actions) belongs to the page component. -->
+                     the page is shown only when the API authorises its probe (templates/admin.html rule). The page head belongs to the page component. -->
                 <div v-if="clinicWorklistEnabled && clinicAdminView"
                      data-testid="clinic-admin-view" data-clinic-shell-view :data-admin-view="clinicAdminView.view"
                      :class="{cadm: ['clinic-admin-pools', 'clinic-admin-authors', 'clinic-admin-users', 'clinic-admin-asr'].includes(clinicAdminView.view)}"
