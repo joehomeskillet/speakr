@@ -255,6 +255,14 @@ const STATUS_TINT = Object.freeze({
     abgenommen: 'erledigt', fertiggestellt: 'erledigt', zu_archivieren: 'erledigt', zu_loeschen: 'erledigt',
 });
 
+const TRANSCRIPTION_PHASE = Object.freeze({
+    QUEUED: 'Transkription wartet',
+    PENDING: 'Transkription wartet',
+    PROCESSING: 'Transkription läuft',
+    RUNNING: 'Transkription läuft',
+    FAILED: 'Transkription fehlgeschlagen',
+});
+
 /** One contract item to the flat shape the template renders. Reads contract fields only. */
 export function toViewRow(item, userId) {
     const source = item && item.time_source;
@@ -276,6 +284,8 @@ export function toViewRow(item, userId) {
     if (item.text_created === true) processing = 'Text erstellt';
     else if (processingActive) processing = 'Text wird erstellt';
     else if (processingState === 'FAILED') processing = 'Text konnte nicht erstellt werden';
+    const transcriptionPhase = item.text_created !== true && Object.hasOwn(TRANSCRIPTION_PHASE, processingState)
+        ? TRANSCRIPTION_PHASE[processingState] : '';
     const seconds = Number.isFinite(item.duration_ms) ? Math.round(item.duration_ms / 1000) : null;
     const time = formatTime(item.sort_time || item.recorded_at);
     const heading = item.case_display ? TEXT.caseId + ' ' + item.case_display : item.capture_label || TEXT.dictation;
@@ -308,6 +318,7 @@ export function toViewRow(item, userId) {
         needsAction: next.needsAction,
         sendAttention,
         processing,
+        transcriptionPhase,
         processingActive,
         duration: seconds === null ? TEXT.none : formatAudioDuration(seconds),
         caseDisplay: item.case_display || '',
