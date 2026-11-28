@@ -21,7 +21,8 @@ from sqlalchemy import Float, Integer, String, cast, false, func, literal, selec
 from sqlalchemy.orm import Session
 
 from src.clinic.import_centre import DELIVERY_STATES, ClinicImportDelivery, ClinicImportOriginal
-from src.clinic.models import ClinicDictation
+from src.clinic.models import ClinicDictation, ClinicOriginal
+from src.clinic.recording_type import is_private_source
 from src.clinic.workflow import (
     CLINIC_ZONE, PRIORITY_CODES, STATUS_ORDER, ClinicWorkflowDictation, WorkflowError, resolve_deadline,
 )
@@ -204,6 +205,8 @@ def _validate(query: AdminDictationsQuery) -> AdminDictationsQuery:
 
 
 def _recording_select(query: AdminDictationsQuery, dialect: str):
+    from src.clinic.web_ingest import source_recording_link
+
     if dialect == "sqlite":
         public_id = func.printf("recording:%010d", Recording.id)
     else:
@@ -216,7 +219,11 @@ def _recording_select(query: AdminDictationsQuery, dialect: str):
         Recording.original_filename, _stamp(Recording.created_at),
     ))).select_from(Recording).outerjoin(
         ClinicDictation, ClinicDictation.recording_id == Recording.id,
-    )
+    ).where(ClinicDictation.is_report)
+    private_sources = (select(ClinicOriginal.id).join(ClinicDictation)
+                       .where(~ClinicDictation.is_report, source_recording_link(Recording.id))
+                       .correlate(Recording).exists())
+    stmt = stmt.where(~private_sources, is_private_source(Recording).is_not(True))
     if query.name is not None:
         stmt = stmt.where(Recording.title.ilike(_like(query.name), escape="\\"))
     if query.author_user_id is not None:
@@ -246,7 +253,9 @@ def _workflow_select(query: AdminDictationsQuery):
         cast(ClinicWorkflowDictation.created_at, String()), _NONE_STR,
         cast(ClinicWorkflowDictation.audio_seconds, Float()), _NONE_INT, _NONE_STR, _NONE_STR,
         _stamp(ClinicWorkflowDictation.created_at),
-    ))).select_from(ClinicWorkflowDictation)
+    ))).select_from(ClinicWorkflowDictation).outerjoin(
+        ClinicDictation, ClinicDictation.id == ClinicWorkflowDictation.id,
+    ).where(ClinicDictation.is_report)
     if query.name is not None or query.updated_on is not None:
         stmt = stmt.where(false())
     if query.author_user_id is not None:

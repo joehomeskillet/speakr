@@ -14,6 +14,7 @@ dictation to the logged-in author and the author's pool, and adds the work-list 
   pipeline found one; otherwise the upload time. Which one was used is written into the
   receipt (``origin_ref``: ``time=recording``, ``time=file`` (file system date, marked) or ``time=upload``).
 * Speech recognition: on unless the form opts out (``use_speech_recognition`` false).
+  Meeting and patient conversation templates always schedule recognition.
   The opt-out is marked ``:asr=off`` in ``origin_ref``, before the time label. A missing
   or unknown value stays on, so an old upload request still queues a transcript job.
 * Handover (not reached by the single hook): multi-file join uploads, server-side recorder
@@ -36,7 +37,7 @@ from datetime import datetime, timezone
 from flask import current_app, jsonify
 from sqlalchemy import or_
 
-from src.clinic import app_wiring, startup
+from src.clinic import app_wiring, recording_type, startup
 from src.clinic.ingest import IngestError, IngestService
 from src.clinic.models import ClinicDictation, ClinicOriginal
 from src.clinic.workflow import DRAFT, ClinicWorkflowDictation
@@ -80,9 +81,7 @@ def dictation_for_recording(recording_id: int, *, session=None) -> ClinicDictati
 
 def dictations_for_recordings(recording_ids, *, session=None):
     """Resolve job recordings in batches, preserving anchor priority and owner checks."""
-    from sqlalchemy import String, cast
     from sqlalchemy.orm import aliased
-    from src.clinic.legacy_backfill import ORIGIN_REF_PREFIXES
 
     session = db.session if session is None else session
     ids = list(set(recording_ids))
@@ -92,10 +91,8 @@ def dictations_for_recordings(recording_ids, *, session=None):
         part = ids[start:start + 500]
         anchors = {d.recording_id: d for d in session.query(ClinicDictation).filter(
             ClinicDictation.recording_id.in_(part))}
-        refs = [ClinicOriginal.origin_ref.startswith(prefix + cast(source.id, String) + ':')
-                for prefix in ORIGIN_REF_PREFIXES]
         matches = (session.query(source.id, ClinicDictation).select_from(source)
-                   .join(ClinicOriginal, or_(*refs))
+                   .join(ClinicOriginal, source_recording_link(source.id))
                    .join(ClinicDictation, ClinicDictation.id == ClinicOriginal.dictation_id)
                    .join(Recording, Recording.id == ClinicDictation.recording_id)
                    .filter(source.id.in_(part), Recording.user_id == source.user_id))
@@ -105,6 +102,15 @@ def dictations_for_recordings(recording_ids, *, session=None):
         result.update({rid: next(iter(rows.values())) for rid, rows in linked.items() if len(rows) == 1})
         result.update(anchors)
     return result
+
+
+def source_recording_link(recording_id):
+    """SQL match for the worker recording id in a server-generated original reference."""
+    from sqlalchemy import String, cast
+    from src.clinic.legacy_backfill import ORIGIN_REF_PREFIXES
+
+    return or_(*(ClinicOriginal.origin_ref.startswith(prefix + cast(recording_id, String) + ':')
+                 for prefix in ORIGIN_REF_PREFIXES))
 
 
 def author_pool_for(user_id: int) -> str | None:
@@ -128,8 +134,10 @@ _ASR_OFF = frozenset({'0', 'false', 'no', 'nein', 'off'})
 _ASR_MARK = ':asr=off:'
 
 
-def speech_recognition_requested(form) -> bool:
+def speech_recognition_requested(form, kind=recording_type.REPORT) -> bool:
     """Whether this upload wants a transcript job. Default is on."""
+    if recording_type.requires_diarization(kind):
+        return True
     raw = None if form is None else form.get('use_speech_recognition')
     if isinstance(raw, bool):
         return raw
@@ -186,29 +194,32 @@ def _refuse(recording, storage, code: str, message: str, status: int):
 
 
 def register_upload(*, owner, recording, storage, form, now: datetime,
-                    meeting_date: datetime | None, processing_source: str):
+                    meeting_date: datetime | None, processing_source: str,
+                    requested_type: str | None = None):
     """Create the clinic dictation for a stored web upload.
 
-    Returns the dictation UUID on success, None for another upload source, or
+    Returns the dictation on success, None for another upload source, or
     a ``(response, status)`` pair when the upload is refused.
     ``meeting_date is now`` marks the upload-time fallback of the pipeline.
     """
     if processing_source != WEB_SOURCE:
         return None
+    kind = requested_type or recording_type.REPORT
     from src.services.upload_cancel import client_upload_id_from
     time_source = _time_source(form, now, meeting_date)
     moment = _utc(now if time_source == 'upload' else meeting_date)
     origin = 'web-recorder' if str(form.get('from_recorder', '')).lower() == 'true' else 'web-upload'
     # Keep the default ref unchanged. The mark sits before ``time=`` so existing
     # parsers that split off the recording id still match.
-    asr_mark = ':asr=off' if not speech_recognition_requested(form) else ''
+    asr_mark = '' if speech_recognition_requested(form, kind) else ':asr=off'
     try:
         selection = app_wiring.active_author_pool(owner.id)
         pool_id = selection.pool_id
-        if selection.reselection_required:
-            return _refuse(recording, storage, 'clinic_author_pool_reselection_required', MSG_RESELECT_POOL, 403)
-        if pool_id is None:
-            return _refuse(recording, storage, 'clinic_no_author_pool', MSG_NO_POOL, 403)
+        if kind == recording_type.REPORT:
+            if selection.reselection_required:
+                return _refuse(recording, storage, 'clinic_author_pool_reselection_required', MSG_RESELECT_POOL, 403)
+            if pool_id is None:
+                return _refuse(recording, storage, 'clinic_no_author_pool', MSG_NO_POOL, 403)
         with storage.materialize(recording.audio_path) as stored:
             path = stored.local_path
             size = os.path.getsize(path)
@@ -221,9 +232,12 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
                     origin_ref=f'upload:recording:{recording.id}{asr_mark}:time={time_source}',
                     author_user_id=owner.id, idempotency_key=key, now=moment, commit=False)
         dictation = db.session.get(ClinicDictation, receipt.dictation_id)
+        if dictation.private_purge_at is not None:
+            raise IngestError('conflict', 'recording is in the trash')
         if dictation.pool_id is None:
             dictation.pool_id = pool_id
         if db.session.get(ClinicWorkflowDictation, dictation.id) is None:
+            dictation.configured_recording_type = kind
             if origin == 'web-recorder' and (title := generated_recorder_title(recording.title)):
                 anchor = db.session.get(Recording, dictation.recording_id)
                 anchor.title = title
@@ -231,6 +245,8 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
             db.session.add(ClinicWorkflowDictation(
                 id=dictation.id, author_user_id=owner.id, pool_id=dictation.pool_id,
                 status=DRAFT, created_at=moment, audio_seconds=int(recording.audio_duration_seconds or 0)))
+        elif requested_type is not None and requested_type != dictation.recording_type:
+            raise IngestError('conflict', 'recording type differs from the original upload')
         db.session.commit()
     except IngestError as error:
         logger.warning('web ingest refused for user %s: %s', owner.id, error.code)
@@ -239,4 +255,4 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
     except Exception:
         logger.error('web ingest failed for user %s', owner.id, exc_info=True)
         return _refuse(recording, storage, 'clinic_ingest_failed', MSG_FAILED, 500)
-    return receipt.dictation_id
+    return dictation

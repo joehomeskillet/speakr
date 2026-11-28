@@ -500,6 +500,19 @@ def enqueue_event(session, user_id, event_type, data):
         data = {key: value for key, value in data.items() if key not in TITLE_FIELDS}
     if not targets:
         return 0
+    from src.clinic.config import clinic_mode_enabled
+
+    if (clinic_mode_enabled() and event_type.startswith('recording.')
+            and isinstance(data, dict) and (recording_id := data.get('recording_id'))):
+        from src.clinic.recording_type import is_private_source
+        from src.clinic.web_ingest import dictation_for_recording
+        from src.models import Recording
+
+        source = session.get(Recording, recording_id)
+        dictation = dictation_for_recording(recording_id, session=session)
+        if ((source is not None and is_private_source(source))
+                or (dictation is not None and not dictation.is_report)):
+            return 0
     event_id = str(uuid.uuid4())
     first_attempt_at = datetime.utcnow()
     created = 0

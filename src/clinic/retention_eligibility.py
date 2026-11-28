@@ -19,7 +19,7 @@ def eligible_for_retention(recording, *, now, retention_days):
     dictation = (db.session.query(ClinicDictation)
                  .filter_by(recording_id=recording.id)
                  .populate_existing().with_for_update().one_or_none())
-    if dictation is None:
+    if dictation is None or not dictation.is_report:
         return False
     workflow = db.session.get(ClinicWorkflowDictation, dictation.id,
                               with_for_update=True, populate_existing=True)

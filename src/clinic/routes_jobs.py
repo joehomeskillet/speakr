@@ -38,6 +38,7 @@ from wtforms.validators import ValidationError
 from src.clinic import job_health, policy, pool_policy
 from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.recording_type import is_private_source
 from src.clinic.web_ingest import dictations_for_recordings
 from src.clinic.parity_dispatch import CommandProblem
 from src.database import db
@@ -90,12 +91,16 @@ def _recent_jobs() -> list[ProcessingJob]:
 
 def visible_jobs(user, jobs: list[ProcessingJob], *, dictations=None) -> list[ProcessingJob]:
     """The jobs `user` may see: all for operations, else those of viewable dictations."""
-    if is_operations(user):
-        return list(jobs)
-    subject = policy.build_subject(user.id, False)
     recording_ids = {job.recording_id for job in jobs}
     if dictations is None:
         dictations = dictations_for_recordings(recording_ids)
+    if is_operations(user):
+        private_sources = {rid for (rid,) in db.session.query(Recording.id).filter(
+            Recording.id.in_(recording_ids), Recording.user_id != user.id, is_private_source(Recording))}
+        return [job for job in jobs
+                if job.recording_id not in private_sources
+                and policy.recording_type_denial(dictations.get(job.recording_id), user.id, 'view') is None]
+    subject = policy.build_subject(user.id, False)
     owners = {}
     allowed: dict[int, bool] = {}
     for recording_id in recording_ids:
@@ -239,6 +244,12 @@ def create_blueprint(*, run_once, queue=None) -> Blueprint:
             return _problem(428)
         if match.strip('"') != str(expected):
             return _problem(400)
+        job = db.session.get(ProcessingJob, job_id)
+        if job is not None:
+            dictation = dictations_for_recordings([job.recording_id]).get(job.recording_id)
+            if policy.recording_type_denial(dictation, current_user.id, 'edit',
+                                            source=db.session.get(Recording, job.recording_id)) is not None:
+                return _problem(404)
         digest = sha256(json.dumps(["jobs.retry", job_id, expected], sort_keys=True).encode()).hexdigest()
         try:
             result = run_once((current_user.id, "jobs.retry", str(job_id), key), digest,

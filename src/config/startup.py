@@ -146,6 +146,15 @@ def run_daily_maintenance(app):
         from src.services.ownerless_cleanup import run_ownerless_cleanup
         run_ownerless_cleanup()
 
+    try:
+        with app.app_context():
+            from src.clinic.config import clinic_mode_enabled
+            if clinic_mode_enabled():
+                from src.clinic.private_recording_trash import purge_expired
+                purge_expired()
+    except Exception as error:
+        app.logger.error("Private recording trash maintenance failed: %s", type(error).__name__)
+
     # Audit log rows past audit_log_retention_days. Here and not in the hourly
     # cleanup loop, because that loop can be turned off and this thread
     # always starts.

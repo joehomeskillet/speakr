@@ -19,6 +19,7 @@ from src.clinic.audio_revisions import (
     ClinicAudioRevisionSnapshot,
     ClinicAudioSegment,
 )
+from src.clinic.recording_type import purge_guard_sql
 
 # Table -> reason embedded in the trigger error.
 AUDIO_IMMUTABLE_TABLES: dict[str, str] = {
@@ -69,6 +70,8 @@ def install_audio_db_guards(engine) -> None:
                     "CREATE OR REPLACE FUNCTION " + _PG_FUNCTION + "() "
                     "RETURNS trigger LANGUAGE plpgsql AS $$ "
                     "BEGIN "
+                    f"IF TG_OP = 'DELETE' AND {purge_guard_sql('postgresql', 'OLD.dictation_id')} "
+                    "THEN RETURN OLD; END IF; "
                     "RAISE EXCEPTION '% is immutable', TG_ARGV[0] "
                     "USING ERRCODE = 'check_violation'; "
                     "END; $$"
@@ -79,11 +82,14 @@ def install_audio_db_guards(engine) -> None:
                 continue
             if engine.name == "sqlite":
                 for name, event in zip(trigger_names(table), ("UPDATE", "DELETE")):
+                    condition = ""
+                    if event == "DELETE" and "clinic_dictation" in present:
+                        condition = " WHEN NOT " + purge_guard_sql("sqlite", "OLD.dictation_id")
                     conn.execute(text("DROP TRIGGER IF EXISTS " + name))
                     conn.execute(
                         text(
                             "CREATE TRIGGER " + name + " BEFORE " + event + " ON " + table
-                            + " FOR EACH ROW BEGIN SELECT RAISE(ABORT, '" + label
+                            + " FOR EACH ROW" + condition + " BEGIN SELECT RAISE(ABORT, '" + label
                             + " is immutable'); END"
                         )
                     )

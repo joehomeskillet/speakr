@@ -1587,7 +1587,8 @@ def register_clinic_operations(flask_app):
         IngestService(startup.originals_root(flask_app)),
         proxy_secret or secrets.token_bytes(routes_agent.MIN_PROXY_SECRET_BYTES),
         author_lookup=resolve_stored_author)
-    flask_app.register_blueprint(routes_recordings.create_blueprint(load_entries))
+    flask_app.register_blueprint(routes_recordings.create_blueprint(
+        lambda actor: load_entries(actor, include_own_private=True)))
     flask_app.register_blueprint(routes_jobs.create_blueprint(run_once=run_once))
     flask_app.register_blueprint(routes_statistics.blueprint)
     flask_app.register_blueprint(routes_training.blueprint)

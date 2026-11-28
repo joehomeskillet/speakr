@@ -54,6 +54,8 @@ def _authorized_dictation(dictation_id, *, lock=False):
     admin = current_user.is_admin
     if row is None:
         abort(404 if admin else 403)
+    if not row.is_report:
+        abort(404 if admin else 403)
     actor = current_user.id
     if not admin:
         staff_ids = pools.routable_staff_pool_ids(row.pool_id) if row.pool_id else ()

@@ -11,7 +11,9 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import CheckConstraint, ForeignKeyConstraint, UniqueConstraint, func, text
+from sqlalchemy.ext.hybrid import hybrid_property
 
+from src.clinic.recording_type import REPORT, purge_guard_sql
 from src.database import db
 
 
@@ -59,10 +61,44 @@ class ClinicDictation(db.Model):
         db.Integer, db.ForeignKey("user.id"), nullable=False, index=True
     )
     version_counter = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    # NULL identifies legacy dictations whose ASR defaults still apply.
+    configured_recording_type = db.Column("recording_type", db.String(20), nullable=True)
+    private_purge_at = db.Column(db.DateTime, nullable=True)
     # clinic_pool is a separate work package; until it exists this is a plain
     # UUID reference without a foreign key.
     pool_id = db.Column(db.String(36), nullable=True, index=True)
     created_at = _created_at()
+
+    @hybrid_property
+    def recording_type(self) -> str:
+        kind = self.configured_recording_type
+        return REPORT if kind is None else kind
+
+    @recording_type.expression
+    def recording_type(cls):
+        return func.coalesce(cls.configured_recording_type, REPORT)
+
+    @hybrid_property
+    def is_report(self) -> bool:
+        return self.recording_type == REPORT
+
+
+_private_purge_index = db.Index(
+    "ix_clinic_dictation_private_purge_at", ClinicDictation.private_purge_at,
+    postgresql_where=ClinicDictation.private_purge_at.is_not(None),
+    sqlite_where=ClinicDictation.private_purge_at.is_not(None),
+)
+
+
+def create_tables(bind=None) -> None:
+    from src.utils.database import add_column_if_not_exists
+
+    bind = bind or db.engine
+    add_column_if_not_exists(bind, ClinicDictation.__tablename__,
+                             "recording_type", "VARCHAR(20)")
+    add_column_if_not_exists(bind, ClinicDictation.__tablename__,
+                             "private_purge_at", "TIMESTAMP")
+    _private_purge_index.create(bind, checkfirst=True)
 
 
 class ClinicOriginal(db.Model):
@@ -332,6 +368,7 @@ def install_clinic_guards(engine) -> None:
     engines keep the tables without these two guards.
     """
     if engine.name == "sqlite":
+        deletion_exception = purge_guard_sql("sqlite", "OLD.dictation_id")
         statements = (
             "DROP TRIGGER IF EXISTS " + _ORIGINAL_TRIGGER,
             (
@@ -347,6 +384,7 @@ def install_clinic_guards(engine) -> None:
                 "CREATE TRIGGER " + _ORIGINAL_DELETE_TRIGGER + " "
                 "BEFORE DELETE ON clinic_original_version "
                 "FOR EACH ROW "
+                f"WHEN NOT {deletion_exception} "
                 "BEGIN "
                 "SELECT RAISE(ABORT, 'clinic original cannot be deleted'); "
                 "END"
@@ -365,6 +403,7 @@ def install_clinic_guards(engine) -> None:
                 "CREATE TRIGGER " + _TRANSCRIPT_DELETE_TRIGGER + " "
                 "BEFORE DELETE ON clinic_transcript_revision "
                 "FOR EACH ROW "
+                f"WHEN NOT {deletion_exception} "
                 "BEGIN "
                 "SELECT RAISE(ABORT, 'clinic transcript revision cannot be deleted'); "
                 "END"
@@ -381,11 +420,15 @@ def install_clinic_guards(engine) -> None:
             ),
         )
     elif engine.name == "postgresql":
+        deletion_exception = purge_guard_sql("postgresql", "OLD.dictation_id")
         statements = (
-            """
+            f"""
             CREATE OR REPLACE FUNCTION clinic_original_immutable()
             RETURNS trigger LANGUAGE plpgsql AS $$
             BEGIN
+                IF TG_OP = 'DELETE' AND {deletion_exception} THEN
+                    RETURN OLD;
+                END IF;
                 RAISE EXCEPTION 'clinic original is immutable'
                     USING ERRCODE = 'check_violation';
             END;
@@ -397,10 +440,13 @@ def install_clinic_guards(engine) -> None:
             BEFORE UPDATE OR DELETE ON clinic_original_version
             FOR EACH ROW EXECUTE PROCEDURE clinic_original_immutable()
             """,
-            """
+            f"""
             CREATE OR REPLACE FUNCTION clinic_transcript_immutable()
             RETURNS trigger LANGUAGE plpgsql AS $$
             BEGIN
+                IF TG_OP = 'DELETE' AND {deletion_exception} THEN
+                    RETURN OLD;
+                END IF;
                 RAISE EXCEPTION 'clinic transcript revision is immutable'
                     USING ERRCODE = 'check_violation';
             END;

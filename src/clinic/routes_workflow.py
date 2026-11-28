@@ -373,8 +373,13 @@ def create_blueprint(
                 connection.exec_driver_sql('BEGIN IMMEDIATE')
         row = db.session.get(ClinicDictation, target, with_for_update=lock_before_receipt,
                              populate_existing=lock_before_receipt)
+        if row is not None and row.private_purge_at is not None:
+            abort(404)
         if author_only and (row is None or row.author_user_id != actor):
             abort(403)
+        if name == 'send' and not row.is_report:
+            return _problem(409, 'not_sendable_type',
+                            detail='Nur Berichte können an den Schreibdienst gesendet werden.')
         if row is None or authorize(actor, permission, row) is not True:
             abort(403 if author_only else 404)
         try:
@@ -394,6 +399,8 @@ def create_blueprint(
             if lock_before_receipt:
                 return apply(row, expected, key, datetime.now(timezone.utc))
             locked = db.session.get(ClinicDictation, target, populate_existing=True, with_for_update=True)
+            if locked is None or locked.private_purge_at is not None:
+                abort(404)
             return apply(locked, expected, key, datetime.now(timezone.utc))
 
         try:

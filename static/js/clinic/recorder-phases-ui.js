@@ -112,14 +112,14 @@ export function createClinicRecorder(audio, state, uploadFile) {
             gatedTake = null;
             await audio.clearRecording();
         },
-        async uploadRecordedAudio({ title }) {
+        async uploadRecordedAudio({ title, recordingType }) {
             const chunks = state.audioChunks.value;
             if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
             const gated = gatedTake?.chunks === chunks ? gatedTake.blob : null;
             const file = gated
                 ? new File([gated], 'aufnahme.wav', { type: gated.type })
                 : new File(chunks, 'aufnahme.webm', { type: state.mediaRecorder.value.mimeType.split(';')[0] });
-            const receipt = await uploadFile(file, title);
+            const receipt = recordingType ? await uploadFile(file, title, recordingType) : await uploadFile(file, title);
             if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
             // A new take gets its own chunk array as soon as capture starts.
             if (state.audioChunks.value === chunks) {
@@ -152,7 +152,7 @@ export function createRecorderPhases(options) {
     let capturePending = false;
     const listeners = new Set();
     let generation = 0;
-    let state = { phase: 'title', title: '', error: null, receipt: null };
+    let state = { phase: 'title', title: '', error: null, receipt: null, recordingType: null };
 
     function set(patch) {
         state = Object.assign({}, state, patch);
@@ -179,7 +179,7 @@ export function createRecorderPhases(options) {
         return { ok: true };
     }
 
-    async function start(recordingOptions) {
+    async function start(recordingType = null, recordingOptions) {
         const blocked = guard(automaticTitle ? ['title', 'ready'] : ['ready']);
         if (blocked) return blocked;
         if (capturePending) return denied('capture_pending');
@@ -193,7 +193,7 @@ export function createRecorderPhases(options) {
                 await recorder.discardRecording();
                 return denied('stale');
             }
-            set({ phase: 'recording', title, error: null });
+            set({ phase: 'recording', title, error: null, recordingType });
             return { ok: true };
         } catch (e) {
             const code = ['NotAllowedError', 'SecurityError'].includes(e?.name) ? 'microphone_denied'
@@ -306,7 +306,9 @@ export function createRecorderPhases(options) {
         set({ phase: 'sending', error: null });
         let receipt = null;
         try {
-            receipt = await recorder.uploadRecordedAudio({ title: state.title.trim() || localDictationTitle() });
+            const metadata = { title: state.title.trim() || localDictationTitle() };
+            if (state.recordingType) metadata.recordingType = state.recordingType;
+            receipt = await recorder.uploadRecordedAudio(metadata);
         } catch (e) {
             receipt = null;
         }
@@ -333,14 +335,14 @@ export function createRecorderPhases(options) {
             }
         }
         if (api && typeof api.switchContext === 'function') api.switchContext({});
-        set({ phase: 'title', title: '', error: null, receipt: null });
+        set({ phase: 'title', title: '', error: null, receipt: null, recordingType: null });
         return { ok: true };
     }
 
     // Reset after `sent` so the next dictation starts clean.
     function reset() {
         if (state.phase !== 'sent') return denied('invalid_phase');
-        set({ phase: 'title', title: '', error: null, receipt: null });
+        set({ phase: 'title', title: '', error: null, receipt: null, recordingType: null });
         return { ok: true };
     }
 

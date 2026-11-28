@@ -23,7 +23,7 @@ def _remove_playback_derivative(storage, locator):
 
 
 def delete_recording_completely(recording, storage=None, strict_media=False, reason='deleted',
-                                audit_reason=None):
+                                audit_reason=None, *, private_purge=False):
     """Delete the media, the rows that reference the recording, and the recording.
 
     Emits the recording.deleted webhook and marks the export as deleted.
@@ -40,6 +40,9 @@ def delete_recording_completely(recording, storage=None, strict_media=False, rea
     audit_reason: the reason code of the recording.deleted audit row (user,
     retention, account_deleted, ownerless, upload_canceled, merged). Default:
     retention for a retention deletion, else user.
+
+    private_purge: leave commit and content-free auditing to the clinic
+    purge transaction. Do not publish the private deletion to integrations.
     """
     from src.models.processing_job import ProcessingJob
     from src.models.speaker_snippet import SpeakerSnippet
@@ -75,18 +78,23 @@ def delete_recording_completely(recording, storage=None, strict_media=False, rea
 
     # A transcription still running on the WhisperX ASR service is cancelled
     # there, and a finished one has its stored transcript removed.
-    try:
-        from src.services.transcription.provider_tasks import cancel_remote_tasks
-        cancel_remote_tasks(ProcessingJob.query.filter(
-            ProcessingJob.recording_id == recording_id,
-            ProcessingJob.provider_task.isnot(None)).all())
-    except Exception as e:
-        current_app.logger.warning(f"Cancelling ASR jobs of recording {recording_id} failed: {e}")
+    if not private_purge:  # The clinic purge already required confirmation before deleting files.
+        try:
+            from src.services.transcription.provider_tasks import cancel_remote_tasks
+            cancel_remote_tasks(ProcessingJob.query.filter(
+                ProcessingJob.recording_id == recording_id,
+                ProcessingJob.provider_task.isnot(None)).all())
+        except Exception as e:
+            current_app.logger.warning(f"Cancelling ASR jobs of recording {recording_id} failed: {e}")
 
     snippets = SpeakerSnippet.query.filter_by(recording_id=recording_id).delete()
     jobs = ProcessingJob.query.filter_by(recording_id=recording_id).delete()
     if snippets or jobs:
         current_app.logger.info(f"Deleted {snippets} speaker snippets and {jobs} processing jobs for recording {recording_id}")
+
+    if private_purge:
+        db.session.delete(recording)
+        return
 
     # The one audit point of every deletion of a recording: web, bulk, API,
     # retention, account deletion. In the transaction of the deletion.

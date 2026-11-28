@@ -70,13 +70,14 @@ def _exercise() -> None:
         assert response.json == {'pool_id': selected, 'reselection_required': selected is None,
                                  'pools': [{'id': pid, 'name': names[pid]} for pid in options]}
 
-    def upload(client, headers, sample):
+    def upload(client, headers, sample, **fields):
         with patch('src.services.recording_ingestion.get_duration', return_value=None), \
              patch('src.services.recording_ingestion.get_creation_date', return_value=None), \
              patch('src.services.webhook_dispatch.emit_webhook_event'):
             return client.post('/upload', headers=headers, data={
                 'file': (BytesIO(b'\x03ds2' + bytes([sample]) * 2048), f'p146-{sample}.ds2'),
                 'client_upload_id': f'p146-{uuid4().hex}', 'use_speech_recognition': 'false',
+                **fields,
             })
 
     assert app.test_client().get(ACTIVE_POOL).status_code == 401
@@ -115,6 +116,14 @@ def _exercise() -> None:
     with app.app_context():
         rows = ClinicDictation.query.filter_by(author_user_id=alpha_id).all()
         assert [(row.id, row.pool_id) for row in rows] == [(did, b)]
+    explicit_report = upload(client, headers, 4, recording_type='bericht')
+    assert (explicit_report.status_code, explicit_report.json['code']) == (
+        403, 'clinic_author_pool_reselection_required')
+    private = upload(client, headers, 5, recording_type='notiz')
+    assert private.status_code == 202, private.get_data(as_text=True)
+    with app.app_context():
+        row = db.session.get(ClinicDictation, private.json['dictation_id'])
+        assert (row.author_user_id, row.pool_id, row.recording_type) == (alpha_id, None, 'notiz')
     assert_pool(client.put(ACTIVE_POOL, headers=headers, json={'pool_id': a}), a, a)
     assert client.get(RECIPIENT_DEFAULT).json['overrides']['persons'] == [str(anne_id)]
     created = upload(client, headers, 3)

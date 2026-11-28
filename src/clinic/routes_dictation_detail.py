@@ -64,7 +64,8 @@ def _capabilities(user: User, dictation: ClinicDictation, flow, snap: dict,
     if flow is None:
         return dict(allowed_actions=[], transitions={}, binding={})
     allowed, transitions = [], {}
-    if (flow.status == workflow.DRAFT and user.id == dictation.author_user_id
+    if (dictation.is_report and flow.status == workflow.DRAFT
+            and user.id == dictation.author_user_id
             and authorize(user, 'clinic.dictate', dictation) is True):
         allowed.append('send')
         transitions['send'] = workflow.PREP_ONLINE
@@ -177,6 +178,7 @@ def create_blueprint(
             )
         return jsonify(
             dictation_id=dictation.id,
+            recording_type=dictation.recording_type,
             etag=snap['etag'],
             revision=dictation.version_counter,
             author=_person(dictation.author_user_id),
