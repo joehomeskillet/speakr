@@ -266,9 +266,8 @@ export const RecordingsView = {
               </span>
               <span class="record-subtitle" :class="r.isFallback ? 'date-fallback' : ''"><span>Diktat {{ r.reference }}</span><span v-if="r.fallbackText" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackText }}</span><span v-else-if="r.isFallback" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackLabel }}</span></span>
               <span v-if="r.processing" :id="'crv-processing-' + r.key" class="cl-processing">
-                <span v-if="r.processingDetail && !r.processingActive" data-testid="recording-text-state">{{ r.processingDetail }}</span>
-                <span v-else data-testid="recording-text-state">{{ r.processing }}</span>
-                <span v-if="r.processingActive && r.processingDetail"> ({{ r.processingDetail }})</span>
+                <span data-testid="recording-text-state">{{ r.processing }}</span>
+                <span v-if="r.processingDetail"> ({{ r.processingDetail }})</span>
               </span>
             </span>
             <span class="status" :id="'crv-next-' + r.key" :class="r.needsAction ? 'wartet' : r.statusClass"
