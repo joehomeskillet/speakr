@@ -3,6 +3,12 @@
   "sources_read": [
     "clinic-spec/CLAUDE.md",
     "clinic-spec/README.md",
+    "clinic-spec/docs/00_Entscheidungen.md",
+    "clinic-spec/docs/11_Paritaet_und_Webgrenze.md",
+    "clinic-spec/docs/12_Webclient_und_Importagent.md",
+    "clinic-spec/docs/10_Local_Entra.md",
+    "clinic-spec/planning/conflicts-resolved.json",
+    "clinic-spec/tests/acceptance.json",
     "AGENTS.md",
     "conftest.py",
     ".github/workflows/test.yml",
@@ -35,6 +41,7 @@
     "src/services/document.py",
     "src/file_exporter.py",
     "src/services/job_queue.py",
+    "src/tasks/processing.py",
     "src/services/audit.py",
     "src/auth/permissions.py",
     "src/auth/sso.py",
@@ -169,7 +176,8 @@
         "src/models/processing_job.py",
         "src/services/job_queue.py",
         "src/services/job_cancel.py",
-        "src/services/job_control.py"
+        "src/services/job_control.py",
+        "src/tasks/processing.py"
       ],
       "description": "FairJobQueue asynchronous multi-threaded task runner with database-backed job states, priority, and retry tracking.",
       "reuse_for": "Sole async processing pipeline for ASR transcription, alignment, and clinic background operations; no new queue framework."

@@ -121,6 +121,24 @@ def test_statistics_reader_cannot_administer_grants_users_or_settings(api):
     assert _authors(reader, 1) == {author.id}
 
 
+def test_collection_staging_guard_does_not_gate_grant_management(api, monkeypatch):
+    admin, stats, author = _account(_user(admin=True)), _account(_user()), _user()
+    owner, admin_csrf = _login(api, admin)
+    reader, reader_csrf = _login(api, stats)
+    collection_url = '/api/clinic/v1/statistics/collection'
+    switch = {'kind': 'usage', 'enabled': True, 'retention_days': 30}
+
+    monkeypatch.setenv('CLINIC_PROFILE', 'production')
+    assert owner.get(collection_url).status_code == 404
+    assert owner.post(_url(stats), headers=admin_csrf, json=_grant(author)).status_code == 201
+
+    monkeypatch.setenv('CLINIC_PROFILE', 'staging')
+    assert owner.get(_url(stats)).json['version'] == 1
+    assert owner.get(collection_url).status_code == 200
+    assert owner.put(collection_url, json=switch).status_code == 403
+    assert reader.put(collection_url, headers=reader_csrf, json=switch).status_code == 403
+
+
 def test_only_active_site_admin_with_csrf_can_change_explicit_grants(api, monkeypatch):
     admin, stats, author = _account(_user(admin=True)), _account(_user()), _user()
     disabled = _account(_user(admin=True), status='disabled')
