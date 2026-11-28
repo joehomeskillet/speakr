@@ -235,7 +235,9 @@ export const RecordingsView = {
               <span class="record-roles">
                 <span class="record-role"><span class="record-role-label">{{ t.author }}:</span> <span class="dictator-name" data-cell="author" :title="r.author">{{ r.author }}</span></span>
                 <span class="record-role"><span class="record-role-label">{{ t.pool }}:</span> <span class="pool-name" data-cell="pool" :title="r.poolText">{{ r.poolText }}</span></span>
-                <span v-if="r.hasLease" class="record-role"><span class="record-role-label">{{ t.lease }}:</span> <span class="dictator-name" data-cell="lease">{{ r.leaseHolder }}</span></span>
+                <span v-if="r.hasLease" class="record-role">
+                  <span class="dictator-name" data-cell="lease"><span class="record-role-label font-normal">{{ t.lease }}:</span> {{ r.leaseHolder }}</span>
+                </span>
               </span>
               <span class="record-subtitle" :class="r.isFallback ? 'date-fallback' : ''"><span>Diktat {{ r.reference }}</span><span v-if="r.fallbackText" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackText }}</span><span v-else-if="r.isFallback" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackLabel }}</span></span>
               <span v-if="r.processing" :id="'crv-processing-' + r.key" class="cl-processing" data-testid="recording-text-state">{{ r.processing }}</span>

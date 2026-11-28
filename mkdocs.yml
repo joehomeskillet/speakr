@@ -1,5 +1,5 @@
-site_name: Speakr · Klinikdiktat
-site_description: Bilingual handbook for the self-hosted Speakr clinic dictation workflow.
+site_name: Ploudrli · Klinikdiktat
+site_description: Bilingual handbook for the self-hosted Ploudrli clinic dictation workflow.
 site_url: https://joehomeskillet.github.io/speakr/
 repo_url: https://github.com/joehomeskillet/speakr
 repo_name: joehomeskillet/speakr
@@ -7,14 +7,15 @@ edit_uri: edit/main/docs/
 
 theme:
   name: material
-  logo: assets/images/speakr-icon-192.png
-  favicon: assets/images/favicon-32.png
+  logo: assets/brand/app.svg
+  favicon: assets/brand/favicon.ico
+  font: false
   palette:
     # Light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
@@ -22,8 +23,8 @@ theme:
     # Dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
@@ -125,6 +126,7 @@ extra:
 
 extra_css:
   - stylesheets/extra.css
+  - stylesheets/ploudrli.css
 
 extra_javascript:
   - javascripts/extra.js
