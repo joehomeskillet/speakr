@@ -12,6 +12,7 @@ from src.clinic.author_aliases import add_author_alias
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.import_visibility import ClarificationPolicy
 from src.clinic.models import ClinicDictation
+from src.models import Recording
 
 from test_wp_v8_agent_routes import FINGERPRINT, PROXY, SECRET, _begin, _headers, _item, _json, _put_chunks, _sha, _user
 
@@ -32,7 +33,7 @@ def machine(clinic_on, monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize(('case', 'matched'), [
-    ('ds2', True), ('dss', True), ('dss3', True), ('unknown', False), ('ambiguous', False),
+    ('ds2', True), ('ds2-with-metadata', True), ('dss', True), ('dss3', True), ('unknown', False), ('ambiguous', False),
     ('contradictory', False), ('hint-only', False), ('exclusive', True), ('unknown-on-device', False),
     ('device-conflict', False), ('reused-device', False), ('inactive', False), ('bad-digest', False),
 ])
@@ -80,9 +81,11 @@ def test_finalize_uses_verified_bytes_and_stored_aliases(machine, case, matched)
     earlier = ic.create_import_intent(actor_user_id=admin.id, target_author_user_id=desktop.id,
                                       may_assign_author=lambda *_: True, source_kind='device', source_ref='usb-1',
                                       expected_files=[filename], now=now - timedelta(minutes=1))
+    title = 'Verified DS2 import'
+    overrides = {'title': {'op': 'set', 'value': title}} if case == 'ds2-with-metadata' else None
     expected = ic.create_import_intent(actor_user_id=admin.id, target_author_user_id=author.id,
                                        may_assign_author=lambda *_: True, source_kind='device', source_ref='usb-1',
-                                       expected_files=[filename], now=now)
+                                       expected_files=[filename], now=now, overrides=overrides)
     intent = ch.create_intent(policy, actor_user_id=admin.id, agent_id=agent['agent_id'],
                               source_id='src-1', snapshot_version='v1')
     begun = _begin(machine, intent, reported)
@@ -111,7 +114,10 @@ def test_finalize_uses_verified_bytes_and_stored_aliases(machine, case, matched)
         assert receipt['state'] == 'STORED'
         assert delivery['status'] == 'MATCHED'
         assert delivery['intent_id'] == expected['id']
-        assert db.session.get(ClinicDictation, receipt['dictation_id']).author_user_id == author.id
+        dictation = db.session.get(ClinicDictation, receipt['dictation_id'])
+        assert dictation.author_user_id == author.id
+        if case == 'ds2-with-metadata':
+            assert db.session.get(Recording, dictation.recording_id).title == title
     else:
         assert receipt['state'] == 'UNKNOWN'
         assert delivery['status'] == 'UNASSIGNED'
