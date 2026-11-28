@@ -126,6 +126,7 @@ function headersFor(method, token, options) {
     if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
     if (options.ifMatch) headers['If-Match'] = options.ifMatch;
     if (options.caseView) headers['X-Clinic-Case-View'] = options.caseView;
+    if (options.liveClientId) headers['X-Live-Client-Id'] = options.liveClientId;
     if (options.body !== undefined && method !== 'GET' && method !== 'HEAD') {
         headers['Content-Type'] = 'application/json';
     }
@@ -186,6 +187,7 @@ export function createClinicApiClient() {
         const method = String(opts.method || 'GET').toUpperCase();
         const seen = generation;
         const controller = new AbortController();
+        const signal = opts.timeoutMs ? AbortSignal.any([controller.signal, AbortSignal.timeout(opts.timeoutMs)]) : controller.signal;
         inflight.add(controller);
         const unsafe = method !== 'GET' && method !== 'HEAD';
         try {
@@ -204,7 +206,7 @@ export function createClinicApiClient() {
                 credentials: 'same-origin',
                 cache: 'no-store',
                 headers: headersFor(method, token, opts),
-                signal: controller.signal,
+                signal,
             };
             if (body !== undefined) init.body = body;
             let sent = await exchange(url, init, !unsafe, seen);
@@ -256,6 +258,7 @@ export function createClinicApiClient() {
             body: body,
             idempotencyKey: key,
             ifMatch: opts.ifMatch,
+            liveClientId: opts.liveClientId,
         });
     }
 
@@ -263,6 +266,7 @@ export function createClinicApiClient() {
         request: request,
         command: command,
         switchContext: switchContext,
+        supportsLiveCapture: true,
         get dictationChanges() { return dictationChanges; },
     };
 }

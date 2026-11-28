@@ -5,21 +5,25 @@ from pathlib import Path
 
 import pytest
 
+from test_audit_live_draft_picker_browser import AUTHOR, draft_app
+from test_wp_mount_correction import _login
+
 _spec = importlib.util.spec_from_file_location("v149_menu", Path(__file__).with_name("test_wp_v8_shell_mount_menu.py"))
 _menu = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_menu)
-live_server = _menu.live_server
 
 
 @pytest.mark.parametrize("width,height", [(1440, 900), (390, 844)])
-def test_name_entries_and_visual_proof(live_server, width, height, tmp_path):
+def test_name_entries_and_visual_proof(draft_app, width, height, tmp_path):
     from playwright.sync_api import sync_playwright
 
-    base, dictation = live_server
+    base, originals = draft_app
+    dictation = next(iter(originals))
     with sync_playwright() as p:
         browser = _menu._launch(p)
         try:
-            page = _menu._login(browser, base, width, height)
+            page = _login(browser, base, AUTHOR)
+            page.set_viewport_size({"width": width, "height": height})
             # Wait for shell startup before navigating between hash routes in the same document.
             page.wait_for_function("document.querySelector('#app[data-v-app]')?.style.opacity === '1'")
             _menu._mounted(page)
@@ -35,11 +39,15 @@ def test_name_entries_and_visual_proof(live_server, width, height, tmp_path):
             page.wait_for_function("document.querySelectorAll('#clinic-live-choices option').length === 1")
             label = page.locator("#clinic-live-choices option").get_attribute("value")
             assert "Dr. Beispiel" in label and dictation not in label
-            page.get_by_label("Diktat suchen").fill(label)
+            page.get_by_label("Eigene Aufnahme").fill(label)
+            page.get_by_label("Name des Entwurfs").fill(f"Live-Entwurf {width}")
             page.keyboard.press("Tab")
             page.screenshot(path=str(tmp_path / f"live-picker-{width}.png"), full_page=True, animations="disabled")
-            page.get_by_role("button", name="Live-Diktat öffnen").click()
+            page.get_by_role("button", name="Entwurf anlegen").click()
             page.locator("[data-testid=clinic-live-view]").wait_for(state="visible")
+            page.get_by_test_id("live-draft-discard").click()
+            page.get_by_role("button", name="Entwurf verwerfen").click()
+            page.locator("[data-testid=clinic-live-view]").wait_for(state="detached")
             page.goto(base + "/#/neu")
             name = page.locator("#app").get_attribute("data-current-user-name")
             assert name

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createClinicRecorder } from '../../../static/js/clinic/recorder-phases-ui.js';
+import { createClinicRecorder, uploadClinicFile } from '../../../static/js/clinic/recorder-phases-ui.js';
 
 function stoppedTake(offlineDrafts) {
     const state = {
@@ -71,9 +71,39 @@ describe('clinic recorder upload', () => {
         await expect(recorder.uploadRecordedAudio(take)).rejects.toThrow('offline_retained');
         expect(drafts.removeTake).not.toHaveBeenCalled();
         expect(await recorder.uploadRecordedAudio(take)).toEqual({ id: 1 });
-        expect(upload.mock.calls.map(([, , sentOptions]) => sentOptions)).toEqual([options, options, options]);
+        const id = upload.mock.calls[0][2].id;
+        expect(id).toEqual(expect.any(String));
+        expect(upload.mock.calls.map(([, , sentOptions]) => sentOptions)).toEqual([
+            { ...options, id, retry: false }, { ...options, id, retry: true }, { ...options, id, retry: true },
+        ]);
         expect(drafts.removeTake).toHaveBeenCalledOnce();
         expect(drafts.removeTake).toHaveBeenCalledWith(binding);
         expect(stock.clearRecording).toHaveBeenCalledOnce();
+    });
+});
+
+describe('clinic upload transport', () => {
+    it.each(['error', 'abort', 'timeout'])('rejects %s instead of waiting for a receipt', async (event) => {
+        const refreshToken = vi.fn(async () => 'synthetic-csrf');
+        vi.stubGlobal('window', { csrfManager: { refreshToken } });
+        vi.stubGlobal('XMLHttpRequest', class {
+            open() {}
+            setRequestHeader() {}
+            send() { this['on' + event](); }
+        });
+        await expect(uploadClinicFile(new File(['test'], 'diktat.wav'))).rejects.toThrow('upload_failed');
+        expect(refreshToken).toHaveBeenCalledOnce();
+    });
+
+    it('rejects a successful HTTP response with malformed receipt JSON', async () => {
+        vi.stubGlobal('window', { csrfManager: { refreshToken: async () => 'synthetic-csrf' } });
+        vi.stubGlobal('XMLHttpRequest', class {
+            status = 202;
+            responseText = '<html>nicht bestätigt</html>';
+            open() {}
+            setRequestHeader() {}
+            send() { this.onload(); }
+        });
+        await expect(uploadClinicFile(new File(['test'], 'diktat.wav'))).rejects.toThrow(SyntaxError);
     });
 });

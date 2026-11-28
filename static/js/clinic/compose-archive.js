@@ -60,11 +60,11 @@ export const TEXT = Object.freeze({
     from: 'Von',
     to: 'Bis',
     author: 'Diktiert von',
-    pool: 'Schreibkräfte-Pool',
+    pool: 'Schreibdienst',
     recorded: 'Aufnahmezeit',
     archived: 'Archiviert am',
     retention: 'Aufbewahrung',
-    noPool: 'Kein Pool zugewiesen',
+    noPool: 'Kein Schreibdienst zugeordnet',
     noAuthor: 'Nicht angegeben',
     noValue: '–',
     createdMark: 'erfasst',
@@ -73,14 +73,14 @@ export const TEXT = Object.freeze({
     importedHint: 'Zeitpunkt aus der importierten Datei.',
     hits: (n) => (n === 1 ? '1 Treffer' : n + ' Treffer'),
     eyebrow: 'Aufnahmen',
-    subline: 'Abgeschlossene Diktate chronologisch ansehen. Die diktierende Person und die Poolzuständigkeit bleiben erhalten.',
+    subline: 'Abgeschlossene Diktate nach Datum ansehen. Sie sehen, wer diktiert hat und welcher Schreibdienst zugeordnet war.',
     listHeading: 'Archivierte Diktate',
     statArchived: 'Geladene Einträge',
     statArchivedNote: 'Nach Aufnahmezeit sortiert',
     statAuthors: 'Diktierende',
     statAuthorsNote: 'Als eigene Metadaten sichtbar',
-    statPools: 'Schreibkräfte-Pools',
-    statPoolsNote: 'Gruppenzuständigkeit bleibt erhalten',
+    statPools: 'Schreibdienste',
+    statPoolsNote: 'Zuordnung bleibt erhalten',
     statOldest: 'Ältestes Archivdatum',
     statOldestNote: 'Unter den geladenen Einträgen',
     readOnlyNote: 'Das Archiv wird nur gelesen. Bereits bestätigte Ausgaben bleiben unverändert.',
@@ -351,7 +351,7 @@ export const ArchiveView = {
       <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-from">{{ c.text.from }}</label><input style="${INPUT}" id="cav-from" type="date" v-model="c.filters.from" data-testid="filter-from"></div>
       <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-to">{{ c.text.to }}</label><input style="${INPUT}" id="cav-to" type="date" v-model="c.filters.to" data-testid="filter-to"></div>
       <div style="${FIELD}; flex: 1 1 12rem; margin: 0"><label style="${LABEL}" for="cav-author">{{ c.text.author }}</label><select style="${INPUT}" id="cav-author" v-model="c.filters.authorId" data-testid="filter-author"><option value="">Alle Diktierenden</option><option v-for="o in c.choices.authors" :key="o.value" :value="o.value">{{ o.label }}</option></select></div>
-      <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-pool">{{ c.text.pool }}</label><select style="${INPUT}" id="cav-pool" v-model="c.filters.poolId" data-testid="filter-pool"><option value="">Alle Pools</option><option v-for="o in c.choices.pools" :key="o.value" :value="o.value">{{ o.label }}</option></select></div>
+      <div style="${FIELD}; flex: 1 1 150px; margin: 0"><label style="${LABEL}" for="cav-pool">{{ c.text.pool }}</label><select style="${INPUT}" id="cav-pool" v-model="c.filters.poolId" data-testid="filter-pool"><option value="">Alle Schreibdienste</option><option v-for="o in c.choices.pools" :key="o.value" :value="o.value">{{ o.label }}</option></select></div>
       <p class="hint">Auswahl aus den geladenen Archivaufnahmen. Weitere Aufnahmen können unten geladen werden.</p>
       <div class="actions text-sm">
         <button type="submit" class="button" style="background: var(--ink); border-color: var(--ink); color: white">{{ c.text.apply }}</button>

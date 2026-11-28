@@ -57,7 +57,7 @@ export const LABELS = Object.freeze({
     },
     fields: {
         status: 'Status', priority: 'Priorität', author: 'Diktiert von (ID)', staff_pool: 'Schreibkräfte-Pool (ID)',
-        lease_holder: 'Übernommen von (ID)', pool: 'Autorenpool', title: 'Titel',
+        lease_holder: 'Übernommen von (ID)', pool: 'Gruppe der Diktierenden', title: 'Titel',
         created: 'Erstellt', deadline: 'Frist', assignee: 'Zugewiesen an', audio_seconds: 'Audiodauer',
     },
     errors: {

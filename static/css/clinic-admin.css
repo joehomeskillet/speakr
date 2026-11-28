@@ -841,6 +841,8 @@
     .v8-ui .voc-entry-table th { text-transform: none; letter-spacing: normal; }
     .v8-ui .voc-entry-table .actions { gap: var(--sp-1); }
     .v8-ui .voc-entry-table .actions button.small { padding-inline: var(--sp-1); }
+    .v8-ui .vocabulary-ui .voc-entry-table .voc-select-entry { gap: var(--sp-1); }
+    .v8-ui .voc-entry-table .voc-select-entry strong { min-width: 0; }
 }
 .v8-ui .voc-editor {
     border: 1px solid var(--line);

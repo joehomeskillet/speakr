@@ -7,14 +7,25 @@ from playwright.sync_api import expect
 import v8_browser_support as support
 
 
-# Only the matrix needs a processing row. Keep other browser scenarios' seed unchanged.
+# Keep the completed job, ASR alignment and persisted live draft out of the shared seed.
 MATRIX_SEED = '''
 with app.app_context():
+    from datetime import datetime, timezone
+    from src.clinic.alignment_ingest import store_asr_alignment
+    from src.clinic.draft_store import DraftStore
+    from src.clinic.revisions import current_revision
     from src.models import ProcessingJob
     rec = Recording.query.filter_by(title="Synthetisch").one()
+    dictation = ClinicDictation.query.filter_by(recording_id=rec.id).one()
+    transcript = current_revision(dictation)
+    words = [{"word": word, "start": i * 0.5, "end": (i + 1) * 0.5}
+             for i, word in enumerate(transcript.body.split())]
+    result = store_asr_alignment(dictation, transcript, [{"words": words}], transcript.model_ref)
+    assert result.row is not None and result.row.state == "succeeded"
     db.session.add(ProcessingJob(recording_id=rec.id, user_id=rec.user_id,
                                 job_type="transcribe", status="completed"))
     db.session.commit()
+    DraftStore().create(rec.user_id, dictation.id, "Synthetischer Live-Entwurf", datetime.now(timezone.utc))
 '''
 
 
@@ -92,14 +103,29 @@ def show_recording(page, base):
 
 def show_live(page, base):
     support._open_shell_view(page, base, "#/live")
-    choices = page.locator("#clinic-live-choices option")
+    picker = page.get_by_test_id("clinic-live-picker")
+    choices = picker.get_by_test_id("live-draft-open")
     expect(choices).to_have_count(1, timeout=support.SHOW_TIMEOUT_MS)
-    page.get_by_test_id("clinic-live-id").fill(choices.get_attribute("value"))
-    support._click_noting(page, page.get_by_test_id("clinic-live-open"), "Live-Diktat öffnen")
+    draft = choices.and_(picker.get_by_role("button", name="Synthetischer Live-Entwurf", exact=True))
+    with page.expect_response(lambda response: response.url.endswith("/switch") and
+                              response.request.method == "POST") as switched:
+        support._click_noting(page, draft, "Synthetischer Live-Entwurf")
+    assert switched.value.ok, switched.value.text()
     view = page.get_by_test_id("clinic-live-view")
-    expect(view.get_by_role("heading", name="Live-Diktat", exact=True)).to_be_visible()
+    expect(page.get_by_role("heading", name="Live-Diktat", exact=True)).to_be_visible()
+    expect(view.get_by_test_id("live-draft-text")).to_have_value("Anamnese Husten seit drei Tagen.")
     expect(view.get_by_test_id("live-controls")).to_be_visible()
-    expect(view.get_by_test_id("live-caption")).to_be_visible()
+    expect(view.get_by_test_id("live-announcement")).to_have_text("Live-Diktat pausiert.")
+    # The matrix reuses one author for subsequent viewport/theme cases: release the
+    # selection without closing the editor that is about to be photographed.
+    holder = switched.value.json()
+    csrf = page.request.get(base + "/api/csrf-token").json()["csrf_token"]
+    released = page.request.post(base + f"/api/clinic/v1/live/sessions/{holder['session_id']}/pause",
+                                 headers={"X-CSRF-Token": csrf}, data={
+                                     "client_id": switched.value.request.post_data_json["tab_id"],
+                                     "generation": holder["generation"], "release": True,
+                                 })
+    assert released.ok, released.text()
 
 
 def show_archive(page, base):
