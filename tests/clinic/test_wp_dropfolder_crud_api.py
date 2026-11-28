@@ -9,7 +9,7 @@ import pytest
 
 from src.app import app, db
 from src.clinic import import_source_config as sources, policy
-from src.clinic.config import clinic_mode_enabled
+from src.clinic.config import clinic_mode_enabled, dev_defaults
 from src.clinic.identity import ClinicAccountPolicy
 from src.models import User
 from src.services import audit
@@ -97,6 +97,27 @@ def test_dropfolder_round_trip(role, client_for):
     assert removed.status_code == 204
     assert client.get(URL).json["items"] == []
     assert client.delete(endpoint, headers=headers).status_code == 404
+
+
+@clinic_routes
+def test_dropfolder_options_and_cleanup_policy_share_one_revision(client_for, monkeypatch):
+    monkeypatch.setitem(dev_defaults()["features"], "device_delete_runtime_enabled", True)
+    client, headers, uid = client_for("admin")
+    created = client.post(URL, headers=headers, json=_payload(uid))
+    assert created.status_code == 201
+    assert created.json["allow_source_delete"] is False
+    assert created.json["can_set_source_delete"] is True
+
+    endpoint = f"{URL}/{created.json['id']}"
+    put_headers = {**headers, "Idempotency-Key": str(uuid4())}
+    changes = {"expected_version": 1, "file_pattern": "*.wav", "allow_source_delete": True}
+    updated = client.put(endpoint, headers=put_headers, json=changes)
+    assert updated.status_code == 200
+    assert updated.json["file_pattern"] == "*.wav"
+    assert updated.json["allow_source_delete"] is True
+    assert updated.json["policy_version"] == 2
+    assert client.put(endpoint, headers=put_headers, json=changes).json == updated.json
+    assert client.get(endpoint).json == updated.json
 
 
 @clinic_routes

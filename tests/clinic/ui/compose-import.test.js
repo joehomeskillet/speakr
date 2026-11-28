@@ -164,6 +164,60 @@ describe('import view composition', () => {
         expect(calls(client, ENDPOINTS.retry('i1'))).toHaveLength(0);
     });
 
+    it('requires an eligible receipt and explicit confirmation; cancelling makes no request', async () => {
+        const eligible = { ...INVENTORY[0], agent_id: 'agent-1', snapshot_id: 'snap-1',
+            cleanup: { receipt_id: 'receipt-1', policy_version: 3 } };
+        const client = fakeClient({
+            [ENDPOINTS.inventory]: () => ok({ items: [INVENTORY[0], eligible] }),
+            [ENDPOINTS.cleanup]: () => ok({ status: 'ACCEPTED' }),
+        });
+        const c = createImportController({ client, currentUser: { id: 5 } });
+        await c.load();
+        client.request.mockClear();
+        expect(c.askCleanup(c.state.inventory[0])).toBe(false);
+        expect(await c.confirmCleanup()).toBe(false);
+        expect(c.askCleanup(eligible)).toBe(true);
+        expect(c.cancelCleanup()).toBe(true);
+        expect(await c.confirmCleanup()).toBe(false);
+        expect(client.request).not.toHaveBeenCalled();
+        expect(c.askCleanup(eligible)).toBe(true);
+        await Promise.all([c.confirmCleanup(), c.confirmCleanup()]);
+        expect(calls(client, ENDPOINTS.cleanup)).toEqual([[ENDPOINTS.cleanup, {
+            method: 'POST', idempotencyKey: expect.stringMatching(/^cleanup-.{8,}$/),
+            body: { agent_id: 'agent-1', source_snapshot_id: 'snap-1', receipt_id: 'receipt-1',
+                expected_revision: 3, confirmation: true },
+        }]]);
+        expect(c.state.notice).toBe(c.text.cleanupAccepted);
+        expect(c.canClean(c.state.inventory[1])).toBe(false);
+    });
+
+    it('rejects stale confirmation after refresh and reuses a key only for the same binding', async () => {
+        let eligible = { ...INVENTORY[0], agent_id: 'agent-1', snapshot_id: 'snap-1',
+            cleanup: { receipt_id: 'receipt-1', policy_version: 3 } };
+        const client = fakeClient({
+            [ENDPOINTS.inventory]: () => ok({ items: [eligible] }),
+            [ENDPOINTS.cleanup]: () => ({ outcome: 'network' }),
+        });
+        const c = createImportController({ client, currentUser: { id: 5 } });
+        await c.load();
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            expect(c.askCleanup(eligible)).toBe(true);
+            await c.confirmCleanup();
+            expect(c.state.notice).toBe(c.text.cleanupFailed);
+        }
+        expect(c.askCleanup(eligible)).toBe(true);
+        eligible = { ...eligible, cleanup: { ...eligible.cleanup, policy_version: 4 } };
+        await c.loadInventory();
+        await c.confirmCleanup();
+        expect(c.state.notice).toBe(c.text.cleanupChanged);
+        expect(calls(client, ENDPOINTS.cleanup)).toHaveLength(2);
+        expect(c.askCleanup(eligible)).toBe(true);
+        await c.confirmCleanup();
+        const keys = calls(client, ENDPOINTS.cleanup).map(([, options]) => options.idempotencyKey);
+        expect(keys[0]).toBe(keys[1]);
+        expect(keys[2]).not.toBe(keys[1]);
+    });
+
     it('dispose releases data and the client context', async () => {
         const client = fakeClient();
         const c = createImportController({ client, currentUser: { id: 1, role: 'admin' } });
