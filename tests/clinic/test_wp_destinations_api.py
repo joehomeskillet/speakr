@@ -218,6 +218,38 @@ def test_fail_policy_collides_on_the_second_export(web):
     assert db.session.query(ClinicOutputReceipt).filter_by(dictation_id=c['dictation'].id).count() == 1
 
 
+@pytest.mark.parametrize('policy', ['version', 'unique_name'])
+def test_rename_policy_places_a_second_file_and_receipt(web, policy):
+    client, c = web
+    _release(c)
+    cl, csrf = client(c['actor'])
+    body = _place(c, filename_pattern=None, manual_name='Bericht', collision_policy=policy)
+    first = cl.post(_base(c) + '/exports', headers=_key() | csrf, json=body)
+    second = cl.post(_base(c) + '/exports', headers=_key() | csrf, json=body)
+    assert first.status_code == second.status_code == 201
+    destination = second.json['destination']
+    assert destination['reason'] == policy
+    assert destination['filename'] != 'Bericht.txt'
+    assert destination['local_save_proven'] is False
+    assert {p.name for p in c['root'].iterdir()} == {'Bericht.txt', destination['filename']}
+    receipts = db.session.query(ClinicOutputReceipt).filter_by(dictation_id=c['dictation'].id).all()
+    assert {row.target for row in receipts} == {'workflow/Bericht.txt', f"workflow/{destination['filename']}"}
+
+
+@pytest.mark.parametrize('fields', [
+    {'filename_pattern': '%A - %T'},
+    {'filename_pattern': '%A - %T', 'destination_alias': 'workflow', 'collision_policy': []},
+])
+def test_malformed_placement_is_rejected_before_creating_a_job(web, fields):
+    client, c = web
+    _release(c)
+    cl, csrf = client(c['actor'])
+    response = cl.post(_base(c) + '/exports', headers=_key() | csrf, json=_body(c, **fields))
+    assert response.status_code == 400
+    assert c['jobs'] == {}
+    assert list(c['root'].iterdir()) == []
+
+
 def test_client_path_is_rejected(web):
     client, c = web
     _release(c)

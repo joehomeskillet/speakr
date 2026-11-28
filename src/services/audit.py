@@ -81,6 +81,7 @@ EVENTS = {
     # Access to a recording
     'recording.viewed': ('access', _NONE),
     'recording.content.read': ('access', frozenset({'part'})),
+    'clinic.kis.case_handoff': ('access', _NONE),
     'recording.media.played': ('access', _NONE),
     'recording.media.downloaded': ('access', _NONE),
     'recording.downloaded': ('access', frozenset({'part', 'format'})),
