@@ -35,6 +35,7 @@ const STATUS_SURFACE = Object.freeze({
 const LABELS = Object.freeze({
     'clinic.vocabularyReview.title': 'Wortschatz prüfen',
     'clinic.vocabularyReview.acceptUser': 'Für mich übernehmen',
+    'clinic.vocabularyReview.acceptAuthor': 'Für den Autor übernehmen',
     'clinic.vocabularyReview.acceptPool': 'Für den Pool übernehmen',
     'clinic.vocabularyReview.reject': 'Ablehnen',
     'clinic.vocabularyReview.defer': 'Zurückstellen',
@@ -45,6 +46,7 @@ const LABELS = Object.freeze({
     'clinic.vocabularyReview.loading': 'Vorschläge werden geladen …',
     'clinic.vocabularyReview.unknown': 'Unbekannter Status',
     'clinic.vocabularyReview.action.user': 'Für mich übernommen',
+    'clinic.vocabularyReview.action.author': 'Für den Autor übernommen',
     'clinic.vocabularyReview.action.pool': 'Für den Pool übernommen',
     'clinic.vocabularyReview.action.reject': 'Abgelehnt',
     'clinic.vocabularyReview.action.defer': 'Zurückgestellt',
@@ -216,18 +218,27 @@ export function createVocabularyReviewController(deps) {
         return err.itemId && err.lastAction ? decide(err.itemId, err.lastAction) : load();
     }
 
-    async function switchContext(next) {
-        const n = next || {};
-        if (n.scope) scope = n.scope;
-        client.switchContext({ accountId: n.accountId, dictationId: n.dictationId });
+    function setScope(next) {
+        scope = next;
         state.items = [];
         state.history = [];
         state.revision = 0;
+        attempts.clear();
         return load();
+    }
+
+    function switchContext(next) {
+        const n = next || {};
+        client.switchContext({ accountId: n.accountId, dictationId: n.dictationId });
+        return setScope(n.scope || scope);
     }
 
     function view() {
         const err = state.error;
+        const poolScope = scope.type === 'author_pool';
+        const statusLabel = (status) => label('clinic.vocabularyReview.' +
+            (poolScope && status === 'ACCEPTED_USER' ? 'action.author' :
+                Object.hasOwn(STATUS_SURFACE, status) ? 'status.' + status : 'unknown'));
         return {
             title: label('clinic.vocabularyReview.title'),
             empty: !state.loading && state.items.length === 0 ? label('clinic.vocabularyReview.empty') : '',
@@ -239,7 +250,7 @@ export function createVocabularyReviewController(deps) {
                     spokenForm: i.spoken_form || '',
                     operation: i.operation,
                     status: i.status,
-                    statusLabel: label('clinic.vocabularyReview.' + (Object.hasOwn(STATUS_SURFACE, i.status) ? 'status.' + i.status : 'unknown')),
+                    statusLabel: statusLabel(i.status),
                     surface: surfaceFor(STATUS_SURFACE[i.status] || 'normal'),
                     stale: i.stale,
                     notice: i.stale ? label('clinic.vocabularyReview.stale')
@@ -256,8 +267,8 @@ export function createVocabularyReviewController(deps) {
             history: state.history.map((h) => ({
                 ...h,
                 writtenForm: itemById(h.itemId)?.written_form || 'Wortschatzeintrag',
-                actionLabel: label('clinic.vocabularyReview.action.' + h.action),
-                statusLabel: label('clinic.vocabularyReview.' + (Object.hasOwn(STATUS_SURFACE, h.status) ? 'status.' + h.status : 'unknown')),
+                actionLabel: label('clinic.vocabularyReview.action.' + (poolScope && h.action === 'user' ? 'author' : h.action)),
+                statusLabel: statusLabel(h.status),
             })),
             loading: state.loading,
             error: err,
@@ -273,7 +284,7 @@ export function createVocabularyReviewController(deps) {
                 keys: { select: ['Enter', ' '], move: ['ArrowUp', 'ArrowDown'], undo: ['Escape'] },
             },
             labels: {
-                acceptUser: label('clinic.vocabularyReview.acceptUser'),
+                acceptUser: label(poolScope ? 'clinic.vocabularyReview.acceptAuthor' : 'clinic.vocabularyReview.acceptUser'),
                 acceptPool: label('clinic.vocabularyReview.acceptPool'),
                 reject: label('clinic.vocabularyReview.reject'),
                 defer: label('clinic.vocabularyReview.defer'),
@@ -304,7 +315,7 @@ export function createVocabularyReviewController(deps) {
     }
 
     return {
-        state, view, load, undo, retry, switchContext, onKeydown,
+        state, view, load, undo, retry, setScope, switchContext, onKeydown,
         acceptUser: (id) => decide(id, DECISIONS.acceptUser),
         acceptPool: (id) => decide(id, DECISIONS.acceptPool),
         reject: (id) => decide(id, DECISIONS.reject),
@@ -329,6 +340,20 @@ export function useVocabularyReview(deps) {
 export const REVIEW_TEMPLATE = `
 <section class="v8-page stack" :aria-busy="view.loading || view.busy" role="region" :aria-label="view.title" @keydown="onKey">
   <h2 >{{ view.title }}</h2>
+  <div v-if="reviewPools.length" class="field">
+    <label for="voc-review-scope">Prüfbereich</label>
+    <select id="voc-review-scope" class="select" style="appearance:auto" :value="selectedPool" :disabled="view.loading || view.busy"
+      @change="selectReviewPool($event.target.value)">
+      <option value="">Persönlich</option>
+      <optgroup label="Autorenpool">
+        <option v-for="pool in reviewPools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
+      </optgroup>
+    </select>
+  </div>
+  <div v-else-if="reviewPoolsFailed" class="note" role="status">
+    Prüfbare Autorenpools konnten nicht geladen werden.
+    <button type="button" class="small" @click="loadReviewPools">Autorenpools erneut laden</button>
+  </div>
   <p v-if="view.loading" role="status">{{ view.labels.loading }}</p>
   <div v-if="view.error" class="note burgundy" role="alert">
     {{ errorMessage(view.error) }}
@@ -340,6 +365,8 @@ export const REVIEW_TEMPLATE = `
     <li v-for="i in view.items" :key="i.id" :data-id="i.id" tabindex="0" class="panel stack">
       <div class="actions">
         <strong>{{ i.writtenForm }}</strong> <span v-if="i.spokenForm">({{ i.spokenForm }})</span>
+        <span v-if="i.operation === 'DELETE'" class="tag">Unterdrückung</span>
+        <span v-else-if="i.operation === 'ADD'" class="tag">Aufnahme</span>
         <span class="tag" :style="surfaceStyle(i.surface)">{{ i.statusLabel }}</span>
       </div>
       <p v-if="i.notice" role="status">{{ i.notice }}</p>
