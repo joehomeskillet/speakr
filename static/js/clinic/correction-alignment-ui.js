@@ -466,8 +466,8 @@ export function useCorrectionAlignment(options) {
         }, BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)]);
     }
 
-    /** Load links of the current text revision and the matching audio revision, then the word alignment. */
-    async function refresh() {
+    /** Load existing alignment and, when allowed, request a missing or stale binding. */
+    async function refresh({ allowRequest = true } = {}) {
         if (disposed) return fail('failed');
         const mine = ++seq;
         stopTimer();
@@ -520,7 +520,7 @@ export function useCorrectionAlignment(options) {
         }
         const st = alignState.value;
         if (st === 'pending') schedulePoll(ctx, mine, null, 0);
-        else if ((st === 'unaligned' || st === 'stale') && ctx.documentHash !== null && canEdit()
+        else if (allowRequest && (st === 'unaligned' || st === 'stale') && ctx.documentHash !== null && canEdit()
             && status.value === 'ready') await requestAlignment(ctx, mine, 0);
         return { ok: true };
     }

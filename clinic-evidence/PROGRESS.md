@@ -1,5 +1,9 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## FX-e862a3 – Verarbeitung eines geöffneten Diktats
+
+Beim Öffnen des Schreibplatzes werden vorhandene Wortzuordnungen gelesen. Nach dem Speichern einer neuen Textfassung kann der Schreibplatz eine fehlende Zuordnung anfordern. Alle sechs P17-Varianten zeigen im lokalen Chromium-Lauf mit synthetischen Daten genau den erwarteten abgeschlossenen Auftrag.
+
 ## P-254 – Web-Alternative für PAR-OPS-004
 
 Im Klinikmodus bietet das App-Manifest die Schnellzugriffe **Neue Aufnahme**, **Aufnahmen** und **Arbeitsliste**. Sie öffnen bestehende Ansichten und setzen eine gültige Anmeldung voraus. Die [Browser-App-Anleitung](../docs/de/user-guide/pwa.md) erklärt auch Lesezeichen und Browserstart. `WG-OPS-004` bleibt offen; `BT-OPS-004` wurde nicht gegen das Referenzsystem ausgeführt. Kein nativer Autostart- oder Tray-Ersatz.
