@@ -175,13 +175,16 @@ def resolve_asr_job_profile(
     *,
     pool_id: str | None = None,
     lossless_preferred: bool = False,
+    expected_profile_id: str | None = None,
     expected_profile_version: int | None = None,
+    language_override: str | None = None,
     workstation: Mapping[str, Any] | None = None,
 ) -> AsrJobProfile:
     """Resolve the versioned server profile for one live or batch job.
 
     ``workstation`` is the local claim from another workplace. Its model,
     language, source and prompt are ignored. The stored profile is the run.
+    A trusted caller can require a specific profile and select the run language.
 
     Raises:
         AsrJobProfileError: missing, stale, incomplete or unproven configuration.
@@ -193,7 +196,7 @@ def resolve_asr_job_profile(
         raise AsrJobProfileError("workstation_invalid")
 
     profile = ClinicAsrProfile.query.filter_by(user_id=user_id).first()
-    if profile is None:
+    if profile is None or (expected_profile_id is not None and profile.id != expected_profile_id):
         raise AsrJobProfileError("profile_missing", {"user_id": user_id})
     if expected_profile_version is not None and profile.version != expected_profile_version:
         raise AsrJobProfileError(
@@ -221,7 +224,8 @@ def resolve_asr_job_profile(
     if separate and mode == "batch":
         source = options["batch_source"]
 
-    target = asr_capability_target(profile.language, profile.model)
+    language = language_override or profile.language
+    target = asr_capability_target(language, profile.model)
     capability = AsrCapability.BATCH if mode == "batch" else AsrCapability.LIVE
     evidence = _require_evidence(registry, capability, target)
 
@@ -243,7 +247,7 @@ def resolve_asr_job_profile(
         mode=mode,
         shared=not separate,
         source=source,
-        language=profile.language,
+        language=language,
         model=profile.model,
         model_revision=target.model_revision,
         decoder=target.engine,
