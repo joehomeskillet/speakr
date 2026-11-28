@@ -40,7 +40,10 @@ AUTH: tuple[str, ...] = (
     'clinic_preferences.workstation_issue',
     'clinic_preferences.workstation',
     'clinic_preferences.correction_mode',
+    # Own-user focused key and pedal bindings (PAR-OPS-003). The handler reads current_user only.
+    'clinic_preferences.key_bindings',
     'clinic_preferences.notifications',
+    'clinic_vocabulary.edit_entry',
     # Metadata field definitions (x28), mounted by register_clinic_identity in clinic mode only.
     # Reading is for any signed-in user; the handler lists inactive fields to admins only.
     'clinic_metadata_fields.list_fields',
@@ -74,6 +77,8 @@ ADMIN: tuple[str, ...] = (
     'clinic_directory.preview',
     'clinic_directory.apply',
     'clinic_grants.change',
+    'clinic_statistics.list_grants',
+    'clinic_statistics.change_grant',
     'clinic_task_models.settings',
     # Admin dictation transcript and audio (w308): own blueprint, mounted by
     # register_clinic_identity in clinic mode only.

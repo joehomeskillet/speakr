@@ -20,11 +20,14 @@ import base64
 import re
 import unicodedata
 from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
+from sqlite3 import SQLITE_CONSTRAINT_UNIQUE
 from typing import Any
 
 from flask import Blueprint, abort, jsonify, request, session
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
+from sqlalchemy.exc import IntegrityError
 from wtforms.validators import ValidationError
 
 from src.clinic import caution_rules, caution_words, pool_policy, vocabulary
@@ -136,6 +139,7 @@ class VocabularyApi:
             ("/caution-words/global", "caution_publish_global", self._caution_publish_global, "POST"),
             ("/caution-words/pool", "caution_publish_pool", self._caution_publish_pool, "POST"),
             ("/caution-words/preview", "caution_preview", self._caution_preview, "POST"),
+            ("/entries/<entry_id>", "edit_entry", self._edit, "PUT"),
             ("/entries/<entry_id>/suppress", "suppress", lambda entry_id: self._toggle(entry_id, True), "POST"),
             ("/entries/<entry_id>/reactivate", "reactivate", lambda entry_id: self._toggle(entry_id, False), "POST"),
             ("/entries/bulk", "bulk", self._bulk, "POST"),
@@ -259,10 +263,41 @@ class VocabularyApi:
         db.session.commit()
         return jsonify(entry=_entry_json(entry)), 201
 
-    def _toggle(self, entry_id: str, suppress: bool):
+    def _edit(self, entry_id: str):
         body = _body()
-        if body.keys() - {"expected_version"} or not isinstance(body.get("expected_version"), str):
+        expected_version = body.get("expected_version")
+        if body.keys() - {"expected_version", "written", "spoken"} or not isinstance(expected_version, str):
             raise ApiError("invalid_payload")
+        entry = self._entry_for_write(entry_id, expected_version)
+        written = canonical_selection(body.get("written"))
+        spoken = body.get("spoken")
+        spoken = None if spoken in (None, "") else canonical_selection(spoken)
+
+        model = vocabulary.ClinicVocabularyEntry
+        updated_at = max(datetime.now(timezone.utc), entry.updated_at + timedelta(microseconds=1))
+        # Match the checked version in the write so a concurrent editor cannot be overwritten.
+        update = (db.update(model)
+                  .where(model.id == entry_id, model.updated_at == entry.updated_at)
+                  .values(written_form=written, spoken_form=spoken, updated_at=updated_at)
+                  .returning(model))
+        try:
+            changed = db.session.scalars(update, execution_options={"populate_existing": True}).one_or_none()
+        except IntegrityError as error:
+            cause = error.orig
+            if (getattr(cause, "pgcode", None) == "23505"
+                    or getattr(cause, "sqlite_errorcode", None) == SQLITE_CONSTRAINT_UNIQUE):
+                raise ApiError("duplicate_entry") from error
+            raise
+        if changed is None:
+            current = db.session.get(model, entry_id, populate_existing=True)
+            if current is None:
+                raise ApiError("not_found")
+            raise ApiError("stale_version", current_version=_version(current))
+        result = _entry_json(changed)
+        db.session.commit()
+        return jsonify(entry=result)
+
+    def _entry_for_write(self, entry_id: str, expected_version: str) -> vocabulary.ClinicVocabularyEntry:
         entry = db.session.get(vocabulary.ClinicVocabularyEntry, entry_id)
         # Unknown and not-permitted entries look the same: no existence leak.
         if entry is None:
@@ -273,10 +308,17 @@ class VocabularyApi:
             raise ApiError("not_found")
         if entry.scope == "user" and entry.user_id != current_user.id:
             raise ApiError("not_found")
-        if body["expected_version"] != _version(entry):
+        if expected_version != _version(entry):
             raise ApiError("stale_version", current_version=_version(entry))
+        return entry
+
+    def _toggle(self, entry_id: str, suppress: bool):
+        body = _body()
+        if body.keys() - {"expected_version"} or not isinstance(body.get("expected_version"), str):
+            raise ApiError("invalid_payload")
+        entry = self._entry_for_write(entry_id, body["expected_version"])
         change = vocabulary.suppress_vocabulary_entry if suppress else vocabulary.reactivate_vocabulary_entry
-        entry = change(entry_id)
+        entry = change(entry.id)
         db.session.commit()
         return jsonify(entry=_entry_json(entry))
 
