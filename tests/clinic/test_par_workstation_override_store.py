@@ -251,7 +251,10 @@ def test_managed_vs_unregistered_workstation_after_fresh_session(tmp_path, monke
     # Missing override row resolves cleanly with version 0.
     initial = c1.get(f"{PREFIX}/workstations/{managed_wid}")
     assert initial.status_code == 200
-    assert initial.json == {"values": {}, "origins": {}, "version": 0}
+    assert initial.json == {
+        "values": {}, "origins": {}, "version": 0,
+        "transport_mode": "local", "device_redirection_verified": False,
+    }
 
     saved = c1.put(
         f"{PREFIX}/workstations/{managed_wid}",
@@ -271,6 +274,8 @@ def test_managed_vs_unregistered_workstation_after_fresh_session(tmp_path, monke
         "values": {"theme_dark_mode": True},
         "origins": {"theme_dark_mode": "workstation"},
         "version": 1,
+        "transport_mode": "local",
+        "device_redirection_verified": False,
     }
 
     unregistered_get = fresh.get(f"{PREFIX}/workstations/unregistered-workstation")

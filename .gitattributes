@@ -17,6 +17,9 @@ docker-compose*.yml text eol=lf
 # Documentation uses LF
 *.md text eol=lf
 
+# Keep route baseline additions from both sides of a merge.
+tests/clinic/data/clinic_route_table.txt merge=union
+
 # Binary files
 *.png binary
 *.jpg binary

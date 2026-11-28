@@ -7,11 +7,12 @@
  * The view only offers file exports and clipboard copy.
  *
  * Contract (package v8-14, src/clinic/routes_output.py):
- *   GET  /dictations/{id}/output-targets  -> { released_revision_id, targets: [{ id, channel, available, reason }] }
+ *   GET  /dictations/{id}/output-targets?file_formats=all  -> { released_revision_id, targets: [{ id, channel, available, reason, status?, job_id? }] }
  *   POST /dictations/{id}/exports         body { revision_id, format }, Idempotency-Key -> job { id, status, format, revision_id, filename? }
  *   GET  /dictations/{id}/exports/{job}   -> job
+ *   GET  /dictations/{id}/exports/{job}/download  -> file attachment
  * Only the released revision is offered for export. One Idempotency-Key is kept
- * per (revision, format), so a repeated click or a retry after an unknown result
+ * per (revision, format) until a known failure, so a retry after an unknown result
  * replays the same request and never starts a second export. A disabled KIS
  * adapter (target unavailable, or 503) is shown as "nicht verfügbar", never as
  * success. A file job status "ready" means the file was rendered, not saved.
@@ -45,7 +46,11 @@ export const TEXT = Object.freeze({
     revision: 'Ausgegebene Version',
     notReleased: 'Keine freigegebene Version. Eine Ausgabe ist erst nach der Freigabe möglich.',
     targets: 'Ausgabeziele',
+    empty: 'Keine Ausgabeziele verfügbar.',
     export: 'Ausgabe starten',
+    download: 'Herunterladen',
+    downloadStarted: 'Download gestartet',
+    downloadHint: 'Ob die Datei auf diesem Gerät gespeichert wurde, bestätigt der Browser nicht.',
     status: 'Status prüfen',
     unavailable: 'nicht verfügbar',
     clipboard: 'Zwischenablage',
@@ -55,6 +60,8 @@ export const TEXT = Object.freeze({
 export const TARGET_LABELS = Object.freeze({
     txt: 'Textdatei (TXT)',
     docx: 'Word-Dokument (DOCX)',
+    rtf: 'Rich-Text-Dokument (RTF)',
+    odt: 'OpenDocument-Text (ODT)',
     kis: 'KIS',
     clipboard: 'Zwischenablage',
 });
@@ -65,7 +72,9 @@ export const REASONS = Object.freeze({
 });
 
 export const JOB_STATUS = Object.freeze({
-    ready: { label: 'Datei erzeugt (noch nicht gespeichert)', surface: 'success' },
+    ready: { label: 'Datei erzeugt', surface: 'success' },
+    failed: { label: 'Datei konnte nicht erzeugt werden.', surface: 'error' },
+    stale: { label: 'Datei bitte neu erzeugen.', surface: 'warning' },
     delivered: { label: 'Zugestellt', surface: 'success' },
     pending: { label: 'In Bearbeitung', surface: 'processing' },
     unknown: { label: 'Unbekannt: Bitte Status abgleichen, nicht erneut senden.', surface: 'warning' },
@@ -103,7 +112,7 @@ export function targetView(target, releasedRevisionId) {
 }
 
 /**
- * Framework-neutral controller. Options: client, dictationId, vue (optional),
+ * Framework-neutral controller. Options: client, dictationId, vue, includeAllFileFormats,
  * newKey / clipboard / ClipboardItem (test seams).
  */
 export function createOutputViewController(options) {
@@ -131,13 +140,21 @@ export function createOutputViewController(options) {
 
     async function load() {
         phase.value = 'loading';
-        const res = await client.request(base + '/output-targets');
+        const query = opts.includeAllFileFormats ? '?file_formats=all' : '';
+        const res = await client.request(base + '/output-targets' + query);
         if (res.outcome !== 'ok' || !res.data) {
             phase.value = 'failed';
             return false;
         }
         releasedRevisionId.value = res.data.released_revision_id || null;
-        targets.value = (res.data.targets || []).map((t) => targetView(t, releasedRevisionId.value));
+        const offered = res.data.targets || [];
+        targets.value = offered.map((t) => targetView(t, releasedRevisionId.value));
+        results.value = {};
+        for (const target of offered) {
+            if (target.channel === 'file' && target.available && target.status && target.job_id) {
+                applyJob(target.id, { id: target.job_id, kind: 'file', status: target.status });
+            }
+        }
         clipboard = null;
         phase.value = 'ready';
         return true;
@@ -150,7 +167,24 @@ export function createOutputViewController(options) {
     /** True when the export of this target may be requested now. */
     function canExport(format) {
         const t = find(format);
-        return Boolean(t) && t.channel !== 'clipboard' && t.available && !inflight.has(format);
+        return Boolean(t) && t.channel !== 'clipboard' && t.available && !inflight.has(format)
+            && !(t.channel === 'file' && results.value[format]?.phase === 'ready');
+    }
+
+    function downloadUrl(format) {
+        const target = find(format);
+        const result = results.value[format];
+        if (!target?.available || target.channel !== 'file' || result?.phase !== 'ready'
+                || result.job?.kind !== 'file' || !result.job.id) return null;
+        return '/api/clinic/v1' + base + '/exports/' + encodeURIComponent(result.job.id) + '/download';
+    }
+
+    function markDownloadStarted(format) {
+        if (!downloadUrl(format)) return;
+        results.value = {
+            ...results.value,
+            [format]: { ...results.value[format], label: TEXT.downloadStarted },
+        };
     }
 
     function applyJob(format, job) {
@@ -170,6 +204,7 @@ export function createOutputViewController(options) {
                 method: 'POST', body: { revision_id: revisionId, format }, idempotencyKey: keys.get(keyId),
             });
             if (res.outcome === 'ok' && res.data) {
+                if (res.data.status === 'failed') keys.delete(keyId);
                 applyJob(format, res.data);
             } else if (res.status === 503 || res.code === 'KIS_UNAVAILABLE') {
                 setResult(format, 'unavailable', TEXT.unavailable, 'warning');
@@ -211,7 +246,7 @@ export function createOutputViewController(options) {
 
     return {
         dictationId, phase, releasedRevisionId, targets, results, load, canExport, exportTo,
-        refreshStatus, clipboardCopy, text: TEXT,
+        downloadUrl, markDownloadStarted, refreshStatus, clipboardCopy, text: TEXT,
     };
 }
 
@@ -227,13 +262,15 @@ export const OutputView = {
         vue: { type: Object, default: null },
     },
     setup(props) {
-        const c = createOutputViewController({ client: props.client, dictationId: props.dictationId, vue: props.vue || undefined });
+        const c = createOutputViewController({
+            client: props.client, dictationId: props.dictationId, vue: props.vue || undefined, includeAllFileFormats: true,
+        });
         c.load();
         const tagClass = (r) => TAG_CLASS[r && r.tone] || '';
         return { c, TEXT, tagClass };
     },
     template: `
-<section class="${V8_PAGE}" aria-labelledby="out-title" data-testid="output-view">
+<section class="${V8_PAGE} clinic-output-view" aria-labelledby="out-title" data-testid="output-view">
   <div class="pagehead">
     <div>
       <div class="eyebrow">{{ TEXT.eyebrow }}</div>
@@ -248,24 +285,26 @@ export const OutputView = {
   </div>
   <template v-else>
     <div class="grid">
-      <section class="panel" aria-labelledby="out-targets">
+      <section class="panel" aria-labelledby="out-targets" style="min-width: 0">
         <h2 id="out-targets">{{ TEXT.targets }}</h2>
-        <p v-if="c.releasedRevisionId.value" class="text-status" data-testid="revision">{{ TEXT.revision }}: {{ c.releasedRevisionId.value }}</p>
+        <p v-if="c.releasedRevisionId.value" class="text-status" style="overflow-wrap: anywhere" data-testid="revision">{{ TEXT.revision }}: {{ c.releasedRevisionId.value }}</p>
         <p v-else class="note warning" data-testid="not-released">{{ TEXT.notReleased }}</p>
-        <div class="table-wrap" style="margin-top: 14px">
-          <table :aria-label="TEXT.targets">
+        <div v-if="c.targets.value.some((t) => t.channel === 'file')" class="table-wrap" style="margin-top: 14px">
+          <table :aria-label="TEXT.targets" style="white-space: normal">
             <thead><tr><th scope="col">{{ TEXT.colTarget }}</th><th scope="col">{{ TEXT.colStatus }}</th><th scope="col">{{ TEXT.colAction }}</th></tr></thead>
             <tbody>
               <tr v-for="t in c.targets.value.filter((x) => x.channel === 'file')" :key="t.id" :data-target="t.id">
-                <td><strong>{{ t.label }}</strong></td>
+                <td><strong style="overflow-wrap: anywhere">{{ t.label }}</strong></td>
                 <td>
-                  <span v-if="!t.available" class="tag wait" data-testid="unavailable">{{ t.reason }}</span>
+                  <span v-if="!t.available" class="tag wait" style="white-space: normal" data-testid="unavailable">{{ t.reason }}</span>
                   <span v-if="c.results.value[t.id]" class="tag dot" :class="tagClass(c.results.value[t.id])" role="status" aria-live="polite"
-                        :data-phase="c.results.value[t.id].phase">{{ c.results.value[t.id].label }}</span>
+                        style="white-space: normal" :data-phase="c.results.value[t.id].phase">{{ c.results.value[t.id].label }}</span>
                 </td>
                 <td>
                   <div class="actions">
-                    <button type="button" class="small primary" :disabled="!c.canExport(t.id)" @click="c.exportTo(t.id)">{{ TEXT.export }}</button>
+                    <a v-if="c.downloadUrl(t.id)" :href="c.downloadUrl(t.id)" download class="button small"
+                       @click="c.markDownloadStarted(t.id)">{{ TEXT.download }}</a>
+                    <button v-else type="button" class="small primary" :disabled="!c.canExport(t.id)" @click="c.exportTo(t.id)">{{ TEXT.export }}</button>
                     <button v-if="c.results.value[t.id] && c.results.value[t.id].job && ['pending', 'unknown'].includes(c.results.value[t.id].phase)"
                             type="button" class="small" @click="c.refreshStatus(t.id)">{{ TEXT.status }}</button>
                   </div>
@@ -274,6 +313,8 @@ export const OutputView = {
             </tbody>
           </table>
         </div>
+        <p v-else-if="c.releasedRevisionId.value" class="empty">{{ TEXT.empty }}</p>
+        <p v-if="c.targets.value.some((t) => c.downloadUrl(t.id))" class="hint" style="margin-top: 14px">{{ TEXT.downloadHint }}</p>
       </section>
       <section v-if="c.releasedRevisionId.value" class="panel" aria-labelledby="out-clip">
         <h2 id="out-clip">{{ TEXT.clipboard }}</h2>

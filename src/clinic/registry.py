@@ -21,6 +21,7 @@ MODEL_MODULES = (
     "workflow",
     "presets",
     "vocabulary",
+    "caution_rules",
     "correction",
     "correction_recognition_marks",
     "live_session",
@@ -39,6 +40,7 @@ MODEL_MODULES = (
     "import_source_config",
     "author_aliases",
     "context_grants",
+    "case_handoff",
     "audio_invalidation",
     "parity_receipts",
     "acceptance_policy",
@@ -52,8 +54,10 @@ MODEL_MODULES = (
     "alignment_tokens", "alignment",
     "output_preferences",
     "statistics_grants",
+    "statistics_retention",
     "notification_preferences",
     "draft_store",
+    "bundle_store",
 )
 
 

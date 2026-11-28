@@ -1094,6 +1094,21 @@ def ingest(
             _discard_staging(filepath)
             return jsonify({'error': dictation.error, 'code': 'dictation_invalid_header'}), 400
 
+        # Clinic intake: a declared WAV or Opus MIME must match the container
+        # bytes. The codec is confirmed after the probe below. A match is
+        # stored as uploaded; a renamed file is refused.
+        from src.clinic.config import clinic_mode_enabled
+        keep_declared_original = False
+        declared = None
+        if clinic_mode_enabled() and not dictation.is_dictation:
+            declared = form.get('audio_mime') or form.get('mime_type')
+            matched, mismatch = dictation_upload.container_matches_declared(filepath, declared)
+            if mismatch:
+                current_app.logger.info(f"Upload refused for user {owner.id}: declared audio format mismatch")
+                _discard_staging(filepath)
+                return jsonify({'error': mismatch, 'code': dictation_upload.FORMAT_MISMATCH}), 400
+            keep_declared_original = matched
+
         # --- Convert files only when chunking is needed ---
 
         # Check if chunking will be needed for this file (uses connector-aware logic)
@@ -1109,6 +1124,17 @@ def ingest(
         codec_info = upload_probe.codec_info
         probe_error = upload_probe.probe_error
         has_video = upload_probe.has_video
+
+        if keep_declared_original and codec_info is not None:
+            probed_codec = codec_info.get('audio_codec')
+            if not dictation_upload.codec_matches_declared(declared, probed_codec):
+                current_app.logger.info(
+                    f"Upload refused for user {owner.id}: declared audio codec mismatch ({probed_codec})")
+                _discard_staging(filepath)
+                return jsonify({
+                    'error': dictation_upload.MSG_FORMAT_MISMATCH,
+                    'code': dictation_upload.FORMAT_MISMATCH,
+                }), 400
 
         size_recheck = recheck_size_after_probe(
             codec_info=codec_info,
@@ -1131,8 +1157,9 @@ def ingest(
             has_video=has_video,
             original_filename=original_filename,
         )
-        if dictation.is_dictation:
-            # Kept as uploaded; the transcription job decodes it.
+        if dictation.is_dictation or keep_declared_original:
+            # Kept as uploaded. A dictation is decoded by the transcription job;
+            # a matching negotiated format is already the container it claims.
             conversion = ConversionDecision(
                 keep_video_for_this_upload=False, skip_conversion_for_join=False,
                 chunking_will_handle_large_audio=False, extracted_audio_limit_mb=None,
@@ -1183,8 +1210,12 @@ def ingest(
         # (file_hash and duplicate_warning already computed above, before conversion)
 
         # Determine MIME type of the final file
-        mime_type = (dictation_upload.mime_for(dictation.container) if dictation.is_dictation
-                     else guess_media_type(filepath))
+        if dictation.is_dictation:
+            mime_type = dictation_upload.mime_for(dictation.container)
+        elif keep_declared_original:
+            mime_type = dictation_upload.negotiated_intake_mime(declared)
+        else:
+            mime_type = guess_media_type(filepath)
 
         # For a retained-video file, derive the MIME from the file's ACTUAL
         # container via the shared probe-driven resolver (the same one the

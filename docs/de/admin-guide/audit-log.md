@@ -41,6 +41,7 @@ Die Positivliste schliesst Transkripte, Zusammenfassungen, Notizen, Titel, Datei
 | `recording.archived`, `recording.unarchived` | Archivübergang einer Aufnahme mit Regel und Geltungsbereich |
 | `recording.reprocessed`, `recording.job.canceled` | Angeforderte Verarbeitung oder Abbruch |
 | `admin.user.*`, `admin.setting.changed` | Konto- und Einstellungsverwaltung; das Register enthält auch historische Upstream-Vorgänge |
+| `clinic.kis.case_handoff` | Das KIS hat Speakr mit einer Fall-ID in der URL geöffnet. Eine Zeile pro Übergabe; `outcome` ist `success` bei gültiger Fall-ID und `denied` bei ungültiger oder abgelehnter. Die Fall-ID wird nicht gespeichert, und es wird nichts ins KIS zurückgeschrieben |
 | `audit.viewed`, `audit.exported`, `audit.write_failed` | Protokollzugriff und Nachweise fehlgeschlagener Schreibvorgänge |
 
 Das aktuelle Panel **KI-Zusammenfassung** erfasst jedes Lesen seines Zustands als `recording.content.read` mit `part=summary` und jede manuelle Erzeugungsanfrage als `recording.reprocessed` mit `kind=summary`. Änderungen in **Modellwahl** werden als `admin.setting.changed` für `clinic_task_models` erfasst; der Modellkonfigurationswert wird nicht in die Auditdetails übernommen.

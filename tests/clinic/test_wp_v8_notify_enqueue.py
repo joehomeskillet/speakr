@@ -33,7 +33,7 @@ def exercise(app):
     users, target = _seed(app)
     did, author, actor = target['id'], users['author'], users['typist']
     policy.register_grant_provider(lambda uid: [policy.Grant('all', frozenset({
-        'view', 'edit', 'release', 'archive', 'delete'}))] if uid == actor else [])
+        'view', 'edit', 'release', 'archive', 'delete', 'reopen'}))] if uid == actor else [])
     with app.app_context():
         item = db.session.get(workflow.ClinicWorkflowDictation, did)
         item.assignee_user_id = author

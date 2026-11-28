@@ -61,11 +61,17 @@ def record_transition(recording, archived, *, rule, scope, target_user_id=None,
     db.session.flush()
 
 
-def archive_for_retention(recording, *, now, retention_days, tag_id=None):
+def archive_for_retention(recording, *, now, retention_days, tag_id=None, project_workflow=False):
     """Archive an eligible, locked recording. No-op when already archived."""
     if recording.retention_archived_at is not None:
         return False
     recording.retention_archived_at = now
+    if project_workflow:
+        from src.clinic.archive_policy import ArchiveBook
+
+        # Start the SQLite write transaction before the book opens savepoints.
+        db.session.flush()
+        ArchiveBook().apply_retention(db.session(), recording, now=now, retention_days=retention_days)
     record_transition(
         recording, True, rule='retention.tag' if tag_id is not None else 'retention.global',
         scope='recording', retention_days=retention_days, tag_id=tag_id,

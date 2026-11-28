@@ -171,10 +171,11 @@ def create_blueprint(run_once: RunOnce) -> Blueprint:
                     raise CommandProblem('STALE_VERSION')
                 _end_previous_assignment(item, dictation, actor)
                 item.assignee_user_id = recipient
+                item.assigned_at = None if recipient is None else datetime.now(timezone.utc)
                 recording = db.session.get(Recording, dictation.recording_id)
                 if audit.record_in_tx('recording.edited', recording=recording, actor_kind='session',
                                       actor_user_id=actor, target_user_id=recipient,
-                                      details={'fields': ['assignee']}, force=True) is None:
+                                      details={'fields': ['assignee', f'dictation:{dictation.id}']}, force=True) is None:
                     raise CommandProblem('AUDIT_UNAVAILABLE')
             return dict(dictation_id=dictation.id, assignee_user_id=recipient,
                         version=dictation.version_counter, etag=dictation_etag(dictation))

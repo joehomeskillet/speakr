@@ -228,7 +228,7 @@ def _clean_options(options):
     for name, value in options.items():
         if name == "separate_offline_profile":
             ok = isinstance(value, bool)
-        elif name == "source":
+        elif name in ("source", "batch_source"):
             ok = value in SOURCES
         elif name == "save_rule":
             ok = value in SAVE_RULES

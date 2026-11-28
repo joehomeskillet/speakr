@@ -34,13 +34,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import CheckConstraint, ForeignKeyConstraint
+from sqlalchemy import CheckConstraint, ForeignKeyConstraint, inspect, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.attributes import set_committed_value
 
+from src.clinic.config import clinic_mode_enabled
 from src.clinic.lease import _as_utc, _lock_dictation, _positive, _require_now
 from src.clinic.models import _created_at, _in_check, _uuid
 from src.database import db
+from src.models.user import User
 
 RECORDING = "RECORDING"
 PAUSED = "PAUSED"
@@ -88,6 +90,7 @@ class ClinicLiveSession(db.Model):
     dictation_id = db.Column(db.String(36), nullable=False, index=True)
     author_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     client_id = db.Column(db.String(128), nullable=True)
+    holder_generation = db.Column(db.Integer, nullable=True)
     state = db.Column(db.String(16), nullable=False)
     end_reason = db.Column(db.String(16), nullable=True)
     active_key = db.Column(db.String(36), nullable=True, unique=True)
@@ -125,6 +128,65 @@ class ResumePoint:
     text_ref: str | None
 
 
+def create_tables(bind=None) -> None:
+    """Add the nullable fence to existing session tables without changing old receipts."""
+    bind = bind or db.engine
+    with bind.begin() as connection:
+        if "holder_generation" in {
+            column["name"] for column in inspect(connection).get_columns(ClinicLiveSession.__tablename__)
+        }:
+            return
+        if bind.dialect.name == "postgresql":
+            connection.execute(text(
+                "ALTER TABLE clinic_live_session ADD COLUMN IF NOT EXISTS holder_generation INTEGER"))
+        else:
+            connection.execute(text("ALTER TABLE clinic_live_session ADD COLUMN holder_generation INTEGER"))
+
+
+def lock_author(user_id: int) -> None:
+    """Serialize acquisition across drafts, before taking any dictation row lock."""
+    if db.session.get_bind().dialect.name == "sqlite":
+        db.session.execute(update(User).where(User.id == user_id).values(username=User.username))
+    else:
+        db.session.query(User.id).filter_by(id=user_id).with_for_update(key_share=True).one_or_none()
+
+
+def author_holders(user_id: int, now: datetime | None = None) -> list[ClinicLiveSession]:
+    """Read recordings and unreleased paused fences under the author lock."""
+    row = ClinicLiveSession
+    query = db.session.query(row).filter(
+        row.author_user_id == user_id,
+        (row.state == RECORDING) | ((row.state == PAUSED)
+                                  & row.holder_generation.isnot(None) & row.client_id.isnot(None)),
+    )
+    if now is not None:
+        query = query.filter(row.lock_expires_at > now)
+    return query.populate_existing().all()
+
+
+def assert_no_other_holder(dictation_id: str, user_id: int, now: datetime) -> None:
+    if not clinic_mode_enabled():
+        return
+    for row in author_holders(user_id, now):
+        if row.dictation_id != dictation_id:
+            raise LiveSessionError(ACTIVE_SESSION, row)
+
+
+def check_fence(session: ClinicLiveSession, client_id: str | None, generation: int | None) -> None:
+    if session.holder_generation is not None and (
+        session.client_id is None or session.client_id != client_id
+        or type(generation) is not int or session.holder_generation != generation
+    ):
+        raise LiveSessionError(NOT_HOLDER, session)
+
+
+def revoke_holder(session: ClinicLiveSession) -> None:
+    session.state = PAUSED
+    session.client_id = None
+    if session.holder_generation is None:
+        session.holder_generation = 0
+
+
 def lock_timeout(timeout: float | None = None) -> float:
     """Inactivity timeout of the speech lock in seconds."""
     if timeout is None:
@@ -146,12 +208,15 @@ def start(
     """
     now = _require_now(now)
     seconds = lock_timeout(timeout)
+    lock_author(user_id)
     if _lock_dictation(dictation_id) is None:
         raise LiveSessionError(NOT_FOUND)
     current = _open(dictation_id)
     if current is not None:
         if _expiry(current) > now:
             raise LiveSessionError(ACTIVE_SESSION, current)
+    assert_no_other_holder(dictation_id, user_id, now)
+    if current is not None:
         _close(current, now, END_EXPIRED)
     session = ClinicLiveSession(
         dictation_id=dictation_id,
@@ -175,26 +240,37 @@ def start(
 
 
 def heartbeat(
-    session_id: str, user_id: int, now: datetime, timeout: float | None = None
+    session_id: str, user_id: int, now: datetime, timeout: float | None = None,
+    *, client_id: str | None = None, generation: int | None = None,
 ) -> ClinicLiveSession:
     """Renew the speech lock. Holder only, and only before the lock expired."""
-    return _touch(_holder_session(session_id, user_id, now), now, timeout)
+    session = _holder_session(session_id, user_id, now, client_id, generation)
+    assert_no_other_holder(session.dictation_id, user_id, now)
+    return _touch(session, now, timeout)
 
 
 def pause(
-    session_id: str, user_id: int, now: datetime, timeout: float | None = None
+    session_id: str, user_id: int, now: datetime, timeout: float | None = None,
+    *, client_id: str | None = None, generation: int | None = None, release: bool = False,
 ) -> ClinicLiveSession:
-    """Pause dictation. The speech lock stays and keeps its timeout."""
-    session = _holder_session(session_id, user_id, now)
-    session.state = PAUSED
+    """Pause dictation, optionally relinquishing the current tab's fence."""
+    session = _holder_session(session_id, user_id, now, client_id, generation)
+    if release:
+        if session.holder_generation is None and (client_id is None or session.client_id != client_id):
+            raise LiveSessionError(NOT_HOLDER, session)
+        revoke_holder(session)
+    else:
+        session.state = PAUSED
     return _touch(session, now, timeout)
 
 
 def continue_recording(
-    session_id: str, user_id: int, now: datetime, timeout: float | None = None
+    session_id: str, user_id: int, now: datetime, timeout: float | None = None,
+    *, client_id: str | None = None, generation: int | None = None,
 ) -> ClinicLiveSession:
     """Continue after ``pause``."""
-    session = _holder_session(session_id, user_id, now)
+    session = _holder_session(session_id, user_id, now, client_id, generation)
+    assert_no_other_holder(session.dictation_id, user_id, now)
     session.state = RECORDING
     return _touch(session, now, timeout)
 
@@ -207,6 +283,7 @@ def acknowledge(
     audio_offset_ms: int,
     text_ref: str | None = None,
     timeout: float | None = None,
+    *, client_id: str | None = None, generation: int | None = None,
 ) -> ClinicLiveSession:
     """Store the autosave receipt and renew the lock.
 
@@ -218,7 +295,8 @@ def acknowledge(
     for label, value in (("seq", seq), ("audio_offset_ms", audio_offset_ms)):
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ValueError(label + " must be a non-negative integer")
-    session = _holder_session(session_id, user_id, now)
+    session = _holder_session(session_id, user_id, now, client_id, generation)
+    assert_no_other_holder(session.dictation_id, user_id, now)
     now = _require_now(now)
     same = (
         seq == session.ack_seq
@@ -235,15 +313,20 @@ def acknowledge(
     return _touch(session, now, timeout)
 
 
-def end(session_id: str, user_id: int, now: datetime) -> ClinicLiveSession:
+def end(
+    session_id: str, user_id: int, now: datetime,
+    *, client_id: str | None = None, generation: int | None = None,
+) -> ClinicLiveSession:
     """Finish the session and free the speech lock. Holder only; repeating it is a no-op.
 
     A holder whose lock has lapsed, but whom nobody replaced, may still end it.
     """
     now = _require_now(now)
+    lock_author(user_id)
     session = _load(session_id)
     if session.author_user_id != user_id:
         raise LiveSessionError(NOT_HOLDER, session)
+    check_fence(session, client_id, generation)
     if session.state != ENDED:
         _close(session, now, END_FINISHED)
     return session
@@ -255,6 +338,7 @@ def recover(
     now: datetime,
     client_id: str | None = None,
     timeout: float | None = None,
+    *, generation: int | None = None,
 ) -> tuple[ClinicLiveSession, ResumePoint]:
     """Reopen this holder's interrupted session and return the last receipt.
 
@@ -266,9 +350,11 @@ def recover(
     """
     now = _require_now(now)
     seconds = lock_timeout(timeout)
+    lock_author(user_id)
     if _lock_dictation(dictation_id) is None:
         raise LiveSessionError(NOT_FOUND)
     current = _open(dictation_id)
+    session: ClinicLiveSession | None
     if current is not None:
         if current.author_user_id != user_id and _expiry(current) > now:
             raise LiveSessionError(ACTIVE_SESSION, current)
@@ -288,7 +374,9 @@ def recover(
             or session.end_reason != END_EXPIRED
         ):
             raise LiveSessionError(NO_SESSION, session)
-        session.state = PAUSED
+    check_fence(session, client_id, generation)
+    assert_no_other_holder(dictation_id, user_id, now)
+    if current is None:
         session.end_reason = None
         session.ended_at = None
         session.active_key = dictation_id
@@ -326,6 +414,7 @@ def _open(dictation_id: str) -> ClinicLiveSession | None:
             ClinicLiveSession.dictation_id == dictation_id,
             ClinicLiveSession.state != ENDED,
         )
+        .populate_existing()
         .one_or_none()
     )
     return _stamp(row) if row is not None else None
@@ -341,8 +430,11 @@ def _load(session_id: str) -> ClinicLiveSession:
     return _stamp(row)
 
 
-def _holder_session(session_id: str, user_id: int, now: datetime) -> ClinicLiveSession:
+def _holder_session(
+    session_id: str, user_id: int, now: datetime, client_id: str | None, generation: int | None,
+) -> ClinicLiveSession:
     now = _require_now(now)
+    lock_author(user_id)
     session = _load(session_id)
     if session.author_user_id != user_id:
         raise LiveSessionError(NOT_HOLDER, session)
@@ -350,6 +442,7 @@ def _holder_session(session_id: str, user_id: int, now: datetime) -> ClinicLiveS
         raise LiveSessionError(ENDED_SESSION, session)
     if _expiry(session) <= now:
         raise LiveSessionError(EXPIRED, session)
+    check_fence(session, client_id, generation)
     return session
 
 

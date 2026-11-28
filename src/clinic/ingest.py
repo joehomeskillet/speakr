@@ -20,14 +20,17 @@ import locale
 import logging
 import os
 import re
+import subprocess
 import tempfile
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.clinic import batch_import_plan, decoder
+from src.clinic import batch_import_plan, decoder, pools, recipient_defaults, workflow
 from src.clinic.audio_revisions import init_audio_revision
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.migration_import_intent_metadata import IntentMetadataError, _title
 from src.clinic.models import ClinicDictation, ClinicOriginal
 from src.database import db
 from src.models import ProcessingJob, Recording, User
@@ -168,6 +171,64 @@ def _spool(stream, directory: Path, declared_size: int) -> tuple[Path, str]:
     return path, digest.hexdigest()
 
 
+@dataclass(frozen=True)
+class ImportDefaults:
+    title: str | None = None
+    priority: int = workflow.PRIORITY_NORMAL
+    recipient_user_id: int | None = None
+    pool_id: str | None = None
+    use_asr: bool = True
+
+
+def resolve_import_metadata(metadata: Mapping, defaults: ImportDefaults) -> ImportDefaults:
+    """Apply an interpreted intent to one file's trusted defaults."""
+    changes = {field: metadata[field]['value'] for field in ('title', 'priority', 'recipient_user_id', 'pool_id')
+               if metadata[field]['op'] == 'set'}
+    if metadata['asr'] != 'keep':
+        changes['use_asr'] = metadata['asr'] == 'enable'
+    return replace(defaults, **changes)
+
+
+def _file_defaults(path: Path, defaults: ImportDefaults) -> ImportDefaults:
+    try:
+        result = subprocess.run(
+            ['ffprobe', '-v', 'error', '-protocol_whitelist', 'file', '-format_whitelist',
+             'wav,mp3,flac,ogg,matroska,webm,mov,amr,dss', '-show_entries', 'format_tags',
+             '-of', 'json', str(path)],
+            capture_output=True, check=True, timeout=5,
+        )
+        tags = json.loads(result.stdout.decode('utf-8', 'replace')).get('format', {}).get('tags', {})
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return defaults
+    tags = {key.casefold(): value for key, value in tags.items() if isinstance(value, str)}
+    title: str | None
+    try:
+        title = _title(tags.get('title'))
+    except IntentMetadataError:
+        title = defaults.title
+    priority, unrecognized = workflow.normalize_priority(tags.get('priority', defaults.priority))
+    asr = tags.get('use_speech_recognition', '').strip().casefold()
+    return replace(defaults, title=title, priority=defaults.priority if unrecognized else priority,
+                   use_asr={'1': True, '0': False, 'true': True, 'false': False}.get(asr, defaults.use_asr))
+
+
+def _import_pool(author: int, metadata: ImportDefaults, now: datetime) -> str | None:
+    from src.clinic.pool_policy import author_pool_ids
+
+    candidates = {pool_id for pool_id in author_pool_ids(author)
+                  if (pool := db.session.get(pools.ClinicAuthorPool, pool_id)) is not None
+                  and pools.is_routable(pool, now)}
+    if metadata.pool_id is not None and metadata.pool_id not in candidates:
+        raise IngestError('invalid', 'import author pool is not eligible')
+    pool_id = metadata.pool_id or (next(iter(candidates)) if len(candidates) == 1 else None)
+    if metadata.recipient_user_id is not None:
+        if not pool_id or metadata.recipient_user_id not in recipient_defaults.eligible_user_ids(pool_id):
+            raise IngestError('invalid', 'import recipient is not eligible')
+    if pool_id is None and metadata.priority != workflow.PRIORITY_NORMAL:
+        raise IngestError('invalid', 'import priority requires an author pool')
+    return pool_id
+
+
 class IngestService:
     """Durable original store rooted at one directory the caller owns."""
 
@@ -207,6 +268,8 @@ class IngestService:
         now: datetime | None = None,
         commit: bool = True,
         language_id: int | None = None,
+        intent_metadata: Mapping | None = None,
+        import_defaults: ImportDefaults | None = None,
     ) -> IngestReceipt:
         """Store ``stream`` and return the receipt for that delivery.
 
@@ -255,9 +318,14 @@ class IngestService:
                 existing = _existing(storage_key)
                 if existing is not None:
                     return _reuse(existing, digest, size, author_user_id)
+        metadata = None
+        if import_path is not None and intent_metadata is not None:
+            defaults = _file_defaults(import_path, import_defaults or ImportDefaults())
+            metadata = resolve_import_metadata(intent_metadata, defaults)
         return _insert_row(
             author_user_id, storage_key, digest, size, origin, origin_ref, key, moment,
             duration_ms=duration_ms, commit=commit, import_path=import_path, language_id=language_id,
+            metadata=metadata,
         )
 
     def _publish(self, spool: Path, dest: Path, digest: str) -> None:
@@ -378,7 +446,8 @@ def _lock_import(storage_key: str) -> None:
         connection.exec_driver_sql('BEGIN IMMEDIATE')
 
 
-def _queue_import(path: Path, author_user_id: int, size: int, language_id: int | None) -> str:
+def _queue_import(path: Path, author_user_id: int, size: int, language_id: int | None,
+                  *, title: str | None = None) -> str:
     """Stage a worker-owned copy. Queue cleanup must never remove the clinic original."""
     try:
         with path.open('rb') as stream:
@@ -394,7 +463,7 @@ def _queue_import(path: Path, author_user_id: int, size: int, language_id: int |
         raise IngestError('storage_failed', 'could not stage the import for transcription') from exc
     source = Recording(user_id=author_user_id, audio_path=stored.locator, file_size=size,
                        original_filename=filename, status='QUEUED', processing_source='import',
-                       is_inbox=False, is_archived=True)
+                       is_inbox=False, is_archived=True, title=title, title_source='user' if title else None)
     db.session.add(source)
     db.session.flush()
     # JobQueue.enqueue uses a separate transaction. Publish the stock job with its link instead.
@@ -410,7 +479,8 @@ def _queue_import(path: Path, author_user_id: int, size: int, language_id: int |
 
 
 def _insert_row(author_user_id, storage_key, digest, size, origin, origin_ref, key, moment,
-                *, duration_ms, commit=True, import_path=None, language_id=None) -> IngestReceipt:
+                *, duration_ms, commit=True, import_path=None, language_id=None,
+                metadata: ImportDefaults | None = None) -> IngestReceipt:
     recording = Recording(
         user_id=author_user_id,
         status='PENDING',
@@ -428,17 +498,26 @@ def _insert_row(author_user_id, storage_key, digest, size, origin, origin_ref, k
                 if commit:
                     _commit()
                 return receipt
+        pool_id = _import_pool(author_user_id, metadata, moment) if metadata is not None else None
+        if metadata is not None:
+            recording.title = metadata.title
+            recording.title_source = 'user' if metadata.title else None
         db.session.add(recording)
         db.session.flush()
         dictation = ClinicDictation(
             recording_id=recording.id,
             author_user_id=author_user_id,
+            pool_id=pool_id,
             created_at=moment,
         )
         db.session.add(dictation)
         db.session.flush()
         # Keep the import provenance in the receipt and the ASR link on the original row.
-        link = origin_ref if import_path is None else _queue_import(import_path, author_user_id, size, language_id)
+        link = origin_ref
+        if metadata is not None and not metadata.use_asr:
+            link = f'upload:recording:{recording.id}:asr=off:time=upload'
+        elif import_path is not None:
+            link = _queue_import(import_path, author_user_id, size, language_id, title=recording.title)
         original = ClinicOriginal(
             dictation_id=dictation.id,
             content_hash=digest,
@@ -452,6 +531,15 @@ def _insert_row(author_user_id, storage_key, digest, size, origin, origin_ref, k
         db.session.flush()
         if duration_ms is not None:
             init_audio_revision(dictation, original, duration_ms)
+        if metadata is not None and pool_id is not None:
+            from src.clinic.recognition_state import settle
+
+            db.session.add(workflow.ClinicWorkflowDictation(
+                id=dictation.id, author_user_id=author_user_id, pool_id=pool_id, created_at=moment,
+                status=workflow.PREP_OFFLINE, priority=metadata.priority,
+                assignee_user_id=metadata.recipient_user_id, audio_seconds=(duration_ms or 0) // 1000,
+            ))
+            settle(db.session, dictation.id)
         receipt = _receipt_of(original)
         if commit:
             _commit()

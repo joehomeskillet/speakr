@@ -51,7 +51,21 @@ export function useNotifications(state, utils) {
     /** Render a stored notice through the normal i18n path. */
     const notificationText = (notification) => {
         if (!notification) return '';
+        if (notification.kind === 'clinic.workflow') {
+            const params = notification.params || {};
+            return [params.title, params.body]
+                .filter(value => typeof value === 'string' && value.length > 0).join(' — ');
+        }
         return t(notification.message_key, notification.params || {});
+    };
+
+    const notificationLink = (notification) => {
+        if (!notification || notification.kind !== 'clinic.workflow' || typeof notification.link !== 'string') {
+            return notification?.link || null;
+        }
+        const match = notification.link.match(/^\/clinic\/dictations\/([A-Za-z0-9_-]{1,64})$/);
+        if (!match) return notification.link;
+        return `/?open=clinic-dictation&dictation=${encodeURIComponent(match[1])}`;
     };
 
     const toggleNotifications = async () => {
@@ -107,7 +121,7 @@ export function useNotifications(state, utils) {
 
     return {
         notifications, unreadCount, isNotificationsOpen,
-        notificationText, toggleNotifications, loadNotifications,
+        notificationText, notificationLink, toggleNotifications, loadNotifications,
         markAllRead, dismissNotification,
         startNotificationPolling, stopNotificationPolling,
     };

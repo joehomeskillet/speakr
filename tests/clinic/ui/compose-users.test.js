@@ -166,6 +166,20 @@ describe('users view composition', () => {
         expect(client.request).toHaveBeenCalledWith('/identity/users/2/grants');
     });
 
+    it('loads author names for the grants editor through the admin client', async () => {
+        const Vue = fakeVue();
+        const client = fakeClient(routes);
+        const adminClient = fakeClient(routes);
+        const view = UsersView.setup({ client, adminClient, currentUser: { id: 1, is_admin: true }, vue: Vue });
+        await Vue.hooks.mounted[0]();
+        view.select('grants');
+        view.selectUser(2);
+        const grants = view.activeComponent.value.setup();
+        await grants.reload();
+        expect(adminClient.request).toHaveBeenCalledWith('/admin/users?sort=username&per_page=100&page=1');
+        expect(client.request).toHaveBeenCalledWith('/identity/users/2/grants?entries=1');
+    });
+
     it('scopes state to the current user and drops it on user change', async () => {
         const Vue = fakeVue();
         const client = fakeClient(routes);

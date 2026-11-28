@@ -29,6 +29,7 @@ from src.clinic.config import (
     SETTING_CEILINGS,
     client_capabilities,
     client_profile,
+    dev_defaults,
     setting_ceiling,
 )
 from src.config.ui_themes import AUDIO_PLAYER_POSITIONS, COLOR_SCHEMES, is_available
@@ -52,8 +53,9 @@ ALLOWLIST = frozenset(_ENUMS) | _BOOLS | frozenset({"ui_theme", "ui_language"})
 _CLIENT_KEYS = frozenset({
     "client_profile", "profile", "channel", "workstation_token", "workstation_id",
     "audio_capture", "persistent_audio", "document_export", "native_bridge",
-    "capabilities",
+    "capabilities", "transport_mode", "device_redirection_verified",
 })
+_TRANSPORT_MODES = frozenset({"local", "rdp", "ica"})
 
 
 class PreferenceError(ValueError):
@@ -80,12 +82,29 @@ class Effective:
     origins: dict[str, str]
     version: int
     profile: str
+    transport_mode: str = "local"
 
     @property
     def capabilities(self) -> dict[str, Any]:
         """Capability map of the server profile. Never the client's claim."""
         profiles = client_capabilities().get("profiles") or {}
         return dict(profiles[self.profile])
+
+    @property
+    def device_redirection_verified(self) -> bool:
+        """Redirection requires lab evidence for the configured transport."""
+        return False
+
+
+def _transport_mode() -> str:
+    """Read the deployment's transport from the server policy."""
+    policy = dev_defaults().get("web_client", {})
+    if not isinstance(policy, dict):
+        raise PreferenceError("invalid_transport_policy")
+    mode = policy.get("transport_mode", "local")
+    if not isinstance(mode, str) or mode not in _TRANSPORT_MODES:
+        raise PreferenceError("invalid_transport_policy")
+    return mode
 
 
 def _profile_names() -> frozenset[str]:
@@ -411,11 +430,12 @@ class WorkstationPreferences:
     ) -> Effective:
         """Stored overrides with the current ceiling and lock applied.
 
-        ``client`` is ignored: the profile is ``client_profile()`` (R-048).
+        ``client`` is ignored: profile and transport come from server policy.
         A missing override row is version 0. Locked ceilings still apply.
         """
         del client
         uid, wid = self._bind(user, workstation_id)
+        transport_mode = _transport_mode()
         row = self._current(uid, wid)
         stored = {} if row is None else row.values
         version = 0 if row is None else row.version
@@ -439,7 +459,7 @@ class WorkstationPreferences:
             else:
                 values[key] = stored[key]
                 origins[key] = "workstation"
-        return Effective(values, origins, version, client_profile())
+        return Effective(values, origins, version, client_profile(), transport_mode)
 
     def dump(self) -> dict[str, Any]:
         """Snapshot of issued ids, stored overrides and locks. Pending input is absent."""

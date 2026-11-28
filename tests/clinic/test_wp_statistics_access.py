@@ -17,7 +17,6 @@ from src.clinic.policy import RecordingFacts, build_subject
 from src.clinic.statistics import StatisticsError, StatisticsQuery, summarize
 from src.clinic.statistics_access import (
     StatisticsAccessError,
-    clear_grants,
     grant_aggregate,
     read_aggregates,
     recording_access,
@@ -30,13 +29,6 @@ from src.models import Recording, User
 POOL_B = "pool-b"
 WHEN = datetime(2026, 3, 2, 8, tzinfo=timezone.utc)
 DENIED = ("audio", "transcript", "export", "identity_admin", "all")
-
-
-@pytest.fixture(autouse=True)
-def _fresh_grants():
-    clear_grants()
-    yield
-    clear_grants()
 
 
 @pytest.fixture
@@ -120,7 +112,7 @@ def test_granted_scope_hides_other_dictations(stats_db):
     """Author grant, then pool grant. Excluded rows stay out of both counters."""
     people = _world(stats_db)
     stats_id = people["stats"].id
-    author = grant_aggregate(stats_id, "author", author_ids=[people["a"].id])
+    author = grant_aggregate(stats_id, "author", author_ids=[people["a"].id], session=stats_db)
     created = _only(_read(stats_db, stats_id))
     assert (created.count, created.total_seconds, created.incomplete) == (1, 10.0, False)
     assert created.known_duration_count == 1
@@ -130,7 +122,7 @@ def test_granted_scope_hides_other_dictations(stats_db):
     assert raw.count == 3 and raw.incomplete is True
 
     pooled = grant_aggregate(
-        stats_id, "author_pool", pool_ids=[POOL_B], expected_version=author.version,
+        stats_id, "author_pool", pool_ids=[POOL_B], expected_version=author.version, session=stats_db,
     )
     both = _only(_read(stats_db, stats_id))
     assert (both.count, both.total_seconds, both.average_seconds) == (2, 17.0, 8.5)
@@ -149,7 +141,7 @@ def test_granted_scope_hides_other_dictations(stats_db):
 def test_statistics_role_does_not_grant_other_capabilities(stats_db):
     people = _world(stats_db)
     stats_id = people["stats"].id
-    grant_aggregate(stats_id, "author", author_ids=[people["a"].id])
+    grant_aggregate(stats_id, "author", author_ids=[people["a"].id], session=stats_db)
     for capability in DENIED:
         with pytest.raises(StatisticsAccessError) as caught:
             _read(stats_db, stats_id, capability=capability)
@@ -174,21 +166,21 @@ def test_rejected_scope_does_not_stick_and_a_failed_query_retries(stats_db):
     people = _world(stats_db)
     stats_id = people["stats"].id
     with pytest.raises(StatisticsAccessError) as caught:
-        grant_aggregate(stats_id, " all ", author_ids=[people["a"].id])
+        grant_aggregate(stats_id, " all ", author_ids=[people["a"].id], session=stats_db)
     assert caught.value.code == "all_scope_forbidden"
     with pytest.raises(StatisticsAccessError) as caught:
-        grant_aggregate(stats_id, "own", author_ids=[people["a"].id])
+        grant_aggregate(stats_id, "own", author_ids=[people["a"].id], session=stats_db)
     assert caught.value.code == "scope_not_grantable"
     with pytest.raises(StatisticsAccessError) as caught:
-        grant_aggregate(stats_id, "author")
+        grant_aggregate(stats_id, "author", session=stats_db)
     assert caught.value.code == "empty_scope"
     with pytest.raises(StatisticsAccessError) as caught:
-        grant_aggregate(stats_id, "author", author_ids=[True])
+        grant_aggregate(stats_id, "author", author_ids=[True], session=stats_db)
     assert caught.value.code == "author_id"
-    assert version_of(stats_id) == 0
+    assert version_of(stats_id, session=stats_db) == 0
 
     grant = grant_aggregate(
-        stats_id, "author", author_ids=[people["a"].id], expected_version=0,
+        stats_id, "author", author_ids=[people["a"].id], expected_version=0, session=stats_db,
     )
     assert grant.version == 1
     start = datetime(2026, 3, 5, tzinfo=timezone.utc)
@@ -196,42 +188,42 @@ def test_rejected_scope_does_not_stick_and_a_failed_query_retries(stats_db):
     with pytest.raises(StatisticsError) as caught:
         _read(stats_db, stats_id, StatisticsQuery(start=start, end=end))
     assert caught.value.code == "window"
-    assert version_of(stats_id) == 1
+    assert version_of(stats_id, session=stats_db) == 1
     assert _only(_read(stats_db, stats_id)).count == 1
     with pytest.raises(StatisticsAccessError) as caught:
-        revoke_aggregate(stats_id, "missing", expected_version=1)
+        revoke_aggregate(stats_id, "missing", expected_version=1, session=stats_db)
     assert caught.value.code == "unknown_grant"
-    assert version_of(stats_id) == 1
-    assert revoke_aggregate(stats_id, grant.id, expected_version=1) == 2
+    assert version_of(stats_id, session=stats_db) == 1
+    assert revoke_aggregate(stats_id, grant.id, expected_version=1, session=stats_db) == 2
 
 
 def test_stale_version_keeps_access_until_a_current_revoke(stats_db):
     people = _world(stats_db)
     stats_id = people["stats"].id
-    author = grant_aggregate(stats_id, "author", author_ids=[people["a"].id])
+    author = grant_aggregate(stats_id, "author", author_ids=[people["a"].id], session=stats_db)
     pooled = grant_aggregate(
-        stats_id, "author_pool", pool_ids=[POOL_B], expected_version=author.version,
+        stats_id, "author_pool", pool_ids=[POOL_B], expected_version=author.version, session=stats_db,
     )
     with pytest.raises(StatisticsAccessError) as caught:
-        revoke_aggregate(stats_id, author.id, expected_version=author.version)
+        revoke_aggregate(stats_id, author.id, expected_version=author.version, session=stats_db)
     assert caught.value.code == "stale_version"
     assert _only(_read(stats_db, stats_id, expected_version=pooled.version)).count == 2
     with pytest.raises(StatisticsAccessError) as caught:
         _read(stats_db, stats_id, expected_version=author.version)
     assert caught.value.code == "stale_version"
-    current = revoke_aggregate(stats_id, pooled.id, expected_version=pooled.version)
+    current = revoke_aggregate(stats_id, pooled.id, expected_version=pooled.version, session=stats_db)
     assert _only(_read(stats_db, stats_id)).count == 1
-    current = revoke_aggregate(stats_id, author.id, expected_version=current)
+    current = revoke_aggregate(stats_id, author.id, expected_version=current, session=stats_db)
     with pytest.raises(StatisticsAccessError) as caught:
         _read(stats_db, stats_id)
     assert caught.value.code == "no_grant"
     with pytest.raises(StatisticsAccessError) as caught:
         _read(stats_db, stats_id, expected_version=pooled.version)
     assert caught.value.code == "stale_version"
-    assert version_of(stats_id) == current
+    assert version_of(stats_id, session=stats_db) == current
 
 
-def test_operations_are_inert_outside_clinic_mode(monkeypatch):
+def test_operations_are_inert_outside_clinic_mode(monkeypatch, stats_db):
     monkeypatch.delenv("CLINIC_MODE", raising=False)
     with pytest.raises(StatisticsAccessError) as caught:
         grant_aggregate(4, "author", author_ids=[4])
@@ -240,4 +232,4 @@ def test_operations_are_inert_outside_clinic_mode(monkeypatch):
         recording_access(4, "export", RecordingFacts(1, 9))
     assert caught.value.code == "clinic_mode_off"
     monkeypatch.setenv("CLINIC_MODE", "1")
-    assert version_of(4) == 0
+    assert version_of(4, session=stats_db) == 0

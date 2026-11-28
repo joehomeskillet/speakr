@@ -17,6 +17,7 @@ native Word document (WB-013) and native file pickers (WB-014).
 from __future__ import annotations
 
 import hashlib
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
@@ -354,7 +355,24 @@ def _docx_bytes(title: str, header_lines: list[str], paragraphs: list[str]) -> b
         doc.add_paragraph(paragraph)
     buffer = BytesIO()
     doc.save(buffer)
-    return buffer.getvalue()
+    return _fixed_zip_dates(buffer.getvalue())
+
+
+def _fixed_zip_dates(data: bytes) -> bytes:
+    """Same bytes on every render: python-docx stamps each zip entry with the wall clock.
+
+    The download route re-renders the release and compares the sha256 with the
+    receipt. Without a fixed entry date that comparison fails (409) whenever the
+    two renders fall into different two-second zip time slots.
+    """
+    out = BytesIO()
+    with zipfile.ZipFile(BytesIO(data)) as src, zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as dst:
+        for info in src.infolist():
+            entry = zipfile.ZipInfo(info.filename, date_time=(1980, 1, 1, 0, 0, 0))
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            entry.external_attr = info.external_attr
+            dst.writestr(entry, src.read(info.filename))
+    return out.getvalue()
 
 
 def _outcome(rendered: RenderedExport, action: str, local_save_proven: bool) -> ExportOutcome:

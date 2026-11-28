@@ -25,25 +25,33 @@ identifiers only, never patient identifiers, audio or transcript text.
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Iterable, Sequence
 from datetime import timezone
 
 from flask import after_this_request, has_request_context, request
 from sqlalchemy import and_, or_
 
-from src.clinic import recognition_state, release, revisions, routes_history, routes_worklist, workflow
+from src.clinic import (
+    policy, recognition_state, release, revisions, routes_columns, routes_history, routes_worklist, workflow,
+)
 from src.clinic.admin_dictation_access import _is_active_site_admin
+from src.clinic.list_layout import LayoutError
 from src.clinic.models import (
     ClinicContextRevision,
     ClinicDictation,
     ClinicOriginal,
 )
 from src.clinic.pools import ClinicPoolRoute, ClinicStaffPool
+from src.clinic.presets import ClinicMetadataField
+from src.clinic.worklist_layout import WorklistLayoutError
 from src.database import db
 from src.models import GroupMembership, Recording, User
 from src.services import audit
 
 LEAD_ROLE = "admin"  # GroupMembership.role of a typist-pool lead
-_DEFAULT_SOURCE = ("audio", None)
+_DEFAULT_SOURCE = ("audio", None, None)
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
 
 
 def stamp(value):
@@ -125,8 +133,8 @@ def _open_mode(actor: int, dictation: ClinicDictation, status: str) -> str:
     return "player" if status == workflow.TO_WRITE else "correction"
 
 
-def _sources(dictation_ids: list[str]) -> dict[str, tuple[str, str | None]]:
-    """Worklist source kind and origin label from each dictation's first original."""
+def _sources(dictation_ids: list[str]) -> dict[str, tuple[str, str | None, str | None]]:
+    """Source kind, label and optional XML from each dictation's first original receipt."""
     earliest: dict[str, str] = {}
     for start in range(0, len(dictation_ids), 500):
         part = dictation_ids[start:start + 500]
@@ -148,8 +156,61 @@ def _sources(dictation_ids: list[str]) -> dict[str, tuple[str, str | None]]:
         kind = "document" if data.get("kind") == "document" else "audio"
         origin = data.get("origin")
         label = routes_worklist.ORIGIN_LABELS.get(origin) if isinstance(origin, str) else None
-        sources[dictation_id] = kind, label
+        xml = data.get("metadata_xml")
+        sources[dictation_id] = kind, label, xml if isinstance(xml, str) else None
     return sources
+
+
+def active_metadata_fields() -> list[ClinicMetadataField]:
+    """Return active, projectable XML definitions in configured order."""
+    field = ClinicMetadataField
+    rows = (db.session.query(field)
+            .filter(field.is_active.is_(True), field.xml_path != "", field.field_type.in_(routes_columns.DISPLAY_TYPES))
+            .order_by(field.position, field.name))
+    reserved = {*routes_worklist.COLUMNS, *routes_worklist.ROLE_COLUMNS, 'assignee', 'case_display',
+                'metadata_xml', 'constructor', 'prototype'}
+    return [row for row in rows
+            if row.name not in reserved and routes_columns._FIELD_NAME.fullmatch(row.name)]
+
+
+def project_metadata_values(
+    subject: policy.Subject, recording: policy.RecordingFacts,
+    fields: Sequence[ClinicMetadataField], xml: str | None,
+) -> dict[str, str | None]:
+    """Project only configured scalar values from the recording's own original."""
+    names = [field.name for field in fields]
+    values = dict.fromkeys(names)
+    if xml is None:
+        return values
+    for start in range(0, len(names), 30):
+        try:
+            # Original metadata inherits the recording's view decision, which the projector rechecks.
+            projected = routes_columns.project_metadata_columns(
+                subject, recording, fields[start:start + 30], names[start:start + 30],
+                can_read_field=lambda *_: True, load_xml=lambda: xml,
+            )
+        except (LayoutError, WorklistLayoutError):
+            # A malformed original or a revoked grant leaves this row's XML cells empty.
+            return dict.fromkeys(names)
+        for cell in projected:
+            value = cell['value']
+            # Use sortable strings without changing any standard worklist field.
+            if value:
+                values[cell['key']] = _CONTROL_CHARS.sub(" ", value).strip() or None
+    return values
+
+
+def _assignee_names(rows: Iterable[workflow.ClinicWorkflowDictation]) -> dict[int, str | None]:
+    """Display names of assigned typists. An unknown account has no name."""
+    from src.clinic.dictation_roles import display_name  # lazy: dictation_roles imports stamp
+
+    ids = sorted({row.assignee_user_id for row in rows if row.assignee_user_id is not None})
+    names: dict[int, str | None] = {}
+    for start in range(0, len(ids), 500):
+        part = ids[start:start + 500]
+        names.update({user.id: display_name(user)
+                      for user in db.session.query(User).filter(User.id.in_(part))})
+    return names
 
 
 def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
@@ -177,19 +238,24 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
     roles = project_roles(dictation for dictation, _row, _rec in found)
     sources = _sources([dictation.id for dictation, _row, _rec in found])
     outcomes = recognition_state.asr_outcomes(d for d, _, _ in found)
+    names = _assignee_names(row for _dictation, row, _rec in found)
     entries = []
     for dictation, row, rec in found:
         queue_status = row.resume_status if row.status == workflow.IN_PROGRESS else row.status
-        source_kind, source_label = sources.get(dictation.id, _DEFAULT_SOURCE)
+        source_kind, source_label, metadata_xml = sources.get(dictation.id, _DEFAULT_SOURCE)
+        has_recipient = row.assignee_user_id is not None
         entries.append(routes_worklist.WorklistEntry(rec, dict(
             dictation_id=dictation.id, title=rec.title or "", status=row.status,
             author_user_id=dictation.author_user_id, priority=row.priority,
             deadline_at=stamp(row.deadline_at), assignee_user_id=row.assignee_user_id,
-            assigned_at=None, notes=rec.notes or "", created_at=stamp(row.created_at),
-            duration_seconds=row.audio_seconds, recipient=None, source_kind=source_kind,
+            assigned_at=stamp(row.assigned_at) if has_recipient else None,
+            notes=rec.notes or "", created_at=stamp(row.created_at),
+            duration_seconds=row.audio_seconds,
+            recipient=names.get(row.assignee_user_id) if has_recipient else None,
+            source_kind=source_kind,
             open_mode=_open_mode(actor, dictation, queue_status), revision=dictation.version_counter,
             source_label=source_label, asr_state=_asr_state(dictation, queue_status, outcomes),
-            **roles[dictation.id]), dictation.pool_id))
+            **roles[dictation.id]), dictation.pool_id, metadata_xml=metadata_xml))
     if admin:
         foreign = {d.id: (rec.id, rec.user_id) for d, _, rec in found
                    if actor not in (d.author_user_id, rec.user_id)}
@@ -233,8 +299,14 @@ def _asr_state(dictation, status: str, outcomes=None) -> str:
                 outcome, 'SKIPPED' if status == workflow.TO_WRITE else 'PENDING')
 
 
-def case_displays(dictation_ids):
+def case_displays(dictation_ids, *, trusted_case=None):
     """Unique context heads without loading full snapshots for each list row."""
+    if trusted_case is not None:
+        from flask import current_app
+        from .finalize_gates import trusted_context
+        from .routes_output import configured_adapter
+
+        adapter = configured_adapter(current_app)
     result = {}
     for start in range(0, len(dictation_ids), 500):
         rows = db.session.query(ClinicContextRevision).filter(
@@ -244,8 +316,12 @@ def case_displays(dictation_ids):
         for row in rows:
             if row.id not in parents:
                 heads.setdefault(row.dictation_id, []).append(row)
-        result.update({did: values[0].case_ref if len(values) == 1 else None
-                       for did, values in heads.items()})
+        for did, values in heads.items():
+            head = values[0] if len(values) == 1 else None
+            if trusted_case is None:
+                result[did] = head.case_ref if head else None
+            elif head and head.case_ref == trusted_case and trusted_context(head, adapter):
+                result[did] = head.case_ref
     return result
 
 

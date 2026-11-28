@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
-    createGrantsStore, effectiveActions, validateDraft, label, statusSurface, GRANTS_TEMPLATE,
+    createGrantsStore, effectiveActions, idList, loadGrantUsers, validateDraft, label, statusSurface, GRANTS_TEMPLATE,
 } from '../../../static/js/clinic/grants-ui.js';
 
 const ok = (data) => ({ outcome: 'ok', data });
@@ -131,8 +131,98 @@ describe('grants ui', () => {
         expect(GRANTS_TEMPLATE).toContain('<fieldset>');
         expect(GRANTS_TEMPLATE).toContain('role="alert"');
         expect(GRANTS_TEMPLATE).toMatch(/<label for="grants-scope">/);
+        expect(GRANTS_TEMPLATE).toContain('grants-authors');
+        expect(GRANTS_TEMPLATE).toContain('grants-exceptions');
+        expect(label('clinic.grants.only')).toBe('Nur');
+        expect(label('clinic.grants.except')).toBe('Ausser');
         const src = readFileSync(new URL('../../../static/js/clinic/grants-ui.js', import.meta.url), 'utf8');
         expect(src).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
         expect(src).not.toMatch(/localStorage|sessionStorage|indexedDB/);
+    });
+
+    it('loads every page of account names and rejects a broken directory', async () => {
+        const pages = [
+            ok({ users: [{ id: 2, username: 'Beta' }, { id: 2, username: 'Beta' }], pagination: { has_next: true } }),
+            ok({ users: [{ id: 1, username: 'Alpha' }, { id: 'x', username: 'no' }], pagination: { has_next: false } }),
+        ];
+        const client = { request: vi.fn(async () => pages.shift()) };
+        await expect(loadGrantUsers(client)).resolves.toEqual({
+            users: [{ id: 1, username: 'Alpha' }, { id: 2, username: 'Beta' }], message: '',
+        });
+        const broken = await loadGrantUsers({ request: vi.fn(async () => ok({ revision: 1 })) });
+        expect(broken.users).toEqual([]);
+        expect(broken.message).toContain('Benutzerliste');
+        expect(idList(['12', 11])).toEqual([12, 11]);
+        expect(idList([11, 11])).toBeNull();
+    });
+
+    it('saves only the named authors on an allow for every dictation', async () => {
+        const { store, client } = setup([]);
+        await store.load(7);
+        await store.save({ effect: 'allow', scope: 'all', poolId: '', actions: ['view'], authorIds: [11] });
+        expect(client.request.mock.calls[1][1].body).toEqual({
+            expected_revision: 2, effect: 'allow', scope: 'all', pool_id: null, actions: ['view'], author_ids: [11],
+        });
+        expect(validateDraft({ effect: 'allow', scope: 'own', actions: ['view'], authorIds: [11] }).ok).toBe(false);
+        expect(validateDraft({ effect: 'allow', scope: 'all', actions: ['view'], exceptIds: [12] }).ok).toBe(false);
+    });
+
+    it('saves pool A except Beta as an allow plus a deny for that author', async () => {
+        let revision = 2;
+        const posts = [];
+        const client = {
+            request: vi.fn(async (path, opts) => {
+                if (opts && opts.method === 'POST') {
+                    posts.push(opts.body);
+                    if (opts.body.expected_revision !== revision) return bad('conflict');
+                    revision += 1;
+                    return ok({ revision, items: [] });
+                }
+                return ok({
+                    user_id: 7, revision, items: posts.map((body, index) => ({
+                        id: 'g' + index, effect: body.effect, scope: body.scope, pool_id: body.pool_id,
+                        actions: body.actions, author_ids: body.author_ids, author_names: body.author_ids ? ['Beta'] : [],
+                    })),
+                });
+            }),
+        };
+        const store = createGrantsStore(client);
+        await store.load(7);
+        await store.save({ effect: 'allow', scope: 'pool', poolId: 'A', actions: ['view'], exceptIds: [12] });
+        expect(posts).toEqual([
+            { expected_revision: 2, effect: 'allow', scope: 'pool', pool_id: 'A', actions: ['view'] },
+            { expected_revision: 3, effect: 'deny', scope: 'pool', pool_id: 'A', actions: ['view'], author_ids: [12] },
+        ]);
+        expect(store.state.items.map((item) => [item.effect, item.authorNames])).toEqual([['allow', []], ['deny', ['Beta']]]);
+        await store.save({ effect: 'allow', scope: 'pool', poolId: 'A', actions: ['view'], exceptIds: [12] });
+        expect(posts).toHaveLength(2);
+    });
+
+    it('keeps stored rows when the pool allow conflicts and does not send the exception', async () => {
+        const posts = [];
+        const client = {
+            request: vi.fn(async (path, opts) => {
+                if (opts && opts.method === 'POST') {
+                    posts.push(opts.body);
+                    return bad('conflict');
+                }
+                return SNAP(2);
+            }),
+        };
+        const store = createGrantsStore(client);
+        await store.load(7);
+        await store.save({ effect: 'allow', scope: 'pool', poolId: 'A', actions: ['view'], exceptIds: [12] });
+        expect(posts).toHaveLength(1);
+        expect(store.state.status).toBe('stale');
+        expect(store.state.items).toHaveLength(2);
+        expect(store.state.failedWrite).toBeNull();
+    });
+
+    it('does not send a named grant for a read-only viewer', async () => {
+        const ro = setup([], { canEdit: false });
+        await ro.store.load(7);
+        await ro.store.save({ effect: 'allow', scope: 'all', actions: ['view'], authorIds: [11] });
+        expect(ro.client.request).toHaveBeenCalledTimes(1);
+        expect(ro.client.request.mock.calls[0][0]).toBe('/identity/users/7/grants');
     });
 });

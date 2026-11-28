@@ -10,6 +10,11 @@
  * decided by the server and by the `canEdit` option, and the detailed owner
  * matrix stays pending.
  *
+ * An allow for all dictations can name authors ("nur Alpha"). A pool allow can
+ * name exclusions ("A ausser Beta"): the editor saves the pool allow and a
+ * deny limited to those authors. Both are chosen by account name. The draft
+ * stays on screen when the revision conflicts.
+ *
  * Reads use GET, additions use POST and revocations use DELETE through the
  * shared api client. Every write carries the revision it last read; a conflict
  * keeps the newer server state and never overwrites it. Grant data stays in
@@ -66,6 +71,16 @@ const LABELS = {
     'clinic.grants.error.actions': 'Mindestens eine unterstützte Aktion wählen.',
     'clinic.grants.error.pool': 'Bitte einen Autorenpool wählen.',
     'clinic.grants.error.unsupported': 'Nicht unterstützte Angabe.',
+    'clinic.grants.authors': 'Nur diese Autoren',
+    'clinic.grants.authors.hint': 'Keine Auswahl gilt für alle Autoren.',
+    'clinic.grants.authors.empty': 'Keine Benutzer für die Auswahl.',
+    'clinic.grants.exceptions': 'Ausser diesen Autoren',
+    'clinic.grants.exceptions.hint': 'Diese Autoren werden von der Pool-Erlaubnis ausgenommen.',
+    'clinic.grants.only': 'Nur',
+    'clinic.grants.except': 'Ausser',
+    'clinic.grants.error.authors': 'Autoren nur bei «Alle Diktate» und Wirkung «Erlauben» wählen.',
+    'clinic.grants.error.exceptions': 'Ausnahmen nur für einen Autorenpool wählen.',
+    'clinic.grants.error.users': 'Die Benutzerliste konnte nicht geladen werden.',
 };
 
 export function label(key) {
@@ -77,17 +92,41 @@ export function label(key) {
     return LABELS[key] || key;
 }
 
-const DRAFT_KEYS = ['effect', 'scope', 'poolId', 'actions'];
+const DRAFT_KEYS = ['effect', 'scope', 'poolId', 'actions', 'authorIds', 'exceptIds'];
+
+/** Positive user ids. Numeric strings from a control are accepted; anything else is invalid. */
+export function idList(value) {
+    if (!Array.isArray(value)) return null;
+    const ids = [];
+    for (const raw of value) {
+        const id = typeof raw === 'number' ? raw : (typeof raw === 'string' && /^[1-9]\d*$/.test(raw) ? Number(raw) : NaN);
+        if (!Number.isInteger(id) || id < 1 || ids.includes(id)) return null;
+        ids.push(id);
+    }
+    return ids;
+}
 
 /** Return the account names visible to the admin, including later pages. */
 export async function loadGrantUsers(adminClient) {
     const users = [];
-    for (let page = 1; ; page++) {
-        const res = await adminClient.request('/admin/users?sort=username&per_page=100&page=' + page);
-        if (res.outcome !== 'ok') return { users: [], message: res.message };
-        for (const { id, username } of res.data.users) users.push({ id, username });
-        if (!res.data.pagination?.has_next) return { users, message: '' };
+    const seen = new Set();
+    if (!adminClient || typeof adminClient.request !== 'function') {
+        return { users, message: label('clinic.grants.error.users') };
     }
+    for (let page = 1; page <= 20; page++) {
+        const res = await adminClient.request('/admin/users?sort=username&per_page=100&page=' + page);
+        if (!res || res.outcome !== 'ok' || !Array.isArray(res.data?.users)) {
+            return { users: [], message: (res && res.message) || label('clinic.grants.error.users') };
+        }
+        for (const row of res.data.users) {
+            if (!row || !Number.isInteger(row.id) || row.id < 1 || typeof row.username !== 'string' || !row.username.trim() || seen.has(row.id)) continue;
+            seen.add(row.id);
+            users.push({ id: row.id, username: row.username });
+        }
+        if (!res.data.pagination?.has_next) break;
+    }
+    users.sort((a, b) => a.username.localeCompare(b.username, 'de'));
+    return { users, message: '' };
 }
 
 /**
@@ -103,13 +142,31 @@ export function validateDraft(draft) {
     const actions = Array.isArray(d.actions) ? d.actions : [];
     if (!actions.length || !actions.every((a) => ACTIONS.includes(a))) errors.push('clinic.grants.error.actions');
     if (d.scope === 'pool' && (typeof d.poolId !== 'string' || !d.poolId.trim())) errors.push('clinic.grants.error.pool');
+    const authors = d.authorIds == null ? [] : idList(d.authorIds);
+    const exceptions = d.exceptIds == null ? [] : idList(d.exceptIds);
+    if (authors === null || (authors.length && (d.effect !== 'allow' || d.scope !== 'all'))) errors.push('clinic.grants.error.authors');
+    if (exceptions === null || (exceptions.length && d.scope !== 'pool')) errors.push('clinic.grants.error.exceptions');
     return { ok: errors.length === 0, errors };
+}
+
+function changeBody(draft, revision, actions, poolId) {
+    const body = { expected_revision: revision, effect: draft.effect, scope: draft.scope, pool_id: poolId, actions };
+    if (draft.effect === 'allow' && draft.scope === 'all') {
+        const ids = idList(draft.authorIds) || [];
+        if (ids.length) body.author_ids = ids;
+    }
+    if (draft.effect === 'deny' && draft.scope === 'pool') {
+        const ids = idList(draft.exceptIds) || [];
+        if (ids.length) body.author_ids = ids;
+    }
+    return body;
 }
 
 function normalize(items) {
     return (Array.isArray(items) ? items : []).map((item) => ({
         id: item.id,
-        authorNames: item.author_names || [],
+        authorNames: Array.isArray(item.author_names) ? item.author_names : [],
+        authorIds: Array.isArray(item.author_ids) ? item.author_ids.filter((id) => Number.isInteger(id) && id > 0) : [],
         effect: item.effect,
         scope: item.scope,
         poolId: item.pool_id == null ? null : String(item.pool_id),
@@ -179,6 +236,29 @@ export function createGrantsStore(client, onChange, options) {
         return res;
     }
 
+    function covers(item, effect, scope, poolId, actions, authors) {
+        if (item.effect !== effect || item.scope !== scope || (item.poolId || null) !== (poolId || null)) return false;
+        if (item.actions.length !== actions.length || actions.some((action) => !item.actions.includes(action))) return false;
+        const have = item.authorIds || [];
+        return have.length === authors.length && authors.every((id) => have.includes(id));
+    }
+
+    async function savePoolException(path, poolId, actions, exceptions) {
+        const allowBody = { expected_revision: state.revision, effect: 'allow', scope: 'pool', pool_id: poolId, actions };
+        if (!state.items.some((item) => covers(item, 'allow', 'pool', poolId, actions, []))) {
+            const opened = await send({ path, method: 'POST', body: allowBody });
+            if (!opened || opened.outcome !== 'ok' || state.status !== 'ready') return opened;
+        }
+        if (state.items.some((item) => covers(item, 'deny', 'pool', poolId, actions, exceptions))) return { outcome: 'ok' };
+        return send({
+            path, method: 'POST',
+            body: {
+                expected_revision: state.revision, effect: 'deny', scope: 'pool', pool_id: poolId,
+                actions, author_ids: exceptions,
+            },
+        });
+    }
+
     async function send(write) {
         state.status = 'loading';
         state.failedWrite = null;
@@ -203,14 +283,12 @@ export function createGrantsStore(client, onChange, options) {
         save(draft) {
             const check = validateDraft(draft);
             if (!check.ok || state.status !== 'ready' || !state.canEdit) return Promise.resolve(null);
-            const body = {
-                expected_revision: state.revision,
-                effect: draft.effect,
-                scope: draft.scope,
-                pool_id: draft.scope === 'pool' ? draft.poolId.trim() : null,
-                actions: ACTIONS.filter((a) => draft.actions.includes(a)),
-            };
-            return send({ path: '/identity/users/' + state.userId + '/grants', method: 'POST', body });
+            const path = '/identity/users/' + state.userId + '/grants';
+            const actions = ACTIONS.filter((a) => draft.actions.includes(a));
+            const poolId = draft.scope === 'pool' ? String(draft.poolId).trim() : null;
+            const exceptions = draft.effect === 'allow' && draft.scope === 'pool' ? idList(draft.exceptIds) || [] : [];
+            if (exceptions.length) return savePoolException(path, poolId, actions, exceptions);
+            return send({ path, method: 'POST', body: changeBody(draft, state.revision, actions, poolId) });
         },
         revoke(item) {
             if (!item.id || state.status !== 'ready' || !state.canEdit) return Promise.resolve(null);
@@ -254,7 +332,7 @@ export const GRANTS_TEMPLATE = `
       <li v-for="(item, i) in state.items" :key="item.id || i">
         <span class="pill-status" :class="item.effect === 'deny' ? 'pill-status--danger' : 'pill-status--success'">{{ label('clinic.grants.effect.' + item.effect) }}</span>
         <span>{{ label('clinic.grants.scope.' + item.scope) }}<span v-if="item.poolId"> ({{ poolNames.get(item.poolId) || 'Poolname nicht verfügbar' }})</span></span>
-        <span v-if="item.authorNames.length">Nur für Diktate von {{ item.authorNames.join(', ') }}</span>
+        <span v-if="authorText(item)">{{ authorText(item) }}</span>
         <span class="cadm-badges">
           <span v-for="a in item.actions" :key="a" class="pill-status pill-status--info">{{ label('clinic.grants.action.' + a) }}</span>
         </span>
@@ -279,6 +357,22 @@ export const GRANTS_TEMPLATE = `
         </select>
         <span v-if="poolMessage" role="alert">{{ poolMessage }}</span>
       </div>
+      <p v-if="authorsMessage" role="alert" class="banner banner--danger cadm-field--wide">{{ authorsMessage }}</p>
+      <fieldset v-if="showAuthors && authors.length">
+        <legend id="grants-authors">{{ label('clinic.grants.authors') }}</legend>
+        <label v-for="user in authors" :key="'author-' + user.id" class="cadm-check">
+          <input type="checkbox" :value="user.id" v-model="draft.authorIds"> {{ user.username }}
+        </label>
+      </fieldset>
+      <p v-if="showAuthors" class="cadm-hint cadm-field--wide">{{ label('clinic.grants.authors.hint') }}</p>
+      <fieldset v-if="showExceptions && authors.length">
+        <legend id="grants-exceptions">{{ label('clinic.grants.exceptions') }}</legend>
+        <label v-for="user in authors" :key="'except-' + user.id" class="cadm-check">
+          <input type="checkbox" :value="user.id" v-model="draft.exceptIds"> {{ user.username }}
+        </label>
+      </fieldset>
+      <p v-if="showExceptions" class="cadm-hint cadm-field--wide">{{ label('clinic.grants.exceptions.hint') }}</p>
+      <p v-if="(showAuthors || showExceptions) && !authors.length && !authorsMessage" role="status" class="cadm-empty cadm-field--wide">{{ label('clinic.grants.authors.empty') }}</p>
       <div class="cadm-field">
         <label for="grants-effect">{{ label('clinic.grants.effect') }}</label>
         <select id="grants-effect" class="field" v-model="draft.effect">
@@ -314,10 +408,12 @@ export function createGrantsComponent(Vue, client, props) {
     return {
         template: GRANTS_TEMPLATE,
         setup() {
-            const state = Vue.reactive({ status: 'idle', userId: null, revision: null, items: [], canEdit: true, failedWrite: null, message: '' });
+            const state = Vue.reactive({ status: 'idle', userId: null, revision: null, items: [], canEdit: !props || props.canEdit !== false, failedWrite: null, message: '' });
             const store = createGrantsStore(client, (next) => Object.assign(state, next), props);
-            const draft = Vue.reactive({ effect: 'allow', scope: 'own', poolId: '', actions: [] });
+            const draft = Vue.reactive({ effect: 'allow', scope: 'own', poolId: '', actions: [], authorIds: [], exceptIds: [] });
             const authorPools = Vue.ref([]);
+            const authors = Vue.ref([]);
+            const authorsMessage = Vue.ref('');
             const poolMessage = Vue.ref('');
             const pools = createPoolsStore(client, (next) => {
                 authorPools.value = next.pools.author;
@@ -325,7 +421,22 @@ export function createGrantsComponent(Vue, client, props) {
             });
             const poolNames = Vue.computed(() => new Map(authorPools.value.map((p) => [p.id, p.name])));
             const errors = Vue.ref([]);
+            const showAuthors = Vue.computed(() => draft.effect === 'allow' && draft.scope === 'all');
+            const showExceptions = Vue.computed(() => draft.scope === 'pool');
             const preview = Vue.computed(() => effectiveActions(state.items, validateDraft(draft).ok ? draft : null));
+            if (typeof Vue.watch === 'function') {
+                Vue.watch(() => draft.scope + '\0' + draft.effect, () => {
+                    if (!(draft.effect === 'allow' && draft.scope === 'all')) draft.authorIds = [];
+                    if (draft.scope !== 'pool') draft.exceptIds = [];
+                });
+            }
+            function authorText(item) {
+                const names = item.authorNames.length
+                    ? item.authorNames
+                    : item.authorIds.map((id) => authors.value.find((user) => user.id === id)?.username).filter(Boolean);
+                if (!names.length) return '';
+                return label(item.effect === 'deny' ? 'clinic.grants.except' : 'clinic.grants.only') + ' ' + names.join(', ');
+            }
             const surfaceStyle = Vue.computed(() => {
                 if (state.status === 'ready') return {};
                 const s = statusSurface(state);
@@ -336,13 +447,21 @@ export function createGrantsComponent(Vue, client, props) {
                 errors.value = check.errors;
                 return check.ok ? store.save(draft) : null;
             }
-            function reload() {
-                pools.load();
-                return store.load(props && props.userId);
+            async function reload() {
+                const listed = props && props.adminClient
+                    ? loadGrantUsers(props.adminClient) : Promise.resolve({ users: [], message: '' });
+                const poolsReady = pools.load();
+                const grantsReady = store.load(props && props.userId);
+                const directory = await listed;
+                authors.value = directory.users;
+                authorsMessage.value = directory.message;
+                await poolsReady;
+                return grantsReady;
             }
             Vue.onMounted(reload);
             return {
                 state, store, draft, errors, preview, surfaceStyle, submit, label, authorPools, poolNames, poolMessage, reload,
+                authors, authorsMessage, showAuthors, showExceptions, authorText,
                 actions: ACTIONS, scopes: SCOPES, effects: EFFECTS,
             };
         },

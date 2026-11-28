@@ -78,10 +78,11 @@ def reconnect(
             raise ValueError(label + " must be an integer >= " + str(minimum))
     savepoint = db.session.begin_nested()
     try:
-        session, point = live_session.recover(dictation_id, user_id, now, client_id, timeout)
+        session, point = live_session.recover(
+            dictation_id, user_id, now, client_id, timeout, generation=client_generation)
         last = (ClinicLivePhrase.query.filter_by(session_id=session.id)
                 .order_by(ClinicLivePhrase.sequence.desc()).first())
-        generation = last.generation if last else 1
+        generation = session.holder_generation or (last.generation if last else 1)
         if client_generation < generation:
             raise ReconnectError(STALE_GENERATION)
         if client_ack_seq > point.ack_seq:

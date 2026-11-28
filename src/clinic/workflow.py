@@ -20,6 +20,7 @@ A later wave wires routes, rights and the lease together.
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
@@ -211,6 +212,8 @@ class ClinicWorkflowDictation(db.Model):
     deadline_time = db.Column(db.Time, nullable=True)
     deadline_at = db.Column(_UtcDateTime(), nullable=True)
     created_at = db.Column(_UtcDateTime(), nullable=False, default=_utcnow)
+    # Resolved shipping target at submit. Not an assignee and not a visibility grant.
+    routing_target_json = db.Column(db.Text, nullable=True)
 
     __table_args__ = (
         _in_check("status", STATUS_ORDER, "ck_clinic_workflow_status"),
@@ -244,7 +247,28 @@ def create_tables(bind=None) -> None:
     )
     from . import migration_assignment_stamp
 
-    migration_assignment_stamp.upgrade(bind or db.engine)
+    bound = bind or db.engine
+    migration_assignment_stamp.upgrade(bound)
+    _ensure_routing_column(bound)
+
+
+def _ensure_routing_column(bind) -> None:
+    """Add the routing snapshot column. Existing rows stay unassigned and untargeted."""
+    from sqlalchemy import inspect, text
+    from sqlalchemy.engine import Engine
+
+    inspector = inspect(bind)
+    table = ClinicWorkflowDictation.__tablename__
+    if not inspector.has_table(table):
+        return
+    if any(column["name"] == "routing_target_json" for column in inspector.get_columns(table)):
+        return
+    statement = "ALTER TABLE clinic_workflow_dictation ADD COLUMN routing_target_json TEXT"
+    if isinstance(bind, Engine):
+        with bind.begin() as connection:
+            connection.execute(text(statement))
+    else:
+        bind.execute(text(statement))
 
 
 def normalize_priority(raw) -> tuple[int, bool]:
@@ -497,3 +521,72 @@ def _flag(value: bool, code: str) -> bool:
     if not isinstance(value, bool):
         raise WorkflowError(code)
     return value
+
+
+_ROUTING_MODES = frozenset(("all_eligible", "person", "staff_pool", "self_correction"))
+_ROUTING_LABELS = {
+    "all_eligible": "Alle berechtigten", "person": "Person",
+    "staff_pool": "Pool", "self_correction": "Selbstkorrektur",
+}
+
+
+@dataclass(frozen=True)
+class RoutingTarget:
+    """Submit-time shipping target. A later default edit does not change it."""
+
+    mode: str
+    target_ids: tuple[str, ...]
+    recipient_user_ids: tuple[int, ...]
+    default_version: int
+
+
+def store_routing_target(
+    session: Session, dictation_id: str, *, actor_id: int,
+    override: dict | None = None, expected_version: int | None = None,
+) -> RoutingTarget:
+    """Store the resolved target. Does not assign a typist or grant visibility."""
+    row = _require(session, dictation_id)
+    from src.clinic import recipient_defaults as defaults
+
+    try:
+        sent = defaults.submit(
+            row.author_user_id, row.pool_id, actor_id=actor_id,
+            override=override, expected_version=expected_version,
+        )
+    except defaults.RecipientDefaultError as error:
+        raise WorkflowError(error.code) from error
+    target = RoutingTarget(sent.mode, sent.target_ids, sent.recipient_user_ids, sent.default_version)
+    row.routing_target_json = json.dumps({
+        "mode": target.mode, "target_ids": list(target.target_ids),
+        "recipient_user_ids": list(target.recipient_user_ids), "default_version": target.default_version,
+    }, separators=(",", ":"))
+    session.flush()
+    return target
+
+
+def read_routing_target(row: ClinicWorkflowDictation) -> RoutingTarget | None:
+    raw = row.routing_target_json
+    if raw is None:
+        return None
+    data = json.loads(raw)
+    mode, ids, recipients, version = (
+        data.get("mode"), data.get("target_ids"), data.get("recipient_user_ids"), data.get("default_version"),
+    )
+    if (mode not in _ROUTING_MODES or type(version) is not int
+            or not isinstance(ids, list) or not isinstance(recipients, list)):
+        raise WorkflowError("invalid_routing_target")
+    return RoutingTarget(mode, tuple(ids), tuple(recipients), version)
+
+
+def routing_public(row: ClinicWorkflowDictation | None) -> dict | None:
+    target = None if row is None else read_routing_target(row)
+    if target is None:
+        return None
+    name = _ROUTING_LABELS[target.mode]
+    if target.mode in ("person", "staff_pool") and target.target_ids:
+        name = f"{name} {target.target_ids[0]}"
+    return {
+        "mode": target.mode, "target_ids": list(target.target_ids),
+        "recipient_user_ids": list(target.recipient_user_ids), "default_version": target.default_version,
+        "label": f"{name} (Default v{target.default_version})",
+    }

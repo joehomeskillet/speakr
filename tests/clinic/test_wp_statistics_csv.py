@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from src.app import app
 from src.clinic.models import ClinicDictation
 from src.clinic.statistics import StatisticsQuery, summarize
-from src.clinic.statistics_access import clear_grants, grant_aggregate, revoke_aggregate
+from src.clinic.statistics_access import grant_aggregate, revoke_aggregate
 from src.clinic.statistics_export import (
     EXIT_FAILED,
     EXIT_INVALID,
@@ -26,13 +26,6 @@ from src.database import db
 from src.models import Recording, User
 
 WHEN = datetime(2026, 3, 2, 8, tzinfo=timezone.utc)
-
-
-@pytest.fixture(autouse=True)
-def _fresh_grants():
-    clear_grants()
-    yield
-    clear_grants()
 
 
 @pytest.fixture
@@ -91,7 +84,7 @@ def test_cell_guards_formula_injection():
 
 def test_csv_matches_scoped_aggregate_and_is_deterministic(world, tmp_path):
     session, stats, a, _b = world
-    grant_aggregate(stats.id, "author", author_ids=[a.id])
+    grant_aggregate(stats.id, "author", author_ids=[a.id], session=session)
     query = StatisticsQuery(group_by=("author",))
     out = tmp_path / "s.csv"
     receipt = export_csv(session, stats.id, query, out, role="statistics")
@@ -110,7 +103,7 @@ def test_csv_matches_scoped_aggregate_and_is_deterministic(world, tmp_path):
 
 def test_empty_result_keeps_header(world, tmp_path):
     session, stats, a, _b = world
-    grant_aggregate(stats.id, "author", author_ids=[a.id])
+    grant_aggregate(stats.id, "author", author_ids=[a.id], session=session)
     out = tmp_path / "e.csv"
     query = StatisticsQuery(group_by=("status",), start=datetime(2030, 1, 1, tzinfo=timezone.utc))
     export_csv(session, stats.id, query, out, role="statistics")
@@ -119,7 +112,7 @@ def test_empty_result_keeps_header(world, tmp_path):
 
 def test_command_success_and_audit_log(world, tmp_path, caplog):
     session, stats, a, _b = world
-    grant_aggregate(stats.id, "author", author_ids=[a.id])
+    grant_aggregate(stats.id, "author", author_ids=[a.id], session=session)
     out = tmp_path / "c.csv"
     with caplog.at_level(logging.INFO, logger="speakr.clinic.statistics_export"):
         code = main(_args(out, stats, "--group-by", "status", "--start", "2026-01-01", "--end", "2026-12-31"), session=session)
@@ -141,7 +134,7 @@ def test_command_success_and_audit_log(world, tmp_path, caplog):
 )
 def test_invalid_input_is_nonzero_and_writes_nothing(world, tmp_path, extra):
     session, stats, a, _b = world
-    grant_aggregate(stats.id, "author", author_ids=[a.id])
+    grant_aggregate(stats.id, "author", author_ids=[a.id], session=session)
     out = tmp_path / "x.csv"
     assert main(_args(out, stats, *extra), session=session) == EXIT_INVALID
     assert not out.exists()
@@ -155,7 +148,7 @@ def test_unauthorized_scopes_are_refused(world, tmp_path):
     session, stats, a, _b = world
     out = tmp_path / "u.csv"
     assert main(_args(out, stats), session=session) == EXIT_REFUSED  # no grant
-    grant_aggregate(stats.id, "author", author_ids=[a.id])
+    grant_aggregate(stats.id, "author", author_ids=[a.id], session=session)
     bad_role = ["--actor-id", str(stats.id), "--role", "admin", "--output", str(out)]
     assert main(bad_role, session=session) == EXIT_REFUSED
     assert not out.exists()
@@ -163,7 +156,7 @@ def test_unauthorized_scopes_are_refused(world, tmp_path):
 
 def test_clinic_mode_off_refused(world, tmp_path, monkeypatch):
     session, stats, a, _b = world
-    grant_aggregate(stats.id, "author", author_ids=[a.id])
+    grant_aggregate(stats.id, "author", author_ids=[a.id], session=session)
     monkeypatch.setenv("CLINIC_MODE", "0")
     out = tmp_path / "o.csv"
     assert main(_args(out, stats), session=session) == EXIT_REFUSED
@@ -172,20 +165,20 @@ def test_clinic_mode_off_refused(world, tmp_path, monkeypatch):
 
 def test_stale_version_and_revoked_grant(world, tmp_path):
     session, stats, a, _b = world
-    grant = grant_aggregate(stats.id, "author", author_ids=[a.id])
+    grant = grant_aggregate(stats.id, "author", author_ids=[a.id], session=session)
     out = tmp_path / "v.csv"
     assert main(_args(out, stats, "--expected-version", "0"), session=session) == EXIT_REFUSED
     assert not out.exists()
     assert main(_args(out, stats, "--expected-version", str(grant.version)), session=session) == EXIT_OK
     out.unlink()
-    revoke_aggregate(stats.id, grant.id)
+    revoke_aggregate(stats.id, grant.id, session=session)
     assert main(_args(out, stats), session=session) == EXIT_REFUSED
     assert not out.exists()
 
 
 def test_write_failure_is_nonzero_and_leaves_no_partial_file(world, tmp_path, monkeypatch):
     session, stats, a, _b = world
-    grant_aggregate(stats.id, "author", author_ids=[a.id])
+    grant_aggregate(stats.id, "author", author_ids=[a.id], session=session)
     missing = tmp_path / "no-dir" / "w.csv"
     assert main(_args(missing, stats), session=session) == EXIT_FAILED
 
@@ -203,7 +196,7 @@ def _boom(*_a, **_k):
 
 def test_write_failure_code(world, tmp_path, monkeypatch):
     session, stats, a, _b = world
-    grant_aggregate(stats.id, "author", author_ids=[a.id])
+    grant_aggregate(stats.id, "author", author_ids=[a.id], session=session)
     monkeypatch.setattr("src.clinic.statistics_export.os.replace", _boom)
     with pytest.raises(StatisticsExportError) as info:
         export_csv(session, stats.id, StatisticsQuery(), tmp_path / "z.csv", role="statistics")
@@ -212,7 +205,7 @@ def test_write_failure_code(world, tmp_path, monkeypatch):
 
 def test_retry_after_failure_succeeds(world, tmp_path, monkeypatch):
     session, stats, a, _b = world
-    grant_aggregate(stats.id, "author", author_ids=[a.id])
+    grant_aggregate(stats.id, "author", author_ids=[a.id], session=session)
     out = tmp_path / "r.csv"
     with monkeypatch.context() as patch:
         patch.setattr("src.clinic.statistics_export.os.replace", _boom)

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-    FILTER_ALL, JobsView, TEXT, createJobsViewController, errorText, filterOptions, registerJobsView,
+    FILTER_ALL, JobsView, TEXT, createJobsViewController, errorText, failureCause, filterOptions, registerJobsView,
 } from '../../../static/js/clinic/compose-jobs.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -37,6 +37,30 @@ describe('compose-jobs', () => {
         expect(JobsView.template).not.toMatch(/\.message\b/); // but never rendered
         expect(JobsView.template).toContain('c.state.value.progress.completed');
     });
+
+    it.each([
+        ['storage_unavailable', 'Ablage nicht verfügbar'],
+        ['engine_unavailable', 'Erkennungsengine nicht verfügbar'],
+        ['missing_author_pool', 'Autor oder Autorenpool fehlt'],
+        ['corrupt_audio', 'Audiodatei beschädigt'],
+        ['CAPABILITY_UNAVAILABLE', 'Training nicht verfügbar'],
+        ['UnexpectedPatientError', TEXT.causeHidden],
+        ['__proto__', TEXT.causeHidden],
+    ])('uses a fixed German failure label for %s', (errorClass, label) => {
+        expect(failureCause({ state: 'failed', errorClass, message: 'Geheimer Befundtext' })).toBe(label);
+        expect(failureCause({ state: 'queued', errorClass })).toBe('');
+        expect(failureCause({ state: 'failed', unknown: true, errorClass })).toBe('');
+    });
+
+    it.each([[95, 95], [0, 0], [null, 0], [-1, 0], ['95', 0]])(
+        'normalizes queued age %s to %s', async (age, expected) => {
+            const result = health([]);
+            result.data.oldest_queued_age_s = age;
+            const c = createJobsViewController({ client: { request: vi.fn().mockResolvedValue(result) } });
+            await c.load();
+            expect(c.oldestQueuedAge.value).toBe(expected);
+        },
+    );
 
     it('filters by state and falls back to all when the state disappears', async () => {
         const client = { request: vi.fn().mockResolvedValue(health([row(4), row(5, { state: 'dead' }), row(6, { error_class: 'UNKNOWN' })])) };

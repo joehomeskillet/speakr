@@ -28,6 +28,7 @@ AUTH: tuple[str, ...] = (
     'clinic_dictation_detail.summary',
     'clinic_context.get_context',
     'clinic_context.post_context',
+    'clinic_case.view',
     'clinic_templates.list_templates',
     'clinic_templates.get_template',
     'clinic_templates.get_template_content',
@@ -50,9 +51,13 @@ AUTH: tuple[str, ...] = (
     'clinic_clipboard.prepare',
     'clinic_clipboard.outcome',
     'clinic_output.targets',
+    'clinic_output.destinations',
     'clinic_output.request_export',
     'clinic_output.download_export',
     'clinic_output.export_status',
+    # P-081: the signed-in user's output formats. The handler reads current_user and checks If-Match.
+    'clinic_preferences.output',
+    'clinic_audio.download_original',
 )
 
 ADMIN: tuple[str, ...] = ()

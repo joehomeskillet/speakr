@@ -83,11 +83,15 @@ def _centroid(vectors: list[list[float]]) -> list[float] | None:
     return acc
 
 
-def _load_candidates(space_id: int, dimension: int, excluded: set[int]) -> dict[int, tuple[int, list[float]]]:
+def _load_candidates(
+    space_id: int, dimension: int, excluded: set[int], candidate_user_ids: set[int] | None = None,
+) -> dict[int, tuple[int, list[float]]]:
     """Map user_id -> (consent version, centroid) for consented users in this space."""
     from src.clinic.voice_consent import ClinicVoiceEmbedding
 
-    rows = ClinicVoiceEmbedding.query.filter_by(space_id=space_id, dimension=dimension).all()
+    rows = ClinicVoiceEmbedding.query.filter_by(space_id=space_id, dimension=dimension)
+    if candidate_user_ids is not None:
+        rows = rows.filter(ClinicVoiceEmbedding.user_id.in_(candidate_user_ids))
     per_user: dict[int, list[list[float]]] = {}
     for row in rows:
         if row.user_id in excluded or len(row.embedding) != dimension * 4:
@@ -103,11 +107,13 @@ def _load_candidates(space_id: int, dimension: int, excluded: set[int]) -> dict[
     return out
 
 
-def suggest_for_embedding(result, speech_seconds: float) -> author_suggestion.AuthorSuggestion:
+def suggest_for_embedding(
+    result, speech_seconds: float, *, candidate_user_ids: set[int] | None = None,
+) -> author_suggestion.AuthorSuggestion:
     """Suggest an author for an ``EmbeddingResult``. Never assigns."""
     excluded: set[int] = set()
     for _ in range(_MAX_RECHECKS):
-        candidates = _load_candidates(result.space_id, len(result.vector), excluded)
+        candidates = _load_candidates(result.space_id, len(result.vector), excluded, candidate_user_ids)
         suggestion = author_suggestion.suggest_author(
             result.vector, [(uid, vec) for uid, (_, vec) in candidates.items()],
             speech_seconds=speech_seconds,

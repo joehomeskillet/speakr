@@ -1,4 +1,4 @@
-"""Read and change explicit action grants and deny exceptions (PAR-ADM-004/005/008).
+"""Read and change action grants, recipient choice and deny exceptions (PAR-ADM-004/005/006/008).
 
 Thin HTTP layer over ``src.clinic.pools``: grants live in
 ``ClinicVisibilityGrant`` and every change is audited by the pool service in
@@ -14,8 +14,9 @@ Rules:
   give themselves clinical access.
 * Reading a grant list needs an active site or identity admin, or the user's
   own id (identity-web contract, ``getClinicUserGrants``).
-* A change names its actions explicitly (no implicit "all actions") and must
-  send the revision it last read. A stale or replayed change gets 409.
+* An action grant names its actions explicitly (no implicit "all actions").
+  PUT sets the separate recipient_choice grant. Every change must send the
+  revision it last read. A stale or replayed change gets 409.
 * Optional ``author_ids`` limit that one allow (explicit authors) or deny
   (deny exception, for example pool A except Beta) to those user ids. The
   ids in the response are the stored user ids, not usernames.
@@ -36,7 +37,7 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from sqlalchemy import text
 from wtforms.validators import ValidationError as CsrfValidationError
 
-from src.clinic import pools
+from src.clinic import pools, recipient_defaults as rd
 from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.identity import ClinicAccountPolicy
@@ -94,7 +95,11 @@ def grant_list(user_id: int, *, include_ids: bool = False) -> dict[str, Any]:
         if row.pool_id is not None:
             item["pool_id"] = row.pool_id
         items.append(item)
-    return {"user_id": user_id, "revision": revision, "items": items}
+    result = {"user_id": user_id, "revision": revision, "items": items}
+    recipient_choice = rd.get_choice_grant(user_id)
+    if recipient_choice is not None:
+        result["recipient_choice"] = recipient_choice
+    return result
 
 
 def _is_active_identity_admin(user: User) -> bool:
@@ -143,13 +148,27 @@ def _apply_change(user_id: int, body: dict[str, Any], actor_id: int) -> None:
     )
 
 
+def _apply_recipient_choice(user_id: int, choice: str, actor_id: int) -> None:
+    grant = db.session.get(rd.ClinicRecipientChoiceGrant, user_id)
+    if grant is None:
+        grant = rd.ClinicRecipientChoiceGrant(user_id=user_id)
+        db.session.add(grant)
+    previous = grant.choice
+    grant.choice = choice
+    pools._history(actor_id, "recipient_choice", user_id, "changed", {
+        "user_id": user_id, "previous_choice": previous, "choice": choice,
+    })
+    pools._bump_version()
+    pools._commit()
+
+
 class GrantsApi:
     """Mount ``blueprint`` once; registration in app.py belongs to a consumer package."""
 
     def __init__(self):
         self.blueprint = Blueprint("clinic_grants", __name__)
         self.blueprint.add_url_rule(PATH, "read", self._read, methods=["GET"])
-        self.blueprint.add_url_rule(PATH, "change", self._change, methods=["POST"])
+        self.blueprint.add_url_rule(PATH, "change", self._change, methods=["POST", "PUT"])
         self.blueprint.add_url_rule(PATH + "/<uuid:grant_id>", "change", self._change, methods=["DELETE"])
         self.blueprint.register_error_handler(CSRFError, lambda _error: _problem("FORBIDDEN"))
 
@@ -187,11 +206,17 @@ class GrantsApi:
             return _problem("FORBIDDEN")
         try:
             body = request.get_json(silent=True)
-            if grant_id is None:
+            if request.method == "POST":
                 body = _parse_change(body)
-            elif (not isinstance(body, dict) or body.keys() != {"expected_revision"}
-                  or type(body["expected_revision"]) is not int or body["expected_revision"] < 0):
-                raise CommandProblem("INVALID_PAYLOAD")
+            else:
+                keys = {"expected_revision"}
+                if request.method == "PUT":
+                    keys.add("recipient_choice")
+                if (not isinstance(body, dict) or body.keys() != keys
+                        or type(body["expected_revision"]) is not int or body["expected_revision"] < 0):
+                    raise CommandProblem("INVALID_PAYLOAD")
+                if request.method == "PUT" and body["recipient_choice"] not in rd.CHOICES:
+                    raise CommandProblem("INVALID_PAYLOAD")
             if db.session.get(User, user_id) is None:
                 db.session.rollback()
                 return _not_found()
@@ -208,6 +233,8 @@ class GrantsApi:
                     db.session.rollback()
                     return _not_found()
                 pools.revoke(row.id, actor_id=actor.id)
+            elif request.method == "PUT":
+                _apply_recipient_choice(user_id, body["recipient_choice"], actor.id)
             else:
                 _apply_change(user_id, body, actor.id)
         except CommandProblem as error:

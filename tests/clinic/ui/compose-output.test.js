@@ -34,7 +34,7 @@ function fakeClient({ targets, exportResult } = {}) {
         request: vi.fn(async (path, options) => {
             const method = String((options && options.method) || 'GET').toUpperCase();
             calls.push({ method, path, options });
-            if (method === 'GET' && path.endsWith('/output-targets')) return targets;
+            if (method === 'GET' && path.split('?')[0].endsWith('/output-targets')) return targets;
             if (method === 'POST' && path.endsWith('/exports')) return typeof exportResult === 'function' ? exportResult(options) : exportResult;
             if (method === 'GET' && path.includes('/exports/')) return ok({ id: 'j1', status: 'delivered', format: 'kis' });
             return fail('http', 404);
@@ -55,6 +55,70 @@ async function loaded(client, extra = {}) {
 }
 
 describe('compose-output', () => {
+    it('requests all file formats for the output page and labels RTF and ODT', async () => {
+        const data = TARGETS('r1');
+        data.targets.push(...['rtf', 'odt'].map((id) => ({ id, channel: 'file', available: true })));
+        const client = fakeClient({ targets: ok(data) });
+        const c = await loaded(client, { includeAllFileFormats: true });
+
+        expect(client.calls[0].path).toBe('/dictations/d1/output-targets?file_formats=all');
+        expect(c.targets.value.find((target) => target.id === 'rtf').label).toBe('Rich-Text-Dokument (RTF)');
+        expect(c.targets.value.find((target) => target.id === 'odt').label).toBe('OpenDocument-Text (ODT)');
+    });
+
+    it('offers a ready file download independently of other target failures', async () => {
+        const data = TARGETS('r1');
+        data.targets.push({ id: 'rtf', channel: 'file', available: true });
+        const client = fakeClient({
+            targets: ok(data),
+            exportResult: ({ body }) => body.format === 'rtf'
+                ? ok(job({ id: 'rtf-job', format: 'rtf', filename: 'x.rtf' }), 201)
+                : ok(job({ id: 'docx-job', status: 'failed' }), 201),
+        });
+        const c = await loaded(client);
+
+        expect(c.downloadUrl('rtf')).toBeNull();
+        await c.exportTo('rtf');
+        await c.exportTo('docx');
+        expect(c.downloadUrl('rtf')).toBe('/api/clinic/v1/dictations/d1/exports/rtf-job/download');
+        expect(c.downloadUrl('docx')).toBeNull();
+        expect(c.downloadUrl('kis')).toBeNull();
+        expect(c.results.value.rtf.label).toBe('Datei erzeugt');
+        c.markDownloadStarted('rtf');
+        expect(c.results.value.rtf).toMatchObject({ phase: 'ready', label: 'Download gestartet' });
+        expect(c.results.value.docx).toMatchObject({ phase: 'failed', tone: 'error' });
+        expect(c.results.value.kis).toBeUndefined();
+        expect(c.canExport('rtf')).toBe(false);
+        await c.exportTo('rtf');
+        expect(posts(client).map(({ options }) => options.body.format)).toEqual(['rtf', 'docx']);
+    });
+
+    it('offers an existing ready file job without starting it again', async () => {
+        const data = TARGETS('r1');
+        data.targets.push({ id: 'odt', channel: 'file', available: true, status: 'ready', job_id: 'odt-job' });
+        const client = fakeClient({ targets: ok(data) });
+        const c = await loaded(client);
+
+        expect(c.downloadUrl('odt')).toBe('/api/clinic/v1/dictations/d1/exports/odt-job/download');
+        expect(c.canExport('odt')).toBe(false);
+        await c.exportTo('odt');
+        expect(posts(client)).toHaveLength(0);
+    });
+
+    it('offers a new render for a stale DOCX job', async () => {
+        const data = TARGETS('r1');
+        const docx = data.targets.find((target) => target.id === 'docx');
+        Object.assign(docx, { status: 'stale', job_id: 'old-docx' });
+        const client = fakeClient({ targets: ok(data), exportResult: ok(job(), 201) });
+        const c = await loaded(client);
+
+        expect(c.downloadUrl('docx')).toBeNull();
+        expect(c.results.value.docx.label).toBe('Datei bitte neu erzeugen.');
+        await c.exportTo('docx');
+        expect(posts(client)).toHaveLength(1);
+        expect(c.downloadUrl('docx')).toBe('/api/clinic/v1/dictations/d1/exports/j1/download');
+    });
+
     it('offers export only for the released revision', async () => {
         const client = fakeClient({ targets: ok(TARGETS(null)) });
         const c = await loaded(client);

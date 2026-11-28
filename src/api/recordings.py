@@ -1051,7 +1051,7 @@ def _text_model_configured():
 @recordings_bp.route('/recordings/<int:recording_id>')
 @recordings_bp.route('/label/<label_name>')
 @login_required
-def index(recording_id=None, label_name=None):
+def index(recording_id=None, label_name=None, case_view=False):
     # recording_id is a deep link (#301): the server just serves the SPA shell
     # here; the frontend reads it from the path and pre-selects the recording.
     # label_name works the same way for /label/<name>: the shell is served and
@@ -1147,8 +1147,14 @@ def index(recording_id=None, label_name=None):
     if clinic_mode_enabled():
         from src.clinic.pools import ui_role
         clinic_role = ui_role(current_user.id)  # UI hint only, never a permission input
-    return render_template('index.html',
+    case_marker = None
+    if case_view:
+        from src.clinic.case_handoff import private_response, view_marker
+        case_marker = view_marker()
+
+    page = render_template('index.html',
                          clinic_mode=clinic_mode_enabled(),
+                         clinic_case_marker=case_marker,
                          clinic_role=clinic_role,
                          use_asr_endpoint=USE_ASR_ENDPOINT,  # Backwards compat
                          connector_supports_diarization=connector_supports_diarization,
@@ -1166,6 +1172,7 @@ def index(recording_id=None, label_name=None):
                          recording_chunk_seconds=recording_chunk_seconds,
                          recording_video_kbps=recording_video_kbps,
                          text_model_configured=_text_model_configured())
+    return private_response(current_app.make_response(page)) if case_view else page
 
 
 

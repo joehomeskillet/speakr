@@ -1,6 +1,7 @@
 """Bind an opaque, server-verified KIS grant to one dictation."""
 
 import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -17,6 +18,8 @@ from .config import clinic_mode_enabled
 from .kis import PRODUCTION_PROFILE, AdapterTimeout, KisAdapter, payload_hash
 from .models import ClinicContextRevision, ClinicDictation
 from .release import invalidate_on_change
+
+CASE_REFERENCE = re.compile(r'SYN-[0-9]{4,8}')
 
 
 class ContextGrantError(ValueError):

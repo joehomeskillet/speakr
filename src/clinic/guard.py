@@ -97,6 +97,7 @@ def _targets(rule: RouteRule) -> tuple[list[int], str]:
 def assert_dictation_edit_allowed(
     dictation_id: str, user_id: int, lease_generation: int, now: datetime,
     *, live_session_id: str | None = None,
+    live_client_id: str | None = None, live_generation: int | None = None,
 ) -> None:
     """Fence an authorized edit in the same transaction as its write.
 
@@ -110,8 +111,9 @@ def assert_dictation_edit_allowed(
     live_session.assert_edit_allowed(dictation_id, user_id, now)
     if live_session_id is not None:
         active = live_session.active_session(dictation_id, now)
-        if active is None or active.id != live_session_id:
+        if active is None or active.id != live_session_id or active.author_user_id != user_id:
             raise live_session.LiveSessionError('stale_live_session')
+        live_session.check_fence(active, live_client_id, live_generation)
 
 
 def _check_edit_locks(recording_ids: list[int], user_id: int):
@@ -135,11 +137,19 @@ def _check_edit_locks(recording_ids: list[int], user_id: int):
     except (TypeError, ValueError):
         return _refuse(400, 'invalid_lease_generation', error='Eine gültige Sperrversion ist erforderlich.')
 
+    try:
+        live_generation = payload.get('live_generation')
+        if live_generation is not None:
+            live_generation = as_id(live_generation)
+    except (TypeError, ValueError):
+        return _refuse(400, 'invalid_live_generation')
+
     now = datetime.now(timezone.utc)
     try:
         for (dictation_id,) in targets:
             assert_dictation_edit_allowed(
                 dictation_id, user_id, generation, now, live_session_id=payload.get('live_session_id'),
+                live_client_id=payload.get('live_client_id'), live_generation=live_generation,
             )
     except lease.LeaseConflict as exc:
         return _refuse(409, exc.reason, error='Die Bearbeitungssperre ist nicht mehr gültig.')
@@ -209,6 +219,10 @@ def clinic_guard():
     """before_request hook; returns a response to refuse, None to continue."""
     if not clinic_mode_enabled():
         return None
+    if request.endpoint == 'recordings.index':
+        from .case_handoff import is_handoff_request
+        if is_handoff_request():
+            return None  # The handoff hook redirects after the idle-session check.
     if request.endpoint is None:
         return None  # no route matched: Flask answers 404, nothing is served
     rule = ROUTE_POLICY.get(request.endpoint)

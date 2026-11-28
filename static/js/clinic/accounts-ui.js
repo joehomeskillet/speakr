@@ -11,7 +11,7 @@
  *                                          status, login_policy, is_identity_admin, version}]}
  *   POST /admin/users                 {username, email, name?}
  *   PUT  /admin/users/<id>            {expected_version, status?, login_policy?,
- *                                      is_admin?, is_identity_admin?, username?, email?}
+ *                                      is_admin?, is_identity_admin?, username?, email?, account_note?}
  *   PUT  /admin/users/<id>            {expected_version, issue_recovery: true} -> {code, expires_at}
  * The admin routes sit outside /api/clinic/v1, so the mounting package
  * supplies a `client` whose request() reaches them. The module never sends
@@ -20,6 +20,7 @@
  */
 
 import { MISSING_POLICY_FILTER, PAGE_SIZE, readAccountPage, readDirectory } from './account-pages.js';
+import { confirmDialog } from '../modules/utils/dialogs.js';
 
 export const LOGIN_POLICIES = ['local_only', 'local_and_entra', 'entra_only'];
 export const SELECTABLE_POLICIES = ['local_only'];
@@ -47,6 +48,7 @@ export const LABELS = Object.freeze({
     username: 'Benutzername',
     email: 'E-Mail-Adresse',
     name: 'Anzeigename',
+    accountNote: 'Anmerkung',
     status: 'Status',
     loginPolicy: 'Anmelderichtlinie',
     isAdmin: 'Administrationsrolle',
@@ -87,6 +89,7 @@ function fromRow(row) {
         username: row.username || '',
         email: row.email || '',
         name: row.name || '',
+        account_note: row.account_note || '',
         storage_quota_mb: row.storage_quota_mb ?? null,
         monthly_token_budget: row.monthly_token_budget ?? null,
         monthly_transcription_budget: row.monthly_transcription_budget ?? null,
@@ -111,7 +114,7 @@ const LIMITS = [
     { key: 'monthly_token_budget', label: 'Tokenlimit pro Monat' },
     { key: 'monthly_transcription_budget', label: 'Transkriptionslimit pro Monat (Sekunden)' },
 ];
-const EDITABLE = ['username', 'email', 'name', 'status', 'login_policy', 'is_admin', 'is_identity_admin'];
+const EDITABLE = ['username', 'email', 'name', 'account_note', 'status', 'login_policy', 'is_admin', 'is_identity_admin'];
 
 /** Returns an error key or null for one draft. */
 export function validateDraft(draft) {
@@ -130,7 +133,7 @@ export function validateDraft(draft) {
 export function changesOf(draft, base) {
     const out = {};
     for (const key of EDITABLE) {
-        const now = typeof draft[key] === 'string' ? draft[key].trim() : draft[key];
+        const now = key !== 'account_note' && typeof draft[key] === 'string' ? draft[key].trim() : draft[key];
         if (now !== base[key]) out[key] = now;
     }
     for (const { key } of LIMITS) {
@@ -461,6 +464,18 @@ export const AccountsAdminPanel = {
             this.sortOrder = 'username:asc';
             return this.browse();
         },
+        async changeStatus(id, status) {
+            const row = this.rows.find((account) => account.id === id);
+            if (!row) return false;
+            if (status === 'disabled' && !await confirmDialog({
+                title: 'Konto deaktivieren',
+                message: `Konto „${row.username}“ wirklich deaktivieren? Die Anmeldung wird gesperrt; Diktate und Auditgeschichte bleiben erhalten.`,
+                confirmLabel: LABELS.disable,
+                cancelLabel: LABELS.cancel,
+                danger: true,
+            })) return false;
+            return this.controller.setStatus(id, status);
+        },
         policyLabel(policy) { return LABELS.policies[policy || MISSING_POLICY_FILTER] || policy; },
         seen(value) { return value ? new Date(value).toLocaleString('de-CH') : 'Noch nie'; },
     },
@@ -552,8 +567,8 @@ export const AccountsAdminPanel = {
           <td :id="'acc-' + a.id + '-actions'" class="cadm-col-actions">
             <span class="cadm-actions">
               <button type="button" class="btn btn--sm btn--ghost btn--icon" :title="labels.edit" :aria-label="labels.edit + ': ' + a.username" @click="openEditor($event, a.id)"><i class="fas fa-edit" aria-hidden="true"></i></button>
-              <button type="button" class="btn btn--sm btn--ghost btn--icon" v-if="a.status === 'active'" :disabled="s.busy" :title="labels.disable" :aria-label="labels.disable + ': ' + a.username" @click="controller.setStatus(a.id, 'disabled')"><i class="fas fa-user-slash" aria-hidden="true"></i></button>
-              <button type="button" class="btn btn--sm btn--ghost btn--icon" v-if="a.status === 'disabled'" :disabled="s.busy" :title="labels.reactivate" :aria-label="labels.reactivate + ': ' + a.username" @click="controller.setStatus(a.id, 'active')"><i class="fas fa-user-check" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn--sm btn--ghost btn--icon" v-if="a.status === 'active'" :disabled="s.busy" :title="labels.disable" :aria-label="labels.disable + ': ' + a.username" @click="changeStatus(a.id, 'disabled')"><i class="fas fa-user-slash" aria-hidden="true"></i></button>
+              <button type="button" class="btn btn--sm btn--ghost btn--icon" v-if="a.status === 'disabled'" :disabled="s.busy" :title="labels.reactivate" :aria-label="labels.reactivate + ': ' + a.username" @click="changeStatus(a.id, 'active')"><i class="fas fa-user-check" aria-hidden="true"></i></button>
               <button type="button" class="btn btn--sm btn--ghost btn--icon" :disabled="s.busy" :title="labels.recovery" :aria-label="labels.recovery + ': ' + a.username" @click="controller.issueRecovery(a.id)"><i class="fas fa-key" aria-hidden="true"></i></button>
             </span>
           </td>
@@ -584,6 +599,10 @@ export const AccountsAdminPanel = {
         <div class="cadm-field">
           <label for="acc-name">{{ labels.name }}</label>
           <input id="acc-name" class="field" type="text" autocomplete="off" maxlength="100" v-model="s.draft.name">
+        </div>
+        <div v-if="s.draft.mode === 'edit'" class="cadm-field cadm-field--wide">
+          <label for="acc-account-note">{{ labels.accountNote }}</label>
+          <textarea id="acc-account-note" class="field" rows="4" maxlength="4000" v-model="s.draft.account_note"></textarea>
         </div>
       <div v-for="limit in limits" :key="limit.key" class="cadm-field">
         <label :for="'acc-' + limit.key">{{ limit.label }}</label>

@@ -65,9 +65,25 @@
       "get": {
         "operationId": "getClinicUserGrants",
         "x-handler": "proposed Flask adapter -> src.clinic.pools.ClinicVisibilityGrant (scoped read); src.clinic.pools.grants_for remains the dictation-specific decision service",
-        "x-permission": "identity_admin or own user.id; never disclose another user's grants without privilege",
+        "x-permission": "active site administrator, identity_admin or own user.id",
         "parameters": [{"name": "user_id", "in": "path", "required": true, "schema": {"type": "integer", "minimum": 1}}],
         "responses": {"200": {"description": "Object-scoped grant snapshot", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GrantList"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "404": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}}
+      },
+      "put": {
+        "operationId": "setClinicRecipientChoiceGrant",
+        "x-permission": "active site administrator",
+        "description": "Sets the administrative recipient-choice ceiling using the shared grant revision. The response includes the updated grant and revision.",
+        "parameters": [{"name": "user_id", "in": "path", "required": true, "schema": {"type": "integer", "minimum": 1}}, {"$ref": "#/components/parameters/Csrf"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "required": ["expected_revision", "recipient_choice"], "properties": {"expected_revision": {"type": "integer", "minimum": 0}, "recipient_choice": {"$ref": "#/components/schemas/RecipientChoice"}}}}}},
+        "responses": {
+          "200": {"description": "Committed grant snapshot", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GrantList"}}}},
+          "400": {"description": "Invalid payload"},
+          "401": {"description": "Authentication required"},
+          "403": {"description": "Administrator or CSRF check failed"},
+          "404": {"description": "User not found or clinic mode disabled"},
+          "409": {"description": "Grant revision conflict"},
+          "503": {"description": "Grant store unavailable"}
+        }
       }
     },
     "/api/clinic/v1/identity/commands": {
@@ -96,7 +112,8 @@
       "DirectoryEntry": {"type": "object", "additionalProperties": false, "required": ["object_id", "account", "display_name", "enabled"], "properties": {"object_id": {"type": ["string", "null"], "maxLength": 128}, "account": {"type": "string", "minLength": 1, "maxLength": 256}, "display_name": {"type": "string", "minLength": 1, "maxLength": 256}, "email": {"type": ["string", "null"], "maxLength": 320}, "enabled": {"type": "boolean"}}},
       "PreviewRequest": {"type": "object", "additionalProperties": false, "required": ["entries"], "properties": {"entries": {"type": "array", "maxItems": 5000, "items": {"$ref": "#/components/schemas/DirectoryEntry"}}}},
       "PreviewResult": {"type": "object", "additionalProperties": false, "required": ["items", "truncated"], "properties": {"items": {"type": "array", "maxItems": 5000, "items": {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"enum": ["new", "changed", "disabled_in_directory", "missing_in_directory", "ambiguous", "unmatchable"]}, "object_id": {"type": ["string", "null"], "maxLength": 128}, "user_id": {"type": "integer", "minimum": 1}}}}, "truncated": {"type": "boolean"}}},
-      "GrantList": {"type": "object", "additionalProperties": false, "required": ["user_id", "revision", "items"], "properties": {"user_id": {"type": "integer", "minimum": 1}, "revision": {"type": "integer", "minimum": 0}, "items": {"type": "array", "maxItems": 1000, "items": {"type": "object", "additionalProperties": false, "required": ["effect", "scope", "actions"], "properties": {"effect": {"enum": ["allow", "deny"]}, "scope": {"enum": ["own", "pool", "all"]}, "pool_id": {"type": "string", "format": "uuid"}, "actions": {"type": "array", "maxItems": 5, "uniqueItems": true, "items": {"enum": ["view", "play", "edit", "export", "release"]}}}}}}},
+      "RecipientChoice": {"type": "string", "enum": ["default_only", "staff_pools_only", "open"]},
+      "GrantList": {"type": "object", "additionalProperties": false, "required": ["user_id", "revision", "items"], "properties": {"user_id": {"type": "integer", "minimum": 1}, "revision": {"type": "integer", "minimum": 0}, "recipient_choice": {"$ref": "#/components/schemas/RecipientChoice", "description": "Present once an administrator has set a choice grant."}, "items": {"type": "array", "maxItems": 1000, "items": {"type": "object", "additionalProperties": false, "required": ["effect", "scope", "actions"], "properties": {"effect": {"enum": ["allow", "deny"]}, "scope": {"enum": ["own", "pool", "all"]}, "pool_id": {"type": "string", "format": "uuid"}, "actions": {"type": "array", "maxItems": 5, "uniqueItems": true, "items": {"enum": ["view", "play", "edit", "export", "release"]}}}}}}},
       "IdentityCommand": {"oneOf": [{"$ref": "#/components/schemas/CreateLocalUser"}, {"$ref": "#/components/schemas/SetUserStatus"}, {"$ref": "#/components/schemas/RevokeUserSessions"}]},
       "CreateLocalUser": {"type": "object", "additionalProperties": false, "required": ["command", "request_id", "payload"], "properties": {"command": {"const": "create_local_user"}, "request_id": {"type": "string", "format": "uuid"}, "payload": {"type": "object", "additionalProperties": false, "required": ["username", "email"], "properties": {"username": {"type": "string", "minLength": 2, "maxLength": 20}, "email": {"type": "string", "minLength": 3, "maxLength": 320}, "name": {"type": "string", "minLength": 1, "maxLength": 256}}}}},
       "SetUserStatus": {"type": "object", "additionalProperties": false, "required": ["command", "request_id", "expected_version", "payload"], "properties": {"command": {"const": "set_user_status"}, "request_id": {"type": "string", "format": "uuid"}, "expected_version": {"type": "integer", "minimum": 1}, "payload": {"type": "object", "additionalProperties": false, "required": ["user_id", "status", "reason"], "properties": {"user_id": {"type": "integer", "minimum": 1}, "status": {"enum": ["active", "disabled"]}, "reason": {"type": "string", "minLength": 1, "maxLength": 512}}}}},
