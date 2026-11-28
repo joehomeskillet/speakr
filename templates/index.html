@@ -401,9 +401,12 @@
         /* Overrides inside an admin page: the shell rules above (primary, icon-button, field) are written for other views. */
         .v8-ui .v8-admin-page .field:is(div,label){appearance:auto;width:auto;min-height:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;font-size:inherit;margin:0 0 16px}
         .v8-ui .v8-admin-page .filterbar .field{margin:0}
+        .v8-ui .asr-source[aria-checked=true]:not(:disabled),
+        .v8-ui .clinic-resources-view .asr-profile-save:not(:disabled),
         .v8-ui :is(.v8-admin-page,.clinic-asr-profiles-view) :is(.primary,.btn--primary){
             background-color:var(--ink);border-color:var(--ink);color:var(--v8-on-ink,var(--cream))
         }
+        .v8-ui .clinic-resources-view .asr-profile-save:hover:not(:disabled),
         .v8-ui :is(.v8-admin-page,.clinic-asr-profiles-view) :is(.primary,.btn--primary):hover:not(:disabled){
             background-color:color-mix(in srgb,var(--brand2) 90%,var(--v8-on-ink,var(--cream)));
             border-color:color-mix(in srgb,var(--brand2) 90%,var(--v8-on-ink,var(--cream)))
@@ -414,6 +417,7 @@
         .v8-ui .v8-admin-page .icon-button:hover:not(:disabled){background:var(--v8-s2);border-color:var(--line);color:var(--v8-text)}
         .v8-ui .v8-admin-page .filterbar .icon-button{width:40px;height:40px}
         .v8-ui .v8-admin-page .filterbar :is(input,select){min-height:40px!important}
+        .v8-ui .clinic-resources-view :is(.asr-source,.asr-profile-save):disabled,
         .v8-ui .cadm :is(.v8-admin-page,.clinic-asr-profiles-view) :is(button,input,select,textarea):disabled{
             background-color:var(--v8-s2);border-color:var(--line);color:var(--v8-text-2);cursor:not-allowed;opacity:1
         }

@@ -12,79 +12,33 @@ grant changes the next read. A caller that sends the version it last saw
 gets ``stale_version`` when the grants have moved, and a rejected change
 does not bump the version.
 
-shortcut: process-local grant store, replace it when grants must survive a
-process restart.
+Grants and their versions live in the clinic database. Reports read them
+through the same session used for the aggregate query.
 """
 
 from __future__ import annotations
 
-import uuid
 from collections.abc import Iterable
 from contextlib import contextmanager
-from dataclasses import dataclass, field
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from src.clinic import statistics_grants
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
 from src.clinic.policy import Decision, RecordingFacts, Subject, decide
 from src.clinic.statistics import StatisticsQuery, StatisticsResult, summarize
 
 AGGREGATE = "aggregate"
-_GRANTABLE = frozenset({"author", "author_pool"})
+AggregateGrant = statistics_grants.AggregateGrant
+StatisticsAccessError = statistics_grants.StatisticsGrantError
 
 
-class StatisticsAccessError(Exception):
-    """The statistics read or grant change cannot proceed. ``code`` is stable."""
-
-    def __init__(self, code: str):
-        super().__init__(code)
-        self.code = code
-
-
-@dataclass(frozen=True)
-class AggregateGrant:
-    """One explicit aggregate grant, after it has been stored."""
-
-    id: str
-    user_id: int
-    scope: str
-    author_ids: frozenset[int]
-    pool_ids: frozenset[str]
-    version: int
-
-
-@dataclass
-class _StoredGrant:
-    id: str
-    scope: str
-    author_ids: frozenset[int]
-    pool_ids: frozenset[str]
-
-
-@dataclass
-class _Account:
-    version: int = 0
-    grants: dict[str, _StoredGrant] = field(default_factory=dict)
-
-
-_accounts: dict[int, _Account] = {}
-
-
-def clear_grants() -> None:
-    """Drop every stored grant. Tests use this between cases."""
-    _accounts.clear()
-
-
-def version_of(user_id: int) -> int:
+def version_of(user_id: int, *, session: Session | None = None) -> int:
     """Grant-set version for ``user_id``. Unknown accounts are version 0."""
     _require_clinic()
-    user_id = _user_id(user_id)
-    account = _accounts.get(user_id)
-    if account is None:
-        return 0
-    return account.version
+    return statistics_grants.version_of(user_id, session=session)
 
 
 def grant_aggregate(
@@ -94,20 +48,14 @@ def grant_aggregate(
     author_ids: Iterable[int] = (),
     pool_ids: Iterable[str] = (),
     expected_version: int | None = None,
+    session: Session | None = None,
 ) -> AggregateGrant:
     """Store one author or author-pool aggregate grant and bump the version."""
     _require_clinic()
-    user_id = _user_id(user_id)
-    scope, authors, pools = _scope(scope, author_ids, pool_ids)
-    account, current = _current(user_id)
-    _check_version(current, expected_version)
-    if account is None:
-        account = _Account()
-        _accounts[user_id] = account
-    grant_id = str(uuid.uuid4())
-    account.grants[grant_id] = _StoredGrant(grant_id, scope, authors, pools)
-    account.version += 1
-    return AggregateGrant(grant_id, user_id, scope, authors, pools, account.version)
+    return statistics_grants.grant_aggregate(
+        user_id, scope, author_ids=author_ids, pool_ids=pool_ids,
+        expected_version=expected_version, session=session,
+    )
 
 
 def revoke_aggregate(
@@ -115,19 +63,13 @@ def revoke_aggregate(
     grant_id: str,
     *,
     expected_version: int | None = None,
+    session: Session | None = None,
 ) -> int:
     """Remove one grant. The next read no longer includes its dictations."""
     _require_clinic()
-    user_id = _user_id(user_id)
-    if not isinstance(grant_id, str) or not grant_id:
-        raise StatisticsAccessError("unknown_grant")
-    account, current = _current(user_id)
-    _check_version(current, expected_version)
-    if account is None or grant_id not in account.grants:
-        raise StatisticsAccessError("unknown_grant")
-    del account.grants[grant_id]
-    account.version += 1
-    return account.version
+    return statistics_grants.revoke_aggregate(
+        user_id, grant_id, expected_version=expected_version, session=session,
+    )
 
 
 def read_aggregates(
@@ -146,11 +88,10 @@ def read_aggregates(
         raise StatisticsAccessError("not_statistics")
     if capability != AGGREGATE:
         raise StatisticsAccessError("capability_denied")
-    account, current = _current(user_id)
-    _check_version(current, expected_version)
-    if account is None or not account.grants:
+    grants = statistics_grants.grants_for(user_id, expected_version=expected_version, session=session)
+    if not grants:
         raise StatisticsAccessError("no_grant")
-    author_ids, pool_ids = _union(account)
+    author_ids, pool_ids = _union(grants)
     # shortcut: wraps session.query for this call only, move the scope into
     # summarize if that function learns an explicit dictation filter.
     with _limited(session, author_ids, pool_ids):
@@ -180,67 +121,10 @@ def _user_id(user_id: int) -> int:
     return user_id
 
 
-def _scope(
-    scope: str,
-    author_ids: Iterable[int],
-    pool_ids: Iterable[str],
-) -> tuple[str, frozenset[int], frozenset[str]]:
-    if not isinstance(scope, str):
-        raise StatisticsAccessError("unknown_scope")
-    name = scope.strip().lower()
-    if name == "all":
-        raise StatisticsAccessError("all_scope_forbidden")
-    if name not in _GRANTABLE:
-        raise StatisticsAccessError("scope_not_grantable")
-    authors = _members(author_ids, "author_id")
-    pools = _members(pool_ids, "pool_id")
-    if name == "author" and pools:
-        raise StatisticsAccessError("scope_mismatch")
-    if name == "author_pool" and authors:
-        raise StatisticsAccessError("scope_mismatch")
-    if name == "author" and not authors:
-        raise StatisticsAccessError("empty_scope")
-    if name == "author_pool" and not pools:
-        raise StatisticsAccessError("empty_scope")
-    return name, authors, pools
-
-
-def _members(values: Iterable, code: str) -> frozenset:
-    if isinstance(values, (str, bytes)) or not isinstance(values, Iterable):
-        raise StatisticsAccessError(code)
-    found = []
-    for value in values:
-        if code == "author_id":
-            if isinstance(value, bool) or not isinstance(value, int):
-                raise StatisticsAccessError(code)
-        elif not isinstance(value, str) or not value or value != value.strip():
-            raise StatisticsAccessError(code)
-        found.append(value)
-    if len(found) != len(set(found)):
-        raise StatisticsAccessError(code)
-    return frozenset(found)
-
-
-def _current(user_id: int) -> tuple[_Account | None, int]:
-    account = _accounts.get(user_id)
-    if account is None:
-        return None, 0
-    return account, account.version
-
-
-def _check_version(current: int, expected: int | None) -> None:
-    if expected is None:
-        return
-    if isinstance(expected, bool) or not isinstance(expected, int) or expected < 0:
-        raise StatisticsAccessError("version")
-    if expected != current:
-        raise StatisticsAccessError("stale_version")
-
-
-def _union(account: _Account) -> tuple[frozenset[int], frozenset[str]]:
+def _union(grants: Iterable[AggregateGrant]) -> tuple[frozenset[int], frozenset[str]]:
     authors: set[int] = set()
     pools: set[str] = set()
-    for grant in account.grants.values():
+    for grant in grants:
         authors.update(grant.author_ids)
         pools.update(grant.pool_ids)
     return frozenset(authors), frozenset(pools)
