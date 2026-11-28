@@ -41,7 +41,7 @@ import { createHandmicView } from './handmic-webhid.js';
 import { PlaybackTempo, usePlaybackTempo } from './playback-tempo-ui.js';
 import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
-import { applyReplacements, findMatches } from './correction-toolbar-ui.js';
+import { applyReplacements, findMatches, transformSelectionCase } from './correction-toolbar-ui.js';
 import { FORMATS, label as richTextLabel, sanitizePaste } from './richtext-editor-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
 import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
@@ -137,6 +137,8 @@ export const TEXT = Object.freeze({
     ctxClosed: 'Kontextbereich',
     find: 'Im Text suchen',
     replace: 'Suchen und Ersetzen',
+    upperCase: 'Auswahl in Grossbuchstaben',
+    lowerCase: 'Auswahl in Kleinbuchstaben',
     fontDown: 'Text kleiner anzeigen',
     fontUp: 'Text grösser anzeigen',
     focusOn: 'Vollbild öffnen',
@@ -1003,6 +1005,8 @@ const ICON_PATHS = Object.freeze({
     marker: '<path d="M6 21V4m0 0c4-4 8 4 12 0v10c-4 4-8-4-12 0"/>',
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
     replace: '<path d="M4 6h13l-3-3m3 3-3 3M20 18H7l3-3m-3 3 3 3M5 11v2m14-2v2"/>',
+    'upper-case': '<path d="m3 19 5-14 5 14M5 14h6m7 3V7m-3 3 3-3 3 3"/>',
+    'lower-case': '<path d="M11 11v8m0-4a4 4 0 1 0-8 0 4 4 0 0 0 8 0m7-8v10m-3-3 3 3 3-3"/>',
     'font-down': '<path d="m3 19 6-14 6 14M5 14h8m4-2h5"/>',
     'font-up': '<path d="m2 19 6-14 6 14M4 14h8m4-2h6m-3-3v6"/>',
     focus: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
@@ -1098,6 +1102,8 @@ const LOCAL_CSS = `
 @media(max-width:700px){
   .v8-ui .editor-page .context-tools .tooltip{max-width:160px}
   .v8-ui .editor-page .context-tools>.tool-wrap:nth-child(-n+2) .tooltip{left:0;right:auto}
+  .v8-ui .editor-page .symbol-toolbar .tooltip:not([data-visible=true]){display:none}
+  .v8-ui .editor-page .symbol-toolbar :is(.document-tools,.font-group)>.tool-wrap:last-child .tooltip{left:auto;right:0;transform:none}
   .v8-ui .editor-page .editor-popover{position:static;width:auto;max-height:none;margin:8px 12px}
   .v8-ui .editor-page .find-row{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,auto)}
   .v8-ui .editor-page .find-row>input{min-width:0;width:100%}
@@ -1286,12 +1292,13 @@ export const CorrectionBody = {
                         start: el ? selected.start + el.selectionStart : 0, end: el ? selected.start + el.selectionEnd : 0 };
                 }
                 const el = textEl.value;
-                return { text: e.text.value, start: el ? el.selectionStart : 0, end: el ? el.selectionEnd : 0 };
+                return { text: e.text.value, start: el?.selectionStart ?? 0, end: el?.selectionEnd ?? 0, direction: el?.selectionDirection };
             },
             write(next) {
                 if (documentMode.value) return;
-                c.setText(next.text);
-                later(() => { const el = textEl.value; if (el) el.setSelectionRange(next.start, next.end); });
+                if (c.setText(next.text)) {
+                    later(() => textEl.value?.setSelectionRange(next.start, next.end, next.direction));
+                }
             },
             select(start, end) {
                 const range = documentMode.value && (runRanges.value.find((r) => r.end > start) || runRanges.value.at(-1));
@@ -1330,12 +1337,20 @@ export const CorrectionBody = {
             canUndo: canEdit.value && doc.historyState.value.canUndo,
             canRedo: canEdit.value && doc.historyState.value.canRedo,
         } : tbState.value);
+        function restoreRunSelection({ runId, start, end, direction }) {
+            later(() => {
+                const field = runField(runId);
+                field?.focus();
+                if (start !== undefined) field?.setSelectionRange(start, end, direction);
+            });
+        }
         function historyAction(action) {
             if (!documentMode.value) return tb[action]();
-            if (!canEdit.value || !doc[action]()) return false;
+            let selection;
+            if (!canEdit.value || !doc[action]((entry) => { selection = entry; })) return false;
             const { nodeId, runId } = doc.selection.value;
             const target = runId || doc.doc.value.nodes.find((node) => node.id === nodeId)?.runs[0]?.id;
-            if (target) later(() => runField(target)?.focus());
+            if (selection || target) restoreRunSelection(selection || { runId: target });
             return true;
         }
         function editSelection(text) {
@@ -1437,6 +1452,22 @@ export const CorrectionBody = {
             }, { flush: 'post' });
         }
         const setTextEl = (node) => { textEl.value = node && typeof node === 'object' ? node : null; };
+        function onSelectionCase(mode) {
+            if (!documentMode.value) {
+                if (tb.changeSelectionCase(mode)) textEl.value?.focus();
+                return;
+            }
+            if (!canEdit.value || !currentRun.value) return;
+            const { node, run } = currentRun.value;
+            const field = runField(run.id);
+            if (!field || field.value !== run.text) return;
+            const before = { runId: run.id, start: field.selectionStart, end: field.selectionEnd, direction: field.selectionDirection };
+            const next = transformSelectionCase({ text: run.text, ...before }, mode);
+            // Reject edits that the run sanitizer would truncate or change outside the selection.
+            if (!next || sanitizePaste(next.text).text !== next.text) return;
+            const after = { ...before, end: next.end };
+            if (doc.editRun(node.id, run.id, next.text, { before, after })) restoreRunSelection(after);
+        }
         const setRunRoot = (node) => { runRoot.value = node; };
         const onTextInput = (event) => { c.onInput(event); tb.notifyChange(); };
         const onTextKeydown = (event) => {
@@ -1570,7 +1601,7 @@ export const CorrectionBody = {
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff, finishOptions, finishWorkflow, onFinishKeydown,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
             ...entryModal, entryListName: 'Eigene Liste', addSelectedPhrase, canAddPhrase,
-            onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
+            onQuery, onReplacement, onCase, onSelectionCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
             SessionTransportNotice,
             documentMode, doc, setRunRoot, currentRun, selectedNodeIndex, canSeekRun, currentLink, historyState, historyAction,
@@ -1729,6 +1760,12 @@ export const CorrectionBody = {
                     :aria-expanded="String(tbState.searchOpen)" data-tool="search" @click="tb.toggleSearch()"><UiIcon name="search" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.replace }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.replace"
                     :aria-expanded="String(tbState.searchOpen)" data-tool="replace" @click="tb.openSearch()"><UiIcon name="replace" /></button></span>
+          </div>
+          <div class="toolbar-group">
+            <span class="tool-wrap" v-tip="{ label: TEXT.upperCase }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.upperCase"
+                    :disabled="!canEdit" data-tool="upper-case" @mousedown.left.prevent @click="onSelectionCase('upper')"><UiIcon name="upper-case" /></button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.lowerCase }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.lowerCase"
+                    :disabled="!canEdit" data-tool="lower-case" @mousedown.left.prevent @click="onSelectionCase('lower')"><UiIcon name="lower-case" /></button></span>
           </div>
           <div v-if="documentMode" class="toolbar-group document-tools">
             <span v-for="format in FORMATS" :key="format" class="tool-wrap" v-tip="{ label: formatName(format) }">
