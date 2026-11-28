@@ -91,6 +91,8 @@ _adapter_input: ContextVar[RecordingFacts | None] = ContextVar('clinic_pool_inpu
 
 def recording_type_denial(dictation, user_id: int, action: str, *, source=None) -> Decision | None:
     """Restrict private recordings before any grants or administrative exceptions."""
+    if dictation is not None and dictation.private_purge_at is not None:
+        return Decision(False, 'not_found')
     if source is not None and is_private_source(source):
         author = source.user_id if dictation is None else dictation.author_user_id
         known_private = True

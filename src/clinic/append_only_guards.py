@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from sqlalchemy import text
 
+from src.clinic.recording_type import purge_guard_sql
+
 # Table -> human reason used in the trigger message.
 APPEND_ONLY_TABLES: dict[str, str] = {
     "clinic_output_receipt": "clinic output receipt",
@@ -21,6 +23,7 @@ APPEND_ONLY_TABLES: dict[str, str] = {
 }
 
 _PG_FUNCTION = "clinic_append_only"
+_PRIVATE_CONTENT_TABLES = {"clinic_output_receipt", "clinic_marker_event", "clinic_recognition_mark"}
 
 
 def trigger_names(table: str) -> tuple[str, str]:
@@ -52,11 +55,14 @@ def install_append_only_guards(engine) -> None:
             )
         }
         if engine.name == "postgresql":
+            deletion_exception = purge_guard_sql("postgresql", "(to_jsonb(OLD)->>'dictation_id')")
             conn.execute(
                 text(
                     "CREATE OR REPLACE FUNCTION " + _PG_FUNCTION + "() "
                     "RETURNS trigger LANGUAGE plpgsql AS $$ "
                     "BEGIN "
+                    "IF TG_OP = 'DELETE' AND TG_ARGV[1] = 'true' THEN "
+                    f"IF {deletion_exception} THEN RETURN OLD; END IF; END IF; "
                     "RAISE EXCEPTION '% is append-only', TG_ARGV[0] "
                     "USING ERRCODE = 'check_violation'; "
                     "END; $$"
@@ -65,13 +71,17 @@ def install_append_only_guards(engine) -> None:
         for table, label in APPEND_ONLY_TABLES.items():
             if table not in present:
                 continue
+            private_content = table in _PRIVATE_CONTENT_TABLES and "clinic_dictation" in present
             if engine.name == "sqlite":
                 for name, event in zip(trigger_names(table), ("UPDATE", "DELETE")):
+                    condition = ""
+                    if event == "DELETE" and private_content:
+                        condition = " WHEN NOT " + purge_guard_sql("sqlite", "OLD.dictation_id")
                     conn.execute(text("DROP TRIGGER IF EXISTS " + name))
                     conn.execute(
                         text(
                             "CREATE TRIGGER " + name + " BEFORE " + event + " ON " + table
-                            + " FOR EACH ROW BEGIN SELECT RAISE(ABORT, '" + label
+                            + " FOR EACH ROW" + condition + " BEGIN SELECT RAISE(ABORT, '" + label
                             + " is append-only'); END"
                         )
                     )
@@ -82,6 +92,6 @@ def install_append_only_guards(engine) -> None:
                     text(
                         "CREATE TRIGGER " + name + " BEFORE UPDATE OR DELETE ON " + table
                         + " FOR EACH ROW EXECUTE PROCEDURE " + _PG_FUNCTION
-                        + "('" + label + "')"
+                        + "('" + label + "', '" + str(private_content).lower() + "')"
                     )
                 )

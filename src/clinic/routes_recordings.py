@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from flask import Blueprint, abort, jsonify, request, session
 from flask_login import current_user
 from werkzeug.exceptions import HTTPException
 
-from src.clinic import policy, recordings_list, workflow
+from src.clinic import policy, private_recording_trash, recordings_list, workflow
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.routes_worklist import WorklistEntry
 
@@ -69,5 +69,21 @@ def create_blueprint(load_entries: Callable[[int], Iterable[WorklistEntry]]) -> 
         except recordings_list.RecordingsQueryError:
             abort(400)
         return jsonify(body)
+
+    @blueprint.get('/trash')
+    def list_trash():
+        return jsonify(items=private_recording_trash.list_for_author(current_user.id))
+
+    @blueprint.post('/<uuid:dictation_id>/trash')
+    def trash_recording(dictation_id: UUID):
+        if not private_recording_trash.move(str(dictation_id), current_user.id, restore=False):
+            abort(404)
+        return '', 204
+
+    @blueprint.post('/<uuid:dictation_id>/restore')
+    def restore_recording(dictation_id: UUID):
+        if not private_recording_trash.move(str(dictation_id), current_user.id, restore=True):
+            abort(404)
+        return '', 204
 
     return blueprint

@@ -179,7 +179,7 @@ def load_entries(actor: int, *, include_own_private: bool = False) -> list[route
     if include_own_private:
         types = or_(types, and_(ClinicDictation.author_user_id == actor,
                                ClinicDictation.recording_type.in_(PRIVATE_TYPES)))
-    query = query.filter(types)
+    query = query.filter(types, ClinicDictation.private_purge_at.is_(None))
     admin = _is_active_site_admin(db.session, db.session.get(User, actor))
     if not admin:
         conditions = [ClinicDictation.author_user_id == actor, item.assignee_user_id == actor]

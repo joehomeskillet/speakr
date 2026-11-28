@@ -3115,13 +3115,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             ];
             const clinicMenuToolbarVisible = computed(() => clinicMenuActions.some((entry) => entry.view === currentView.value));
             // Recorded takes and selected files share the same upload and server receipt.
-            const clinicUploadFile = async (file, recordingTitle) => {
+            const clinicUploadFile = async (file, recordingTitle, recordingType) => {
                 const body = new FormData();
                 body.append('file', file);
                 if (recordingTitle !== undefined) {
                     body.append('title', recordingTitle);
                     body.append('from_recorder', 'true');
                 }
+                if (recordingType) body.append('recording_type', recordingType);
                 const token = clinicMenu ? await clinicMenu.getUploadCsrfToken() : null;
                 const response = await fetch('/upload', { method: 'POST', headers: token ? { 'X-CSRFToken': token } : {}, body });
                 if (!response.ok) throw new Error('upload_failed');
@@ -3145,7 +3146,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             // A view that creates or lists dictations hands over to the existing correction view; the archive is read only.
             const openClinicMenuDictation = (payload) => openClinicDictation({
                 dictationId: payload && payload.dictationId,
-                mode: payload && payload.mode === 'view' ? 'player' : 'correction',
+                authorUserId: payload?.authorUserId,
+                mode: { view: 'player', author_case: 'author_case' }[payload?.mode] || 'correction',
             });
             if (clinicWorklist) {
                 // The stock recorder switches to the upstream 'recording' view (or null, 'detail' after an upload).

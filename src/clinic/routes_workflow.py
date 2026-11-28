@@ -370,6 +370,8 @@ def create_blueprint(
             if connection.dialect.name == 'sqlite' and not connection.connection.driver_connection.in_transaction:
                 connection.exec_driver_sql('BEGIN IMMEDIATE')
         row = db.session.get(ClinicDictation, target, with_for_update=author_only, populate_existing=author_only)
+        if row is not None and row.private_purge_at is not None:
+            abort(404)
         if author_only and (row is None or row.author_user_id != actor):
             abort(403)
         if name == 'send' and not row.is_report:
@@ -394,6 +396,8 @@ def create_blueprint(
             if author_only:
                 return apply(row, expected, key, datetime.now(timezone.utc))
             locked = db.session.get(ClinicDictation, target, populate_existing=True, with_for_update=True)
+            if locked is None or locked.private_purge_at is not None:
+                abort(404)
             return apply(locked, expected, key, datetime.now(timezone.utc))
 
         try:

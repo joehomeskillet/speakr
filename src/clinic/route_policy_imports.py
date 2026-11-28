@@ -18,6 +18,9 @@ PUBLIC: tuple[str, ...] = (
 
 AUTH: tuple[str, ...] = (
     'clinic_recordings.list_recordings',
+    'clinic_recordings.list_trash',
+    'clinic_recordings.trash_recording',
+    'clinic_recordings.restore_recording',
     'clinic_offline.capability',
     'clinic_imports_web.intents',
     'clinic_imports_web.inventory',

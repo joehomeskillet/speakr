@@ -116,7 +116,7 @@ def provider_task_for(recording_id, provider, audio_path):
     return context.saved, context.save
 
 
-def cancel_remote_tasks(jobs):
+def cancel_remote_tasks(jobs, *, require_confirmation=False):
     """Cancel the WhisperX ASR jobs saved on these processing jobs.
 
     Called before processing jobs or their recording are deleted, so the
@@ -124,7 +124,7 @@ def cancel_remote_tasks(jobs):
     that cannot be reached keeps the job until its result expires.
 
     Returns the ids of the processing jobs whose ASR job the service
-    confirmed as removed.
+    confirmed as removed. A private purge retries if confirmation is missing.
     """
     removed = []
     for job in jobs:
@@ -141,8 +141,11 @@ def cancel_remote_tasks(jobs):
             from src.services.transcription.connectors.asr_endpoint import cancel_remote_job
             if cancel_remote_job(task['base_url'], task['job_id']) is True:
                 removed.append(job.id)
+                continue
         except Exception as e:
             logger.warning(f"Could not cancel ASR job {task.get('job_id')} of processing job {job.id}: {e}")
+        if require_confirmation:
+            raise RuntimeError('ASR job removal was not confirmed')
     return removed
 
 

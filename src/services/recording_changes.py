@@ -174,7 +174,7 @@ def _before_flush(session, flush_context, instances):
 
 def _tombstones_for_deleted_recording(session, recording, now):
     reason = session.info.get('tombstone_reason', 'deleted')
-    if recording.user_id is not None:
+    if recording.user_id is not None and reason is not None:
         _add_tombstone(session, recording.id, recording.user_id, now, reason)
 
 

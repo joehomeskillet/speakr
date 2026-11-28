@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-    RECORDING_TEMPLATE, RecordingView, TEXT, createRecordingViewController, isAudioFile, receiptDictationId,
+    RECORDING_TEMPLATE, RECORDING_TYPES, RecordingView, TEXT, createRecordingViewController, isAudioFile, receiptDictationId,
     registerRecordingView,
 } from '../../../static/js/clinic/compose-recording.js';
 
@@ -31,9 +31,9 @@ function make(extra) {
     return { c, rec, uploadFile, onOpen, onWorklist, client };
 }
 
-async function toReview(c) {
+async function toReview(c, type) {
     c.setTitle('Bericht');
-    await c.start();
+    await c.start(type);
     c.pause();
     c.resume();
     await c.stop();
@@ -44,6 +44,35 @@ const source = () => readFileSync(new URL('../../../static/js/clinic/compose-rec
     .replace(/^\s*\/\/.*$/gm, '');
 
 afterEach(() => vi.unstubAllGlobals());
+
+it('requires one of four templates and saves private recordings without sending them', async () => {
+    expect(RECORDING_TYPES.map(type => type.label)).toEqual([
+        'Sitzung', 'Patientengespräch', 'Bericht', 'Persönliche Notizen',
+    ]);
+    expect(RECORDING_TYPES[1].hint).toContain('Einwilligung');
+    expect(RECORDING_TYPES[3].hint).toBe('Nur für Sie sichtbar. Bitte keine Patientendaten.');
+    const request = vi.fn();
+    for (const kind of ['sitzung', 'patientengespraech', 'notiz']) {
+        const { c, rec, onOpen } = make({
+            recorder: recorder(async () => ({ dictation_id: 'private' })),
+            options: { oneButton: true, client: { request } },
+        });
+        expect(c.model().recordingType).toBeNull();
+        expect(c.start().code).toBe('recording_type_required');
+        expect(rec.startRecording).not.toHaveBeenCalled();
+        expect((await c.start(kind)).ok).toBe(true);
+        await c.stop();
+        expect((await c.sendRecording()).ok).toBe(true);
+        expect(rec.uploadRecordedAudio).toHaveBeenCalledWith(expect.objectContaining({ recordingType: kind }));
+        expect(c.model()).toMatchObject({ phase: 'sent', canSubmit: false });
+        expect((await c.submit()).ok).toBe(false);
+        expect(c.openCreated()).toBe(true);
+        expect(onOpen).toHaveBeenCalledWith({ dictationId: 'private', mode: 'author_case', authorUserId: 4 });
+        expect(c.another().ok).toBe(true);
+        expect(c.model().recordingType).toBeNull();
+    }
+    expect(request).not.toHaveBeenCalled();
+});
 
 describe('recording view controller', () => {
     it('requires a user id, a recorder and an upload function', () => {
@@ -446,7 +475,7 @@ describe('view registration and setup', () => {
         }, { emit });
         view.c.setTitle('x');
         await view.c.checkRouting();
-        await view.c.start();
+        await view.c.start('bericht');
         await view.c.stop();
         await view.c.send();
         view.c.toWorklist();
@@ -463,7 +492,7 @@ describe('view registration and setup', () => {
         const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: rec, uploadFile: vi.fn(), vue: fakeVue() }, {});
         const media = { duration: Infinity, currentTime: 0, paused: true, play: vi.fn(), pause: vi.fn() };
         const disabled = (id) => view.m.value.controls.find(b => b.id === id).disabled;
-        await toReview(view.c);
+        await toReview(view.c, 'bericht');
         expect(view.reviewSource()).toBe('blob:take');
         expect(disabled('play')).toBe(true);
         view.loadReview({ currentTarget: media });
@@ -501,7 +530,7 @@ describe('view registration and setup', () => {
             play: vi.fn(() => { player.paused = false; }), pause: vi.fn(() => { player.paused = true; }) };
         const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: rec, uploadFile: vi.fn(), vue, player }, {});
         const doc = { body: {}, addEventListener: vi.fn(), removeEventListener: vi.fn() };
-        const inside = {};
+        const inside = { closest: () => ({ dataset: { recordingType: 'bericht' } }) };
         view.root.value = { ownerDocument: doc, contains: (target) => target === inside };
         vue.hooks.mount[0]();
         const [type, dispatch] = doc.addEventListener.mock.calls[0];
@@ -512,8 +541,9 @@ describe('view registration and setup', () => {
         await press('R', { target: { tagName: 'TEXTAREA' } });
         await press('R', { ctrlKey: true });
         await press('R', { repeat: true });
-        expect(rec.startRecording).not.toHaveBeenCalled();
         await press('R', { target: doc.body });
+        expect(rec.startRecording).not.toHaveBeenCalled();
+        await press('R');
         expect(view.m.value.phase).toBe('recording');
         await press('R');
         expect(view.m.value.phase).toBe('paused');

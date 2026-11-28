@@ -211,8 +211,9 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
     """
     if processing_source != WEB_SOURCE:
         return None
+    kind = requested_type or recording_type.REPORT
     pool_id = author_pool_for(owner.id)
-    if pool_id is None:
+    if pool_id is None and kind == recording_type.REPORT:
         return _refuse(recording, storage, 'clinic_no_author_pool', MSG_NO_POOL, 403)
 
     from src.services.upload_cancel import client_upload_id_from
@@ -221,7 +222,6 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
     origin = 'web-recorder' if str(form.get('from_recorder', '')).lower() == 'true' else 'web-upload'
     # Keep the default ref unchanged. The mark sits before ``time=`` so existing
     # parsers that split off the recording id still match.
-    kind = requested_type or recording_type.REPORT
     asr_mark = '' if speech_recognition_requested(form, kind) else ':asr=off'
     try:
         with storage.materialize(recording.audio_path) as stored:
@@ -236,6 +236,8 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
                     origin_ref=f'upload:recording:{recording.id}{asr_mark}:time={time_source}',
                     author_user_id=owner.id, idempotency_key=key, now=moment, commit=False)
         dictation = db.session.get(ClinicDictation, receipt.dictation_id)
+        if dictation.private_purge_at is not None:
+            raise IngestError('conflict', 'recording is in the trash')
         if dictation.pool_id is None:
             dictation.pool_id = pool_id
         if db.session.get(ClinicWorkflowDictation, dictation.id) is None:

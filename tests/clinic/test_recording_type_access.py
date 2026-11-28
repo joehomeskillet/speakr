@@ -1,5 +1,6 @@
 """Exercise the type boundary through real clinic startup, with synthetic data."""
 
+import json
 import os
 import subprocess
 import sys
@@ -116,7 +117,8 @@ def _exercise():
     pool, report, rows, source, job, frozen_id, revision = ids
     private_ids = {target for target, _ in rows.values()}
     browser, headers = _client(app, author)
-    typist_browser, lead_browser, admin_browser = [_client(app, actor)[0] for actor in (typist, lead, admin)]
+    other_clients = [_client(app, actor) for actor in (typist, lead, admin)]
+    typist_browser, lead_browser, admin_browser = [client for client, _ in other_clients]
 
     def items(client, path):
         response = client.get(path)
@@ -214,6 +216,128 @@ def _exercise():
         output.assert_not_called()
         exported = file_exporter.export_recording(report_id)
         assert exported is not None and 'Synthetischer Bericht' in Path(exported).read_text(encoding='utf-8')
+
+    _exercise_trash(app, browser, headers, other_clients,
+                    author, rows['notiz'], report, report_id, source, job, revision)
+
+
+def _exercise_trash(app, browser, headers, other_clients, author, note, report,
+                    report_id, source, job, revision):
+    from sqlalchemy import text
+
+    from src.clinic import private_recording_trash as trash, startup
+    from src.clinic.audio_db_guards import install_audio_db_guards
+    from src.clinic.audio_revisions import ClinicAudioSegment
+    from src.clinic.models import ClinicTranscriptRevision
+    from src.clinic.richtext import ClinicRichTextSnapshot
+    from src.config.startup import run_daily_maintenance
+    from src.models import AuditEvent, RecordingTombstone
+    from src.services.storage import get_storage_service
+    from src.services.transcription.connectors import asr_endpoint
+
+    target, recording_id = note
+    collection = API + '/recordings'
+    path = f'{collection}/{target}'
+    detail = f'{API}/dictations/{target}/detail'
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    trashed_at = now - timedelta(days=30, hours=1)
+    with app.app_context():
+        original = ClinicOriginal.query.filter_by(dictation_id=target).one()
+        original_path = Path(startup.originals_root(app)) / original.storage_key
+        original_path.parent.mkdir(parents=True, exist_ok=True)
+        original_path.write_bytes(b'synthetic immutable audio')
+        segment_path = original_path.with_name('synthetic-segment.wav')
+        segment_path.write_bytes(b'synthetic segment audio')
+        worker_path = Path(get_storage_service().resolve_local_filesystem_path(
+            db.session.get(Recording, source).audio_path))
+        pending = db.session.get(ProcessingJob, job)
+        pending.status = 'queued'
+        pending.provider_task = json.dumps({'provider': 'asr_endpoint', 'task': {
+            'base_url': 'http://127.0.0.1:9', 'job_id': 'synthetic',
+        }})
+        db.session.add(ClinicAudioSegment(dictation_id=target, storage_key=segment_path.name,
+                                         content_hash='c' * 64, duration_ms=50))
+        db.session.add(ClinicRichTextSnapshot(revision_id=revision, version=1, payload={'text': SECRET}))
+        db.session.commit()
+        install_audio_db_guards(db.engine)
+
+    assert browser.post(f'{collection}/{report}/trash', headers=headers).status_code == 404
+    assert browser.delete('/api/recordings/bulk', headers=headers,
+                          json={'recording_ids': [report_id]}).status_code == 403
+    for client, csrf in other_clients:
+        assert client.post(path + '/trash', headers=csrf).status_code == 404
+        assert client.post(path + '/restore', headers=csrf).status_code == 404
+
+    assert browser.post(path + '/trash', headers=headers).status_code == 204
+    assert browser.get(detail).status_code == 404
+    assert browser.get(f'/api/recordings/{source}').status_code == 404
+    assert browser.get(f'/audio/{source}').status_code == 404
+    own = browser.get(collection + '/trash').json['items']
+    assert [item['dictation_id'] for item in own] == [target]
+    assert 'purge_day' in own[0] and own[0]['title'] == SECRET
+    for client, _ in [(browser, headers), *other_clients]:
+        for url in (collection, API + '/worklist/rows'):
+            response = client.get(url)
+            assert response.status_code == 200
+            assert target not in {item['dictation_id'] for item in response.json['items']}
+        for url, key in (('/recordings', None), ('/api/recordings', 'recordings')):
+            response = client.get(url)
+            assert response.status_code == 200
+            payload = response.json if key is None else response.json[key]
+            assert not {recording_id, source} & {item['id'] for item in payload}
+        for url in (API + '/jobs/health', '/api/recordings/job-queue-status'):
+            response = client.get(url)
+            assert response.status_code == 200
+            assert job not in {item['id'] for item in response.json['jobs']}
+        assert client.get(detail).status_code == 404
+    for client, _ in other_clients:
+        assert client.get(collection + '/trash').json['items'] == []
+    for client, csrf in other_clients:
+        assert client.post(path + '/restore', headers=csrf).status_code == 404
+    assert browser.get('/api/recordings', query_string={'q': SECRET}).status_code == 200
+    assert not {recording_id, source} & {
+        item['id'] for item in browser.get('/api/recordings', query_string={'q': SECRET}).json['recordings']
+    }
+
+    assert browser.post(path + '/restore', headers=headers).status_code == 204
+    assert browser.get(detail).status_code == 200
+    assert browser.get(collection + '/trash').json['items'] == []
+
+    with patch.object(trash, 'utcnow', return_value=trashed_at):
+        assert browser.post(path + '/trash', headers=headers).status_code == 204
+    assert browser.post(path + '/restore', headers=headers).status_code == 404
+    with app.app_context():
+        assert trash.purge_expired(now=(trashed_at + timedelta(days=29)).replace(tzinfo=timezone.utc)) == 0
+        assert original_path.exists() and worker_path.exists()
+        assert db.session.get(ClinicTranscriptRevision, revision) is not None
+        assert db.session.get(ProcessingJob, job) is not None
+        db.session.execute(text('PRAGMA foreign_keys=ON'))
+        db.session.commit()
+        with patch.object(asr_endpoint, 'cancel_remote_job', return_value=False) as cancel:
+            assert trash.purge_expired(now=now) == 0
+            cancel.assert_called_once_with('http://127.0.0.1:9', 'synthetic')
+        assert original_path.exists() and worker_path.exists() and segment_path.exists()
+        assert db.session.get(ProcessingJob, job) is not None
+    with patch.object(asr_endpoint, 'cancel_remote_job', return_value=True) as cancel:
+        run_daily_maintenance(app)
+        cancel.assert_called_once_with('http://127.0.0.1:9', 'synthetic')
+    with app.app_context():
+        assert not original_path.exists() and not worker_path.exists() and not segment_path.exists()
+        assert db.session.get(ClinicDictation, target) is None
+        assert db.session.get(Recording, recording_id) is None
+        assert db.session.get(Recording, source) is None
+        assert db.session.get(ProcessingJob, job) is None
+        assert db.session.get(ClinicTranscriptRevision, revision) is None
+        assert db.session.get(ClinicRichTextSnapshot, (revision, 1)) is None
+        assert not ClinicAudioSegment.query.filter_by(dictation_id=target).count()
+        assert not ClinicAudioRevision.query.filter_by(dictation_id=target).count()
+        assert not ClinicOriginal.query.filter_by(dictation_id=target).count()
+        assert db.session.get(ClinicDictation, report) is not None
+        assert not RecordingTombstone.query.filter(RecordingTombstone.recording_id.in_((recording_id, source))).count()
+        evidence = AuditEvent.query.filter_by(event='recording.deleted', recording_id=recording_id).one()
+        assert evidence.actor_user_id == author and evidence.created_at == trashed_at
+        assert evidence.details == {'reason': 'deleted by author'}
+        assert evidence.ip is evidence.user_agent is evidence.recording_owner_id is None
 
 
 if __name__ == '__main__':

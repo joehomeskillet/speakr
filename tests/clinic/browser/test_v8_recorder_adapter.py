@@ -20,6 +20,10 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
             view = page.get_by_test_id("clinic-recording-view")
             expect(view.get_by_test_id("rec-start")).to_be_enabled()
             expect(view.locator("input")).to_have_count(0)
+            expect(view.locator('[data-recording-type]')).to_have_count(4)
+            expect(view.get_by_role("button", name=re.compile("Patientengespräch"))).to_contain_text("Einwilligung")
+            expect(view.get_by_role("button", name=re.compile("Persönliche Notizen"))).to_contain_text(
+                "Nur für Sie sichtbar. Bitte keine Patientendaten.")
             posts = []
             page.on("request", lambda req: posts.append(req.url)
                     if req.method == "POST" and req.url.startswith(app_base + "/upload") else None)
@@ -52,5 +56,25 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
             row = page.locator(f'[data-row][data-id="{receipt["dictation_id"]}"]')
             expect(row).to_be_visible()
             expect(row).to_contain_text(receipt["title"])
+
+            page.goto(app_base + "/#/neu")
+            view.get_by_test_id("rec-start-notiz").click()
+            page.wait_for_function("document.querySelector('#app').__vue_app__._instance.proxy.recordingTime >= 5")
+            view.get_by_test_id("rec-stop").click()
+            with page.expect_response(app_base + "/upload") as upload:
+                view.get_by_role("button", name="Aufnahme speichern").click()
+            assert upload.value.status == 202, upload.value.text()
+            private = upload.value.json()
+            assert private["recording_type"] == "notiz"
+            expect(view.get_by_test_id("status")).to_have_text("Aufnahme gespeichert.")
+            view.get_by_test_id("open-created").click()
+            page.get_by_role("button", name="In den Papierkorb").click()
+            page.get_by_test_id("nav-recordings").click()
+            row = page.locator(f'[data-row][data-id="{private["dictation_id"]}"]')
+            expect(row).to_have_count(0)
+            page.get_by_role("button", name="Papierkorb", exact=True).click()
+            expect(page.get_by_text(re.compile(r"Wird am .+ endgültig gelöscht\."))).to_be_visible()
+            page.get_by_role("button", name="Wiederherstellen").click()
+            expect(row).to_be_visible()
         finally:
             browser.close()

@@ -232,7 +232,8 @@ export function createClinicApiClient() {
                 if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
             }
             const response = classify(sent.response, text);
-            if (unsafe && response.outcome === 'ok' && (url.startsWith(ROOT + '/dictations/') || url === PARITY_COMMANDS)) {
+            if (unsafe && response.outcome === 'ok' && (url.startsWith(ROOT + '/dictations/') || url === PARITY_COMMANDS
+                || (url.startsWith(ROOT + '/recordings/') && /\/(trash|restore)$/.test(url)))) {
                 dictationChanges += 1;
             }
             return response;

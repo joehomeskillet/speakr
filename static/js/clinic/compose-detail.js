@@ -310,6 +310,23 @@ export function createDetailViewController(options) {
     };
     const offline = () => status.value === 'offline';
     const canOpenEditor = () => status.value === 'ready' && !leaseBlocksOpen();
+    const trashBusy = ref(false);
+    const trashError = ref('');
+    const canTrash = () => status.value === 'ready' && ['sitzung', 'patientengespraech', 'notiz'].includes(data.value?.recording_type)
+        && String(data.value?.author?.user_id) === String(user.id);
+
+    async function moveToTrash() {
+        if (!canTrash() || trashBusy.value || disposed) return;
+        trashBusy.value = true;
+        trashError.value = '';
+        try {
+            const response = await client.request('/recordings/' + encodeURIComponent(dictationId) + '/trash', { method: 'POST' });
+            if (!disposed && response.outcome === 'ok') back();
+            else if (!disposed) trashError.value = 'Die Aufnahme konnte nicht in den Papierkorb verschoben werden.';
+        } finally {
+            trashBusy.value = false;
+        }
+    }
 
     // --- actions ------------------------------------------------------------
     /** Requests the lease (idempotent for the holder) and tells the page to open the editor; the editor holds the lease from there. */
@@ -354,7 +371,7 @@ export function createDetailViewController(options) {
     return {
         vue: V, status, message, data, leaseState, confirmedAt, leaseRun, workflow, detailClient,
         header, offline, leaseBlocksOpen, canOpenEditor, contextBinding, audio, mediaFailed,
-        start, load, openEditor, back, dispose,
+        start, load, openEditor, back, dispose, canTrash, moveToTrash, trashBusy, trashError,
         text: TEXT,
     };
 }
@@ -446,7 +463,10 @@ const DetailBody = {
         <div class="head-actions">
           <button type="button" class="primary" data-testid="open-editor"
                   :disabled="!c.canOpenEditor()" @click="c.openEditor()">{{ TEXT.openEditor }}</button>
+          <button v-if="c.canTrash()" type="button" class="secondary" :disabled="c.trashBusy.value"
+                  data-testid="trash-recording" @click="c.moveToTrash()">In den Papierkorb</button>
         </div>
+        <p v-if="c.trashError.value" role="alert">{{ c.trashError.value }}</p>
       </div>
       <span class="status" :class="tone(c.header().axes)">{{ axisText(c.header().axes) }}</span>
     </header>

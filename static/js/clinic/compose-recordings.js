@@ -12,6 +12,7 @@
  */
 
 import { PERIODS, RECORDINGS_PAGE_SIZE, TEXT, createRecordingsController, formatDay } from './recordings-ui.js';
+import { RECORDING_TYPES } from './compose-recording.js';
 
 export const COMPOSE_RECORDINGS_VERSION = 1;
 export { RECORDINGS_PAGE_SIZE, createRecordingsController };
@@ -46,6 +47,41 @@ export const RecordingsView = {
         const scroller = V.ref(null);
         const root = V.ref(null);
         const filtersOpen = V.ref(true);
+        const trashOpen = V.ref(false);
+        const trashItems = V.ref([]);
+        const trashBusy = V.ref(false);
+        const trashError = V.ref('');
+
+        async function loadTrash() {
+            trashBusy.value = true;
+            trashError.value = '';
+            const result = await props.client.request('/recordings/trash');
+            trashBusy.value = false;
+            if (result.outcome === 'ok' && Array.isArray(result.data?.items)) trashItems.value = result.data.items;
+            else trashError.value = 'Der Papierkorb konnte nicht geladen werden.';
+        }
+
+        function toggleTrash() {
+            trashOpen.value = !trashOpen.value;
+            if (trashOpen.value) void loadTrash();
+            else trashItems.value = [];
+        }
+
+        async function restore(row) {
+            if (trashBusy.value) return;
+            trashBusy.value = true;
+            trashError.value = '';
+            const result = await props.client.request('/recordings/' + encodeURIComponent(row.dictation_id) + '/restore', { method: 'POST' });
+            trashBusy.value = false;
+            if (result.outcome !== 'ok') {
+                trashError.value = 'Die Aufnahme konnte nicht wiederhergestellt werden.';
+                return;
+            }
+            trashItems.value = trashItems.value.filter(item => item.dictation_id !== row.dictation_id);
+            await c.load();
+        }
+
+        const typeLabel = kind => RECORDING_TYPES.find(type => type.id === kind)?.label;
         const onScroll = (event) => c.setScroll(event && event.target ? event.target.scrollTop : 0);
         // The V8 shell scrolls its content area (or the document), not the list: find the element that really scrolls.
         let host = null;
@@ -119,7 +155,8 @@ export const RecordingsView = {
             const row = c.state.rows.find((entry) => entry.dictationId === id);
             return row && { dictator: row.author, pool: row.poolText };
         }
-        return { c, rowContext, recordingLabel, scroller, root, onScroll, filtersOpen, t: TEXT, periods: PERIODS };
+        return { c, rowContext, recordingLabel, scroller, root, onScroll, filtersOpen, t: TEXT, periods: PERIODS,
+            trashOpen, trashItems, trashBusy, trashError, toggleTrash, restore, typeLabel, formatDay };
     },
     template: `
 <section ref="root" class="clinic-recordings-view cl-view content-inner v8-page" data-testid="clinic-recordings-view" aria-labelledby="crv-title">
@@ -130,6 +167,8 @@ export const RecordingsView = {
       <p class="subtitle">{{ t.subtitle }}</p>
     </div>
     <div class="page-actions">
+      <button type="button" class="btn btn--ghost" data-testid="trash-toggle" aria-controls="crv-trash"
+              :aria-expanded="trashOpen" :disabled="trashBusy" @click="toggleTrash">Papierkorb</button>
       <button type="button" class="btn btn--ghost btn--icon" :aria-label="t.refresh" :title="t.refresh"
               :disabled="c.state.loading" @click="c.load()"><i class="fa-solid fa-rotate" :class="c.state.loading ? 'cl-spin' : ''" aria-hidden="true"></i></button>
       <button type="button" class="btn btn--ghost md:hidden" data-testid="filters-toggle" aria-controls="crv-role-filters"
@@ -139,6 +178,18 @@ export const RecordingsView = {
       </button>
     </div>
   </div>
+  <section v-if="trashOpen" id="crv-trash" class="panel" aria-labelledby="crv-trash-title" :aria-busy="trashBusy">
+    <h2 id="crv-trash-title">Papierkorb</h2>
+    <p v-if="trashError" role="alert">{{ trashError }}</p>
+    <p v-else-if="!trashBusy && !trashItems.length">Der Papierkorb ist leer.</p>
+    <ul v-if="trashItems.length">
+      <li v-for="row in trashItems" :key="row.dictation_id">
+        <strong>{{ row.title || typeLabel(row.recording_type) }} · {{ formatDay(row.recorded_day) }}</strong>
+        <p>Wird am {{ formatDay(row.purge_day) }} endgültig gelöscht.</p>
+        <button type="button" class="btn btn--primary" :disabled="trashBusy" @click="restore(row)">Wiederherstellen</button>
+      </li>
+    </ul>
+  </section>
   <!-- Filter card (prototype record-toolbar). The server filters by author, pool, status and period; the search runs over the loaded rows. -->
   <form id="crv-filters" role="search" :aria-label="t.filters" data-testid="filters"
         @submit.prevent="c.hasDraftChanges() && c.applyFilters()">
