@@ -6,7 +6,7 @@
  * summary, job list, a filter by state, a permission message and the
  * registered component. Nothing from jobs-ui is re-implemented here.
  *
- * Only redacted job data is shown: id, type, state, error class, finish time.
+ * Only redacted job data is shown: queue health, id, type, state and fixed cause labels.
  * The free-text failure message is not rendered, so no transcript text, audio
  * path or patient data can reach the page. Everything stays in memory; there
  * is no browser storage. Colours come from tokens.js, requests from the
@@ -38,6 +38,8 @@ export const TEXT = Object.freeze({
     statFailedNote: 'Manueller Versuch möglich',
     statFailedNoteReadOnly: 'Nur Anzeige',
     statStuckNote: 'Ohne Fortschritt',
+    oldestQueued: 'Längste Wartezeit in der Warteschlange',
+    causeHidden: 'Fehlerdetails ausgeblendet',
     statFailed: 'Fehlgeschlagen',
     statShown: 'Angezeigt',
     statShownNote: 'Nach Filter',
@@ -81,6 +83,19 @@ export function filterOptions(failures) {
         if (!seen.includes(key)) seen.push(key);
     }
     return [FILTER_ALL, ...seen.sort()];
+}
+
+const FAILURE_CAUSES = new Map([
+    ['storage_unavailable', 'Ablage nicht verfügbar'],
+    ['engine_unavailable', 'Erkennungsengine nicht verfügbar'],
+    ['missing_author_pool', 'Autor oder Autorenpool fehlt'],
+    ['corrupt_audio', 'Audiodatei beschädigt'],
+    ['CAPABILITY_UNAVAILABLE', 'Training nicht verfügbar'],
+]);
+
+export function failureCause(failure) {
+    if (stateKey(failure) !== 'failed') return '';
+    return FAILURE_CAUSES.get(failure.errorClass) || TEXT.causeHidden;
 }
 
 export function filterLabel(key) {
@@ -171,6 +186,10 @@ export function createJobsViewController(options) {
         const active = filterOptions(list).includes(filter.value) ? filter.value : FILTER_ALL;
         return applyFilter(list, active);
     });
+    const oldestQueuedAge = computed(() => {
+        const age = jobs.state.value.health?.oldest_queued_age_s;
+        return Number.isSafeInteger(age) && age > 0 ? age : 0;
+    });
     const denied = computed(() => {
         const err = jobs.state.value.error;
         return Boolean(err && err.outcome === 'permission');
@@ -196,7 +215,8 @@ export function createJobsViewController(options) {
     return {
         vue: V, jobs, state: jobs.state, filter, filterOptions: options_, rows, denied, scoped: () => Boolean(scope()),
         load, retry, setFilter, dispose, canRetry: opts.canRetry === true, canRetryJob: jobs.canRetryJob,
-        text: TEXT, surface: rowSurface, jobTypeLabel, filterLabel, errorText: () => errorText(jobs.state.value.error),
+        text: TEXT, surface: rowSurface, jobTypeLabel, stateKey, filterLabel, failureCause, oldestQueuedAge,
+        errorText: () => errorText(jobs.state.value.error),
     };
 }
 
@@ -248,6 +268,10 @@ export const JobsView = {
       <div class="stat"><span>{{ c.text.stuckIds }}</span><strong>{{ c.state.value.stuckIds.length }}</strong><small>{{ c.text.statStuckNote }}</small></div>
       <div class="stat"><span>{{ c.text.statShown }}</span><strong>{{ c.rows.value.length }}</strong><small>{{ c.text.statShownNote }}</small></div>
     </div>
+    <div v-if="!c.scoped() && (c.state.value.stuckIds.length || c.oldestQueuedAge.value)" class="note mb-5">
+      <p v-if="c.state.value.stuckIds.length" data-testid="stuck-ids">{{ c.text.stuckIds }}: {{ c.state.value.stuckIds.join(', ') }}</p>
+      <p v-if="c.oldestQueuedAge.value" data-testid="oldest-queued-age">{{ c.text.oldestQueued }}: {{ c.oldestQueuedAge.value }}&nbsp;s</p>
+    </div>
     <section class="panel" aria-labelledby="cjv-list">
       <h2 id="cjv-list">{{ c.scoped() ? 'Aufträge dieses Diktats' : c.text.list }}</h2>
       <div class="filterbar" :class="{ 'cadm-jobs-filter': adminLayout }">
@@ -274,7 +298,10 @@ export const JobsView = {
             <tr v-for="f in c.rows.value" :key="f.id" :data-id="f.id">
               <td><strong>{{ f.id }}</strong></td>
               <td class="max-md:hidden">{{ c.jobTypeLabel(f.jobType) }}</td>
-              <td><span class="tag dot max-md:[overflow-wrap:anywhere]" :class="f.unknown ? 'wait' : (f.state === 'failed' ? 'error' : '')">{{ c.filterLabel(f.unknown ? 'unknown' : f.state) }}<template v-if="f.errorClass">: {{ f.errorClass }}</template></span></td>
+              <td>
+                <span class="tag dot" :class="f.unknown ? 'wait' : (c.stateKey(f) === 'failed' ? 'error' : '')">{{ c.filterLabel(c.stateKey(f)) }}</span>
+                <div v-if="c.stateKey(f) === 'failed'" data-testid="failure-cause" class="hint">{{ c.failureCause(f) }}</div>
+              </td>
               <td>
                 <button v-if="f.unknown || c.canRetryJob(f)" type="button" class="small"
                         data-testid="retry" :disabled="c.state.value.busy === f.id"
