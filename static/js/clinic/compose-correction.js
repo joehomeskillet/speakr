@@ -1107,7 +1107,6 @@ export const CorrectionBody = {
             vue: props.vue || undefined,
             contract: 'v8',
             document: props.openMode !== 'player',
-            openMode: props.openMode,
             recordingId: props.recordingId || undefined,
             get openMode() { return props.openMode; },
             hid: props.openMode === 'player' ? undefined : globalThis.navigator?.hid,

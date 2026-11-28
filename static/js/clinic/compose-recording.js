@@ -26,7 +26,6 @@
  * dictation_id); it is supplied by the mount package together with the recorder.
  */
 
-import { SessionTransportNotice } from './compose-settings.js';
 import { createHandmicView } from './handmic-webhid.js';
 import { DictationProtectionComponent } from './dictation-protection-ui.js';
 import { createRecorderPhases, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
@@ -35,6 +34,7 @@ import { CATEGORIES, RequiredCategories } from './categories-ui.js';
 import { PRIORITY_OPTIONS } from './dictation-properties-ui.js';
 import { surfaceFor } from './tokens.js';
 import { CorrectionView } from './compose-correction.js';
+import { SessionTransportNotice } from './compose-settings.js';
 
 function microphoneChoices(microphone) {
     return (microphone?.inputs || []).filter(({ deviceId }) => deviceId && deviceId !== 'default')
@@ -627,6 +627,7 @@ export function createRecordingViewController(options) {
     }
 
     async function cancelRecording() {
+        localMessage = '';
         const result = await machine.cancel();
         if (result.ok) {
             localMessage = '';

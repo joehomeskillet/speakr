@@ -141,7 +141,9 @@ export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = (
             let binding = retained.get(chunks);
             let receipt;
             try {
-                receipt = await (Object.keys(uploadOptions).length ? uploadFile(file, title, uploadOptions) : uploadFile(file, title));
+                receipt = Object.keys(uploadOptions).length
+                    ? await uploadFile(file, title, uploadOptions)
+                    : await uploadFile(file, title);
                 if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
             } catch (error) {
                 if (drafts && (globalThis.navigator?.onLine === false || error instanceof TypeError)) {
