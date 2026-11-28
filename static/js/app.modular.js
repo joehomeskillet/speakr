@@ -5521,7 +5521,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 openClinicDictationView, closeClinicDictationView, openClinicEditorFromView,
                 // end V8 dictation views (v8-70)
                 // V8 menu views (v8-71)
-                clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile, clinicOffline, clinicMicrophone,
+                clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile, clinicMicrophone, clinicOffline,
                 clinicLiveId, clinicLiveDraft, clinicLiveChoices, openClinicLive, openClinicMenuDictation,
                 // end V8 menu views (v8-71)
                 // V8 Verwaltung views (v8-114)
