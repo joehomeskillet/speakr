@@ -381,6 +381,9 @@ def test_dictation_files_round_trip(file_server, tmp_path):
         expect(files).to_have_attribute('open', '')
         text = editor.get_by_test_id('text')
         audio = editor.locator('audio')
+        # An authorized Schreibplatz open acquires the lease before loading the document.
+        expect(editor.get_by_test_id('lease-bar').locator('[data-action=release]')).to_be_visible()
+        expect(editor.get_by_test_id('correction-document')).to_be_visible()
         expect(text).to_be_editable()
         expect(text).to_have_value('')
         status = editor.get_by_test_id('session-file-status')
@@ -396,8 +399,8 @@ def test_dictation_files_round_trip(file_server, tmp_path):
                 for width, height in ((1440, 900), (1280, 720), (390, 844)):
                     page.set_viewport_size({'width': width, 'height': height})
                     page.evaluate("() => document.querySelector('[data-testid=clinic-correction-mount]').scrollTop = 0")
-                    if width < 1440:
-                        files.evaluate("element => element.scrollIntoView({ block: 'start' })")
+                    files.evaluate("(element, width) => element.scrollIntoView({"
+                                   " block: width < 1440 ? 'start' : 'nearest', behavior: 'instant' })", width)
                     assert files.locator('summary, button').evaluate_all(
                         "controls => controls.every(control => {"
                         " const r = control.getBoundingClientRect();"

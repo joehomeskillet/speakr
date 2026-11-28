@@ -246,8 +246,10 @@ export function createClinicApiClient() {
                 const expiresAt = sent.response.headers?.get('X-Offline-Grant-Expires-At');
                 if (expiresAt) response.grantExpiresAt = Number(expiresAt);
             }
-            if (unsafe && response.outcome === 'ok' && (url.startsWith(ROOT + '/dictations/')
-                || url.startsWith(ROOT + '/bundles/') || url === PARITY_COMMANDS)) {
+            if (unsafe && response.outcome === 'ok' && (url.startsWith(ROOT + '/dictations/') || url === PARITY_COMMANDS)) {
+                dictationChanges += 1;
+            }
+            if (unsafe && response.outcome === 'ok' && url.startsWith(ROOT + '/bundles/')) {
                 dictationChanges += 1;
             }
             return response;

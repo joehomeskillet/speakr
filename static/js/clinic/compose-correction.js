@@ -653,7 +653,8 @@ export function createCorrectionViewController(options) {
     }
 
     async function withFileAction(action, work) {
-        if (disposed || closing || !ready.value || fileAction.value || documentLoading.value || editor.loading.value || saver.state.value === 'saving') return false;
+        if (disposed || closing || !ready.value || fileAction.value || editor.loading.value || documentLoading.value
+            || saver.state.value === 'saving') return false;
         fileAction.value = action;
         fileError.value = false;
         fileMessage.value = action === 'open' ? 'Datei wird geöffnet …' : 'Datei wird vorbereitet …';
@@ -1286,7 +1287,7 @@ export const CorrectionBody = {
         function onFinishKeydown(event) {
             // Handle F5 before the nested dialog's own shortcut listener.
             event.stopPropagation();
-            finishOptions.value?.onKeydown(event);
+            if (!c.fileAction.value) finishOptions.value?.onKeydown(event);
             if (!event.defaultPrevented) event.preventDefault();
         }
         const highlightOn = V.ref(true);
@@ -1693,9 +1694,9 @@ export const CorrectionBody = {
       <div class="eyebrow">{{ TEXT.eyebrow }}</div>
       <div class="hline">
         <h1 id="ccv-title" style="font-weight: 700; letter-spacing: -.8px; color: var(--v8-text)">{{ openMode === 'player' ? TEXT.playerPage : TEXT.page }}</h1>
-        <FinishOptions v-if="finishWorkflow.state.allowed.includes('release')"
+        <FinishOptions v-if="finishWorkflow.state.allowed.includes('release')" :inert="Boolean(fileAction)"
                        ref="finishOptions" :workflow="finishWorkflow" :client="c.client" :vue="vue"
-                       :disabled="!ready || !lease.writable || dirty || loading || !!error || Boolean(fileAction)" @finished="c.close()" />
+                       :disabled="!ready || !lease.writable || dirty || loading || !!error" @finished="c.close()" />
       </div>
       <p class="subline">{{ openMode === 'player' ? TEXT.playerSubline : TEXT.subline }}</p>
     </div>

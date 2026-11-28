@@ -193,6 +193,8 @@ describe('dictation files', () => {
         const opening = c.openSession({ name: 'test.txt' });
         try {
             await vi.waitFor(() => expect(count(client, 'POST', importPath)).toBe(1));
+            expect(c.setText('Änderung während des Ladens')).toBe(false);
+            expect(await c.close()).toBe(false);
             expect(await c.confirmReview('m1')).toMatchObject({ ok: false, code: 'readOnly' });
             expect(count(client, 'POST', confirmPath)).toBe(0);
 
