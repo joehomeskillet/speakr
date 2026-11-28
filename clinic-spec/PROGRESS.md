@@ -1,4 +1,7 @@
 # Fortschritt V4
+## P-243 – Bestätigtes Kopieren aus Live (PAR-LIVE-005)
+Die freigegebene Fassung lässt sich als reiner Text oder mit Formatierung kopieren. Die gewählte Nachaktion setzt eine passende Kopierbestätigung voraus. Leeren blendet die lokale Ansicht aus, Schliessen kehrt zur Diktatauswahl zurück. Gespeicherte Originale bleiben erhalten. Staging und der Originaltest BT-LIVE-005 bleiben offen.
+
 ## P-238 – Bewusste Ausgabe aus Live (PAR-LIVE-002 / PAR-EXP-007)
 Aus Live kann die freigegebene Textfassung ausdrücklich kopiert oder als Datei heruntergeladen werden. Arbeitsstand, interne Übergabe und Freigabe bleiben getrennt. Der Empfang in einer anderen Anwendung bleibt unbekannt; WG-LIVE-002 und WG-EXP-007 bleiben offen. Native Abnahme und Staging bleiben ausstehend.
 

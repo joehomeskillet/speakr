@@ -106,6 +106,111 @@ describe('clinic clipboard ui', () => {
         expect(calls[2].options.body).toEqual({ outcome: 'copied' });
     });
 
+    const liveOptions = { live: true, releaseId: 'rel-1' };
+    const prepared = ok({ ...FLAVORS, revision_id: 'r1', generation: 2 });
+    const succeeded = ok({ status: 'succeeded', generation: 2 });
+
+    it('opts into live prepare and requires a matching receipt after a browser write', async () => {
+        const { calls, clipboard, copier } = setup({
+            options: liveOptions,
+            responses: [prepared, ok({ status: 'succeeded', generation: 1 }),
+                ok({ status: 'UNKNOWN', generation: 2 }), { outcome: 'network' }, succeeded],
+        });
+        expect(await copier.copy('formatted')).toMatchObject({ phase: 'unreported', canRetryReport: true, retryFormat: null });
+        expect(calls[0]).toEqual({
+            path: '/dictations/d1/clipboard/r1?format=formatted&release_id=rel-1&live=1',
+            options: { idempotencyKey: 'key-1' },
+        });
+        await copier.copy('plain');
+        expect(calls).toHaveLength(2);
+        const retry = copier.retryReport();
+        expect(copier.state.value.busy).toBe(true);
+        expect(await retry).toMatchObject({ phase: 'unreported', canRetryReport: true, busy: false });
+        expect(await copier.retryReport()).toMatchObject({ phase: 'unreported', canRetryReport: true });
+        expect(await copier.retryReport()).toMatchObject({ phase: 'copied', canRetryReport: false });
+        const report = {
+            path: '/dictations/d1/clipboard/r1/outcome?release_id=rel-1&live=1',
+            options: { method: 'POST', body: { outcome: 'copied', generation: 2 }, idempotencyKey: 'key-1' },
+        };
+        expect(calls.slice(1)).toEqual([report, report, report, report]);
+        expect(clipboard.write).toHaveBeenCalledTimes(1);
+        expect(clipboard.writeText).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        { outcome: 'network' }, { outcome: 'UNKNOWN' },
+        ok({ ...FLAVORS, revision_id: 'r1', generation: 0 }),
+        ok({ ...FLAVORS, revision_id: 'r1', status: 'succeeded' }),
+    ])('retries ambiguous live prepare using the original key and format (%j)', async (first) => {
+        const newKey = vi.fn(() => 'key-1');
+        const { calls, clipboard, copier } = setup({
+            options: { ...liveOptions, newKey }, responses: [first, prepared, succeeded],
+        });
+        expect(await copier.copy('formatted')).toMatchObject({ phase: 'failed', retryFormat: 'formatted', canRetryReport: false });
+        await copier.copy('plain');
+        expect(calls).toHaveLength(1);
+        expect(clipboard.write).not.toHaveBeenCalled();
+        expect(await copier.copy('formatted')).toMatchObject({ phase: 'copied', retryFormat: null });
+        expect(calls[1]).toEqual(calls[0]);
+        expect(newKey).toHaveBeenCalledTimes(1);
+    });
+
+    it('lets an explicit same-format retry resolve a live abort without losing its ambiguous report', async () => {
+        const abort = Object.assign(new Error('x'), { name: 'AbortError' });
+        const writeText = vi.fn(async () => {}).mockRejectedValueOnce(abort);
+        const newKey = vi.fn(() => 'key-1');
+        const { calls, copier } = setup({
+            clipboard: { writeText }, options: { ...liveOptions, newKey },
+            responses: [prepared, { outcome: 'network' }, ok({ status: 'UNKNOWN', generation: 2 }), prepared, succeeded],
+        });
+        expect(await copier.copy('plain')).toMatchObject({ phase: 'aborted', retryFormat: 'plain', canRetryReport: true });
+        expect(await copier.retryReport()).toMatchObject({ phase: 'aborted', retryFormat: 'plain', canRetryReport: true });
+        expect(calls[1].options.body).toEqual({ outcome: 'aborted', generation: 2 });
+        expect(calls[2]).toEqual(calls[1]);
+        expect(writeText).toHaveBeenCalledTimes(1);
+        expect(await copier.copy('plain')).toMatchObject({ phase: 'copied', retryFormat: null, canRetryReport: false });
+        expect(calls[3]).toEqual(calls[0]);
+        expect(newKey).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports denial if authorization disappears during live prepare, without writing', async () => {
+        let authorized = true;
+        const { client, calls, clipboard, copier } = setup({
+            options: { ...liveOptions, authorized: () => authorized },
+            responses: [ok({ status: 'failed', generation: 2 })],
+        });
+        client.request.mockImplementationOnce(async () => {
+            authorized = false;
+            return prepared;
+        });
+        expect(await copier.copy('plain')).toMatchObject({ phase: 'stale', canRetryReport: false });
+        expect(clipboard.writeText).not.toHaveBeenCalled();
+        expect(calls[0].options.body).toEqual({ outcome: 'denied', generation: 2 });
+    });
+
+    it('unlocks a live report on definitive conflict without treating it as copied', async () => {
+        const newKey = vi.fn().mockReturnValueOnce('key-1').mockReturnValueOnce('key-2');
+        const { calls, copier } = setup({
+            options: { ...liveOptions, newKey },
+            responses: [prepared, { outcome: 'network' }, { outcome: 'conflict' }, prepared, succeeded],
+        });
+        expect((await copier.copy('plain')).phase).toBe('unreported');
+        expect(await copier.retryReport()).toMatchObject({ phase: 'stale', canRetryReport: false });
+        expect((await copier.copy('plain')).phase).toBe('copied');
+        expect(calls[3].options.idempotencyKey).toBe('key-2');
+    });
+
+    it('retains an already written copy for reconciliation after a temporary permission error', async () => {
+        const { calls, clipboard, copier } = setup({
+            options: liveOptions,
+            responses: [prepared, { outcome: 'permission' }, succeeded],
+        });
+        expect(await copier.copy('plain')).toMatchObject({ phase: 'unreported', canRetryReport: true });
+        expect(await copier.retryReport()).toMatchObject({ phase: 'copied', canRetryReport: false });
+        expect(calls[2]).toEqual(calls[1]);
+        expect(clipboard.writeText).toHaveBeenCalledTimes(1);
+    });
+
     it('keeps the native-window clause unresolved and exports a labelled component', () => {
         expect(NATIVE_WINDOW_TRANSFER).toBe('unresolved');
         expect(ClipboardCopy.template).toContain('aria-live="polite"');

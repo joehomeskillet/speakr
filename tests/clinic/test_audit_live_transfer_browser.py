@@ -22,7 +22,12 @@ TRANSFER = """
       if (window.holdClipboard) {
         await new Promise((resolve) => { window.finishPrepare = resolve; });
       }
-      return { outcome: 'ok', data: { revision_id: 'r1', 'text/plain': 'Freigegebener Testtext.' } };
+      return { outcome: 'ok', data: { revision_id: 'r1', 'text/plain': 'Freigegebener Testtext.',
+        status: 'UNKNOWN', generation: 1 } };
+    }
+    if (path.includes('/clipboard/r1/outcome?')) {
+      return { outcome: 'ok', data: { status: call.body.outcome === 'copied' ? 'succeeded' : 'failed',
+        generation: call.body.generation } };
     }
     if (path.endsWith('/exports')) return { outcome: 'ok', data: { id: 'job-1', kind: 'file', status: 'ready' } };
 """
@@ -130,6 +135,10 @@ Vue.createApp({
                     _capture(page, 'rows')
                     hide.focus()
                     page.keyboard.press('Tab')
+                    expect(page.get_by_label('Kopierformat')).to_be_focused()
+                    page.keyboard.press('Tab')
+                    expect(page.get_by_label('Nach dem Kopieren')).to_be_focused()
+                    page.keyboard.press('Tab')
                     expect(copy).to_be_focused()
                     assert copy.evaluate("""(button) =>
                         button.matches(':focus-visible') && getComputedStyle(button).outlineStyle !== 'none'""")
@@ -148,8 +157,8 @@ Vue.createApp({
                     expect(external_field).to_have_value('Freigegebener Testtext.')
                     external_field.evaluate('(field) => field.remove()')
                     assert page.evaluate("window.calls.filter(c => c.path?.includes('/clipboard/')).map(c => c.path)") == [
-                        '/dictations/d-100/clipboard/r1?format=plain&release_id=rel-1',
-                        '/dictations/d-100/clipboard/r1/outcome?release_id=rel-1',
+                        '/dictations/d-100/clipboard/r1?format=plain&release_id=rel-1&live=1',
+                        '/dictations/d-100/clipboard/r1/outcome?release_id=rel-1&live=1',
                     ]
                     with page.expect_download() as requested:
                         generate.click()
@@ -179,7 +188,7 @@ Vue.createApp({
                     page.wait_for_function("""window.calls.filter(c => c.path?.includes('/clipboard/r1/outcome')).length === 2""")
                     assert page.evaluate('navigator.clipboard.readText()') == 'Unverändert'
                     assert page.evaluate("window.calls.filter(c => c.path?.includes('/outcome')).at(-1).body") == {
-                        'outcome': 'denied',
+                        'outcome': 'denied', 'generation': 1,
                     }
                     assert not errors, errors
         finally:

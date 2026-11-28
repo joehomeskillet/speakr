@@ -28,7 +28,7 @@ from src.clinic.rich_text_doc import (
     Document, Node, RichTextError, from_html, to_html, to_plain_text,
 )
 from src.clinic.richtext import SCHEMA_VERSION, CanonicalDocument, Segment
-from src.clinic.rtf_text import rtf_to_text, text_to_rtf
+from src.clinic.rtf_text import text_to_rtf
 from src.clinic.sdict_bundle import FORMAT_VERSION, Bundle, BundleError, build_bundle, read_bundle
 from src.clinic.unicode_anchor_map import map_through_normalisation, to_utf16_offset
 
@@ -132,8 +132,8 @@ def export_document(
     )
 
 
-def web_html(doc: CanonicalDocument, graphics: Mapping[str, bytes]) -> str:
-    """Return an offline HTML document with authorised local graphics embedded."""
+def html_with_graphics(doc: CanonicalDocument, graphics: Mapping[str, bytes]) -> str:
+    """Render canonical HTML with authorised local graphics embedded."""
     if not isinstance(doc, CanonicalDocument):
         raise FormatError("invalid_document")
     body = to_html(doc)
@@ -150,6 +150,12 @@ def web_html(doc: CanonicalDocument, graphics: Mapping[str, bytes]) -> str:
         body = body.replace(
             f'src="local:{node.object_id}"', f'src="data:image/png;base64,{encoded}"',
         )
+    return body
+
+
+def web_html(doc: CanonicalDocument, graphics: Mapping[str, bytes]) -> str:
+    """Return an offline HTML document with authorised local graphics embedded."""
+    body = html_with_graphics(doc, graphics)
     return (
         '<!doctype html><html lang="de"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'

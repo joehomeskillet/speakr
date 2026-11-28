@@ -3153,7 +3153,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             const clinicInitialLiveId = new URLSearchParams(window.location.search).get('dictation');
             const clinicLiveId = ref(clinicLiveChoices?.resolve(clinicInitialLiveId) || null);
             const clinicLiveDraft = ref('');
+            const clinicLiveCopied = ref(false);
             watch(currentView, (view) => {
+                if (view !== 'clinic-live') clinicLiveCopied.value = false;
                 clinicLiveChoices?.clear();
                 if (view === 'clinic-live' && !clinicLiveId.value) clinicLiveChoices?.load();
             }, { immediate: true });
@@ -3164,7 +3166,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const url = new URL(window.location.href);
                 url.searchParams.set('dictation', id);
                 window.history.replaceState(window.history.state, '', url);
+                clinicLiveCopied.value = false;
                 clinicLiveId.value = id;
+            };
+            const closeClinicLive = (id) => {
+                if (currentView.value !== 'clinic-live' || typeof id !== 'string' || clinicLiveId.value !== id) return;
+                const url = new URL(window.location.href);
+                url.searchParams.delete('dictation');
+                window.history.replaceState(window.history.state, '', url);
+                clinicLiveId.value = null;
+                clinicLiveDraft.value = '';
+                clinicLiveCopied.value = true;
+                clinicLiveChoices.load();
+                nextTick(() => document.getElementById('clinic-live-picker-title')?.focus());
             };
             // A view that creates or lists dictations hands over to the existing correction view; the archive is read only.
             const openClinicMenuDictation = (payload) => openClinicDictation({
@@ -5511,7 +5525,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // end V8 dictation views (v8-70)
                 // V8 menu views (v8-71)
                 clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile, clinicMicrophone,
-                clinicLiveId, clinicLiveDraft, clinicLiveChoices, clinicLiveMount, openClinicLive, openClinicMenuDictation,
+                clinicLiveId, clinicLiveDraft, clinicLiveChoices, clinicLiveMount, clinicLiveCopied,
+                openClinicLive, closeClinicLive, openClinicMenuDictation,
                 // end V8 menu views (v8-71)
                 // V8 Verwaltung views (v8-114)
                 clinicAdminView, clinicAdminAllowed, clinicAdminAccess, clinicAdminProps

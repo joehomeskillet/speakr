@@ -660,8 +660,9 @@ function useLiveDocument(V, props, state) {
 const LiveBody = {
     name: 'ClinicLiveBody',
     props: BODY_PROPS,
+    emits: ['close'],
     components: { LiveHandoff, LiveTransfer, RichTextEditor },
-    setup(props) {
+    setup(props, { emit }) {
         const V = props.vue || globalThis.Vue;
         if (!V) throw new Error('Vue is required to mount the live view');
         const captureEnabled = !props.client || props.client.supportsLiveCapture === true;
@@ -689,7 +690,8 @@ const LiveBody = {
         });
         const state = V.shallowRef(c.getState());
         const stop = c.subscribe((snap) => { state.value = snap; });
-        const leave = () => { stop(); c.dispose(); };
+        let active = true;
+        const leave = () => { active = false; stop(); c.dispose(); };
         if (typeof V.onMounted === 'function') V.onMounted(() => {
             globalThis.addEventListener('pagehide', leave);
             globalThis.addEventListener('offline', c.markDisconnected);
@@ -718,7 +720,37 @@ const LiveBody = {
         const canLeave = () => !richEditor?.value?.dirty
             || globalThis.confirm('Ungespeicherte Änderungen gehen verloren. Live-Diktat verlassen?');
         const transferClient = props.client || createClinicApiClient();
+        const cleared = V.ref(false);
+        const restoreButton = V.ref(null);
+        const workspaceTitle = V.ref(null);
+        const transferSafe = V.computed(() => ['idle', 'stopped', 'read_only'].includes(state.value.phase)
+            && !pending.value && !state.value.session.hasUnsaved && !state.value.session.partial
+            && !handoffLocked.value && !writing?.loading.value && !writing?.loadFailed.value
+            && (!writing || (writing.document.value && ['idle', 'held'].includes(writing.held.value.status)))
+            && !richEditor?.value?.dirty && !richEditor?.value?.uploading
+            && !['saving', 'stale'].includes(richEditor?.value?.status));
+        let transferVersion = 0;
+        V.watch([
+            transferSafe, () => state.value.phase, () => state.value.session.sessionId,
+            () => state.value.session.checkpoint, () => state.value.session.generation,
+            () => writing?.document.value, () => writing?.held.value.generation,
+        ], () => { transferVersion += 1; }, { flush: 'sync' });
+        const transferContext = () => active && transferSafe.value && !cleared.value ? transferVersion : null;
+        function finishTransfer({ action, context }) {
+            if (context === null || context !== transferContext()) return;
+            transferVersion += 1;
+            if (action === 'close') emit('close', props.dictationId);
+            if (action === 'clear') {
+                cleared.value = true;
+                V.nextTick(() => restoreButton.value?.focus());
+            }
+        }
+        function restoreWorkspace() {
+            cleared.value = false;
+            V.nextTick(() => workspaceTitle.value?.focus());
+        }
         return { c, state, pending, confirmed, local, writing, richEditor, canLeave, handoffLocked, submitted, transferClient,
+            cleared, restoreButton, workspaceTitle, transferContext, finishTransfer, restoreWorkspace,
             showHandoff, handoffReady, markSubmitted, FOCUS, DISABLED, box, TEXT, ICON_PATHS };
     },
     template: `
@@ -731,16 +763,22 @@ const LiveBody = {
       <p class="subline">{{ TEXT.subline }}</p>
     </div>
     <div class="head-actions">
-      <LiveHandoff v-if="showHandoff || submitted" :client="writing.client" :dictation-id="state.dictationId"
+      <LiveHandoff v-if="!cleared && (showHandoff || submitted)" :client="writing.client" :dictation-id="state.dictationId"
         :ready="Boolean(handoffReady)" :current-correction="writing.confirmedCorrection"
         @lock="handoffLocked = $event" @refresh="writing.refreshAfterHandoffConflict" @submitted="markSubmitted" />
     </div>
   </div>
-  <LiveTransfer :client="transferClient" :dictation-id="state.dictationId" :vue="vue" />
-  <section class="editor-workspace" :aria-label="TEXT.transcript">
+  <LiveTransfer :client="transferClient" :dictation-id="state.dictationId" :vue="vue"
+    :transfer-context="transferContext" @confirmed="finishTransfer" />
+  <section v-if="cleared" class="panel">
+    <p role="status">Die Ansicht ist leer. Das gespeicherte Diktat bleibt erhalten.</p>
+    <button ref="restoreButton" type="button" class="button" style="min-width:48px; min-height:48px"
+      @click="restoreWorkspace">Diktat wieder anzeigen</button>
+  </section>
+  <section v-show="!cleared" class="editor-workspace" :aria-label="TEXT.transcript">
     <div class="editor-heading" style="flex-wrap: wrap; gap: 8px 16px">
       <div class="document-title" style="flex-wrap: wrap; gap: 4px 12px">
-        <h2 style="${H2}; margin: 0; white-space: normal">{{ TEXT.transcript }}</h2>
+        <h2 ref="workspaceTitle" tabindex="-1" style="${H2}; margin: 0; white-space: normal">{{ TEXT.transcript }}</h2>
         <span class="document-id" style="white-space: normal; overflow-wrap: anywhere">{{ TEXT.dictation }} {{ state.dictationId }}</span>
       </div>
       <span class="tag neutral dot">{{ TEXT.count(confirmed.length) }} · {{ TEXT.saved }}</span>
@@ -815,6 +853,7 @@ export const LiveView = {
     name: 'ClinicLiveView',
     components: { LiveBody },
     props: BODY_PROPS,
+    emits: ['close'],
     setup(props) {
         const V = props.vue || globalThis.Vue;
         const visit = V.ref(0);
@@ -825,7 +864,7 @@ export const LiveView = {
     },
     methods: { canLeave() { return this.$refs.body?.canLeave() !== false; } },
     template: `<LiveBody ref="body" :key="dictationId + ':' + visit" :client="client" :dictation-id="dictationId" :current-user="currentUser"
-      :vue="vue" :can-write="canWrite" :on-ready="onReady" :capture-module="captureModule" />`,
+      :vue="vue" :can-write="canWrite" :on-ready="onReady" :capture-module="captureModule" @close="$emit('close', $event)" />`,
 };
 
 export function registerLiveView(app) {

@@ -1,5 +1,6 @@
 """Synthetic HTTP and database evidence for the mounted canonical output paths."""
 
+import base64
 import hashlib
 import wave
 from dataclasses import replace
@@ -10,18 +11,22 @@ import pytest
 from flask import Flask, jsonify
 from flask_login import LoginManager, login_user
 from flask_wtf.csrf import generate_csrf
+from test_audit_richtext_export_fidelity import PNG
 
 from src.app import app as real_app, register_clinic_audio
 from src.clinic import config, parity_receipts, release, revisions, richtext_formats, routes_output
 from src.clinic.audio_revisions import init_audio_revision
 from src.clinic.models import (
-    ClinicAudioRevision, ClinicContextRevision, ClinicDictation, ClinicOriginal, ClinicTranscriptRevision,
+    ClinicAudioRevision, ClinicContextRevision, ClinicDictation, ClinicOriginal, ClinicRelease,
+    ClinicTranscriptRevision,
 )
 from src.clinic.output import FORMAT_FORMATTED, FORMAT_PLAIN, list_outputs
 from src.clinic.output_attempts import FAILED, SUCCEEDED, UNKNOWN
 from src.clinic.parity_dispatch import ParityDispatch
 from src.clinic.pools import ClinicVisibilityGrant
+from src.clinic.rich_text_doc import graphic_node
 from src.clinic.richtext import CanonicalDocument, ClinicRichTextSnapshot, Node, Segment
+from src.clinic.richtext_graphics import GraphicStore
 from src.clinic.sdict_bundle import read_bundle
 from src.database import db
 from src.models import User
@@ -269,3 +274,99 @@ def test_live_output_is_bound_to_an_active_release(output_case, client_for, worl
         assert done.status_code == expected
     assert [(row.transcript_revision_id, row.text_format) for row in list_outputs(dictation)] == [
         (revision_id, FORMAT_PLAIN)]
+
+
+@pytest.mark.parametrize('legacy', [False, True])
+def test_live_formatted_clipboard_replays_only_the_released_payload(output_case, client_for, world, legacy, tmp_path):
+    dictation_id, revision_id, snapshot, _ = output_case
+    actor = world['user_a']
+    owner, _ = client_for(actor)
+    worker, csrf = client_for(actor)
+    other, other_csrf = client_for(world['user_b'])
+    dictation = db.session.get(ClinicDictation, dictation_id)
+    head = db.session.get(ClinicTranscriptRevision, revision_id)
+    source = routes_output.output_source(dictation)
+    if legacy:
+        released = ClinicRelease(
+            dictation_id=dictation_id, audio_revision_id=source.audio_revision_id,
+            transcript_revision_id=revision_id, context_revision_id=source.context_revision_id,
+            text_hash=source.text_hash, actor_user_id=actor, authorization_decision='{"allowed": true}',
+            document_type='report', release_type='clinical',
+        )
+        db.session.add(released)
+    else:
+        graphic = GraphicStore(tmp_path).put(dictation_id, PNG, actor_user_id=actor)
+        snapshot = CanonicalDocument((*snapshot.nodes, graphic_node('g1', graphic.object_id, 'Testgrafik')))
+        db.session.add(ClinicRichTextSnapshot(revision_id=revision_id, version=3, payload=snapshot.to_payload()))
+        db.session.flush()
+        released = release.create_release(
+            dictation, db.session.get(ClinicAudioRevision, source.audio_revision_id), head,
+            db.session.get(ClinicContextRevision, source.context_revision_id), source.text_hash,
+            actor, {'allowed': True}, datetime.now(timezone.utc), document_type='report', release_type='clinical',
+        )
+    modified = CanonicalDocument((replace(snapshot.nodes[0], runs=(
+        replace(snapshot.nodes[0].runs[0], text='Späterer Arbeitsstand'),)),))
+    db.session.add(ClinicRichTextSnapshot(revision_id=revision_id, version=4, payload=modified.to_payload()))
+    db.session.commit()
+
+    clipboard = f'/api/clinic/v1/dictations/{dictation_id}/clipboard/{revision_id}'
+    outcome = clipboard + '/outcome'
+    query = {'format': 'formatted', 'release_id': released.id, 'live': '1'}
+    key = {'Idempotency-Key': str(uuid4())}
+    assert owner.get(clipboard, query_string={'live': '1'}, headers=key).status_code == 409
+    assert other.get(clipboard, query_string=query, headers=key).status_code == 404
+    prepared = owner.get(clipboard, query_string=query, headers=key)
+    assert prepared.status_code == 200
+    plain = 'Befund & Verlauf' if legacy else 'Befund & Verlauf\n[graphic: Testgrafik]'
+    assert prepared.json['text/plain'] == plain
+    html = prepared.json['text/html']
+    if legacy:
+        assert html == '<p>Befund &amp; Verlauf</p>'
+    else:
+        assert 'text-align:center' in html and '<strong>' in html
+        assert f'src="data:image/png;base64,{base64.b64encode(PNG).decode()}"' in html
+    assert worker.get(clipboard, query_string=query, headers=key).json == prepared.json
+    assert worker.get(clipboard, query_string=query | {'format': 'plain'}, headers=key).status_code == 409
+    assert worker.get(clipboard, query_string=query, headers={'Idempotency-Key': str(uuid4())}).status_code == 409
+
+    payload = {'outcome': 'copied', 'generation': prepared.json['generation']}
+    assert other.post(outcome, query_string=query, headers=other_csrf | key, json=payload).status_code == 404
+    assert worker.post(outcome, query_string=query, headers=csrf | key, json={'outcome': 'copied'}).status_code == 400
+    assert worker.post(outcome, query_string=query | {'live': '0'}, headers=csrf | key,
+                       json={'outcome': 'copied'}).status_code == 409
+    assert worker.post(outcome, query_string=query, headers=csrf | key,
+                       json=payload | {'generation': payload['generation'] + 1}).status_code == 409
+    aborted = worker.post(outcome, query_string=query, headers=csrf | key, json=payload | {'outcome': 'aborted'})
+    assert aborted.status_code == 200 and aborted.json['status'] == UNKNOWN
+    assert worker.get(clipboard, query_string=query, headers=key).json == prepared.json
+
+    for _ in range(2):
+        copied = worker.post(outcome, query_string=query, headers=csrf | key, json=payload)
+        assert copied.status_code == 200 and copied.json == {'status': SUCCEEDED, 'generation': payload['generation']}
+    assert worker.post(outcome, query_string=query, headers=csrf | key,
+                       json=payload | {'outcome': 'denied'}).status_code == 409
+    assert [row.text_format for row in list_outputs(dictation)] == [FORMAT_FORMATTED]
+
+    key = {'Idempotency-Key': str(uuid4())}
+    query['format'] = 'plain'
+    prepared = worker.get(clipboard, query_string=query, headers=key)
+    assert prepared.status_code == 200 and prepared.json['text/plain'] == plain
+    assert 'text/html' not in prepared.json
+    payload['generation'] = prepared.json['generation']
+    denied = worker.post(outcome, query_string=query, headers=csrf | key, json=payload | {'outcome': 'denied'})
+    assert denied.status_code == 200 and denied.json['status'] == FAILED
+    retried = worker.get(clipboard, query_string=query, headers=key)
+    assert retried.status_code == 200 and retried.json['generation'] == payload['generation'] + 1
+    assert worker.post(outcome, query_string=query, headers=csrf | key, json=payload).status_code == 409
+    payload['generation'] = retried.json['generation']
+    revisions.add_human_revision(dictation, head, 'Neuer Text', actor,
+                                 original_version=db.session.get(ClinicOriginal, head.original_version_id))
+    db.session.commit()
+    assert worker.get(clipboard, query_string=query, headers=key).status_code == 409
+    historical = worker.post(outcome, query_string=query, headers=csrf | key, json=payload)
+    assert historical.status_code == 200
+    assert historical.json == {'status': SUCCEEDED, 'generation': payload['generation'], 'current': False}
+    for _ in range(2):
+        replay = worker.post(outcome, query_string=query, headers=csrf | key, json=payload)
+        assert replay.status_code == 200 and replay.json == historical.json
+    assert [row.text_format for row in list_outputs(dictation)] == [FORMAT_FORMATTED, FORMAT_PLAIN]

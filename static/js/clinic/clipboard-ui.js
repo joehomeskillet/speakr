@@ -64,21 +64,30 @@ export function capabilities(env = {}) {
 
 /**
  * Framework-neutral controller. `state.value` holds { phase, message, surface }.
+ * Live mode binds a releaseId and exposes retryFormat and canRetryReport in state.
  * Options: client (createClinicApiClient), dictationId, revisionId, authorized (bool or fn),
- * ref (Vue ref factory), clipboard / ClipboardItem / newKey (test seams).
+ * live, releaseId, ref (Vue ref factory), clipboard / ClipboardItem / newKey (test seams).
  */
 export function createClipboardCopy(options) {
     const opts = options || {};
     const ref = opts.ref || ((value) => ({ value }));
-    const state = ref(view('idle'));
+    const live = opts.live === true;
     const base = () => `/dictations/${encodeURIComponent(opts.dictationId)}/clipboard/${encodeURIComponent(opts.revisionId)}`;
     const binding = opts.releaseId ? `release_id=${encodeURIComponent(opts.releaseId)}` : '';
+    const query = [binding, live ? 'live=1' : ''].filter(Boolean).join('&');
     const makeKey = opts.newKey || newKey;
     let pending = null;
+    let prepareRetry = null;
     let busy = false;
+    const state = ref(view('idle'));
 
     function view(phase) {
-        return { phase, message: MESSAGES[phase], surface: surfaceFor(SURFACE[phase]), busy: phase === 'working' };
+        const value = { phase, message: MESSAGES[phase], surface: surfaceFor(SURFACE[phase]), busy: phase === 'working' };
+        if (live) {
+            value.retryFormat = prepareRetry?.format ?? null;
+            value.canRetryReport = pending !== null;
+        }
+        return value;
     }
     function set(phase) {
         state.value = view(phase);
@@ -100,20 +109,79 @@ export function createClipboardCopy(options) {
         return res.outcome === 'ok';
     }
 
+    async function liveRequest(path, options) {
+        try {
+            return await opts.client.request(path, options);
+        } catch (error) {
+            return { outcome: error?.name === 'AbortError' ? 'cancelled' : 'network' };
+        }
+    }
+
+    function definitive(res) {
+        return ['permission', 'conflict', 'validation'].includes(res.outcome)
+            || res.status === 404 || res.status === 413;
+    }
+
+    async function reportLive() {
+        const { key, outcome, generation, phase } = pending;
+        const res = await liveRequest(`${base()}/outcome?${query}`, {
+            method: 'POST', body: { outcome, generation }, idempotencyKey: key,
+        });
+        // The wire constants SUCCEEDED and FAILED are lower-case; UNKNOWN is not terminal.
+        const expected = outcome === 'copied' ? 'succeeded' : 'failed';
+        if (outcome !== 'aborted' && res.outcome === 'ok'
+                && res.data?.status === expected && res.data.generation === generation) {
+            pending = null;
+            return set(phase === 'copied' && (res.data.current === false || !allowed()) ? 'stale' : phase);
+        }
+        if (res.outcome === 'permission' || res.status === 404) {
+            return set(phase === 'copied' ? 'unreported' : failureFor(res));
+        }
+        if (definitive(res)) {
+            pending = null;
+            prepareRetry = null;
+            return set(failureFor(res));
+        }
+        return set(phase === 'copied' ? 'unreported' : phase);
+    }
+
     async function copy(format) {
         if (busy) return state.value;
         if (!FORMATS.includes(format)) return set('failed');
-        if (!allowed()) return set('unauthorized');
+        if (!allowed() || (live && !binding)) return set('unauthorized');
+        if (live && ((pending && pending.outcome !== 'aborted')
+                || (prepareRetry && prepareRetry.format !== format))) return state.value;
         const env = { clipboard: opts.clipboard, ClipboardItem: opts.ClipboardItem };
         if (!capabilities(env)[format]) return set('unavailable');
         busy = true;
-        pending = null;
+        if (!live) pending = null;
         set('working');
         try {
-            const key = makeKey();
-            const prepared = await opts.client.request(`${base()}?format=${format}${binding ? '&' + binding : ''}`, { idempotencyKey: key });
-            if (prepared.outcome !== 'ok') return set(failureFor(prepared));
-            if (binding && (!allowed() || prepared.data?.revision_id !== opts.revisionId
+            const key = prepareRetry?.key ?? makeKey();
+            const path = `${base()}?format=${format}${query ? '&' + query : ''}`;
+            const args = { idempotencyKey: key };
+            const prepared = await (live ? liveRequest(path, args) : opts.client.request(path, args));
+            const generation = prepared.data?.generation;
+            if (live) {
+                if (definitive(prepared)) {
+                    prepareRetry = pending = null;
+                    return set(failureFor(prepared));
+                }
+                if (prepared.outcome !== 'ok' || prepared.data?.status !== 'UNKNOWN'
+                        || !Number.isSafeInteger(generation) || generation < 1) {
+                    prepareRetry = { key, format };
+                    return set(prepared.outcome === 'cancelled' ? 'aborted' : 'failed');
+                }
+                prepareRetry = null;
+                if (!allowed() || prepared.data.revision_id !== opts.revisionId
+                        || typeof prepared.data['text/plain'] !== 'string'
+                        || (format === 'formatted' && typeof prepared.data['text/html'] !== 'string')) {
+                    pending = { key, generation, outcome: 'denied', phase: 'stale' };
+                    return await reportLive();
+                }
+            } else if (prepared.outcome !== 'ok') {
+                return set(failureFor(prepared));
+            } else if (binding && (!allowed() || prepared.data?.revision_id !== opts.revisionId
                     || typeof prepared.data?.['text/plain'] !== 'string')) {
                 await report(key, 'denied');
                 return set('stale');
@@ -135,6 +203,11 @@ export function createClipboardCopy(options) {
             } catch (error) {
                 outcome = error && error.name === 'AbortError' ? 'aborted' : 'denied';
             }
+            if (live) {
+                if (outcome === 'aborted') prepareRetry = { key, format };
+                pending = { key, generation, outcome, phase: outcome };
+                return await reportLive();
+            }
             const reported = await report(key, outcome);
             if (!reported) {
                 pending = { key, outcome };
@@ -149,8 +222,13 @@ export function createClipboardCopy(options) {
     /** Re-send an outcome the server did not acknowledge, with the same request key. */
     async function retryReport() {
         if (!pending || busy) return state.value;
+        if (live && !allowed()) return set('unauthorized');
         busy = true;
         try {
+            if (live) {
+                set('working');
+                return await reportLive();
+            }
             if (await report(pending.key, pending.outcome)) {
                 const done = pending.outcome;
                 pending = null;

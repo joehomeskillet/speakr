@@ -115,7 +115,8 @@ export function targetView(target, releasedRevisionId) {
 
 /**
  * Framework-neutral controller. Options: client, dictationId, vue, includeAllFileFormats,
- * requireRelease (binds requests to a release ID), isCurrent (view is still mounted),
+ * requireRelease (binds requests to a release ID), liveClipboard (opts into live copy),
+ * isCurrent (view is still mounted),
  * newKey / clipboard / ClipboardItem (test seams).
  */
 export function createOutputViewController(options) {
@@ -261,6 +262,7 @@ export function createOutputViewController(options) {
                 copier: createClipboardCopy({
                     client, dictationId, revisionId: releasedRevisionId.value, ref,
                     releaseId: opts.requireRelease ? releaseId : undefined,
+                    live: opts.liveClipboard === true,
                     authorized: () => isReady(version)
                         && (!opts.requireRelease || find('clipboard')?.available === true),
                     clipboard: opts.clipboard, ClipboardItem: opts.ClipboardItem,

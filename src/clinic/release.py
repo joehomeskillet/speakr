@@ -24,6 +24,7 @@ from sqlalchemy.exc import IntegrityError
 
 from src.database import db
 
+from . import richtext
 from .audio_revisions import ClinicAudioSessionState
 from .models import (
     ClinicAudioRevision,
@@ -118,10 +119,13 @@ def _is_head(model, dictation_id: str, revision_id: str) -> bool:
     return _heads(model, dictation_id) == {revision_id}
 
 
-def _check_authorization(decision) -> str:
+_RICH_TEXT_VERSION = "rich_text_version"
+
+
+def _check_authorization(decision: Optional[dict]) -> dict:
     if not isinstance(decision, dict) or decision.get("allowed") is not True:
         raise ReleaseError("authorisation decision missing or denied")
-    return json.dumps(decision, sort_keys=True, ensure_ascii=False)
+    return decision
 
 
 def _existing(dictation_id, audio_id, transcript_id, context_id, text_hash,
@@ -177,7 +181,7 @@ def create_release(
             raise ReleaseError(name + " revision belongs to another dictation")
     if transcript_revision.normalised_text_hash != text_hash:
         raise ReleaseError("text hash does not match the bound transcript revision")
-    decision_json = _check_authorization(authorization_decision)
+    decision = _check_authorization(authorization_decision)
 
     found = _existing(
         dictation.id, audio_revision.id, transcript_revision.id, context_revision.id,
@@ -192,6 +196,8 @@ def create_release(
         if not _is_head(_REVISION_MODELS[name], dictation.id, revision.id):
             raise ReleaseError(name + " revision is not the current head")
 
+    rich_text_version, _ = richtext.load_latest_document(transcript_revision.id)
+    decision = {**decision, _RICH_TEXT_VERSION: rich_text_version}
     release = ClinicRelease(
         dictation_id=dictation.id,
         audio_revision_id=audio_revision.id,
@@ -201,7 +207,7 @@ def create_release(
         actor_user_id=actor_user_id,
         document_type=document_type,
         release_type=release_type,
-        authorization_decision=decision_json,
+        authorization_decision=json.dumps(decision, sort_keys=True, ensure_ascii=False),
         created_at=now,
     )
     try:
@@ -210,6 +216,25 @@ def create_release(
     except IntegrityError as error:
         raise ReleaseError("release rejected by database constraint") from error
     return release
+
+
+def load_released_document(release: ClinicRelease) -> tuple[int, richtext.CanonicalDocument | None]:
+    """Read only the snapshot pinned by the release; older releases have no pin."""
+    try:
+        decision = json.loads(release.authorization_decision)
+    except ValueError as error:
+        raise ReleaseError("invalid release decision") from error
+    if not isinstance(decision, dict):
+        raise ReleaseError("invalid release decision")
+    version = decision.get(_RICH_TEXT_VERSION, 0)
+    if type(version) is not int or version < 0:
+        raise ReleaseError("invalid release document version")
+    if version == 0:
+        return 0, None
+    document = richtext.load_document(release.transcript_revision_id, version)
+    if document is None:
+        raise ReleaseError("released document snapshot is missing")
+    return version, document
 
 
 def _release_is_current(release: ClinicRelease) -> bool:
