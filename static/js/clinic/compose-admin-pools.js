@@ -101,7 +101,8 @@ export const TEXT = Object.freeze({
     colAction: 'Aktion',
     groupNote: 'Verantwortliche Gruppe',
     noMembersShort: 'Keine Mitglieder',
-    edit: 'Details öffnen',
+    edit: 'Schreibkräfte-Pool bearbeiten',
+    openDetails: 'Details öffnen',
     statPools: 'Schreibkräfte-Pools',
     statPoolsNote: 'Gruppenzuständigkeit',
     statActive: 'Aktive Pools',
@@ -597,9 +598,13 @@ export const ADMIN_POOLS_TEMPLATE = `
               </td>
               <td role="cell"><span class="tag dot" :class="p.status.key === 'active' ? 'neutral' : 'wait'">{{ p.status.label }}</span></td>
               <td role="cell" class="cap-action">
-                <button type="button" class="icon-button cap-open" :aria-label="c.text.edit + ': ' + p.name" :title="c.text.edit"
+                <button type="button" class="icon-button cap-open" :title="c.text.openDetails"
                         :aria-current="c.state.selectedId === p.id ? 'true' : 'false'" :data-id="p.id"
-                        @click="c.select(p.id); $nextTick(() => $refs.details?.focus())">${ICONS.edit}<span class="cap-phone-label">{{ c.text.edit }}</span></button>
+                        @click="c.select(p.id); $nextTick(() => $refs.details?.focus())">
+                  ${ICONS.edit}<span class="cap-desktop-label visually-hidden">{{ c.text.edit }}: {{ p.name }}</span>
+                  <span class="cap-phone-label">{{ c.text.openDetails }}</span>
+                  <span class="cap-phone-label visually-hidden">für {{ p.name }}</span>
+                </button>
               </td>
             </tr>
           </tbody>
