@@ -28,6 +28,7 @@ import { surfaceFor } from './tokens.js';
 import {
     CONFIGURABLE_ACTIONS as ACTIONS, TEXT as PEDAL_TEXT, createKeyCapture, loadSettings, normalizeSettings, saveSettings,
 } from './pedal-ui.js';
+import { getPedalWebHid } from './pedal-webhid.js';
 import { createSampleRecorder, createVoiceConsentController } from './voice-consent-ui.js';
 
 const WORKSTATION_PATH = /^\/preferences\/workstations\/[^/]+$/;
@@ -68,6 +69,17 @@ export const PEDAL_LABELS = Object.freeze({
         recordToggle: 'Aufnahme starten / pausieren',
         stop: 'Stopp in der Aufnahmeansicht',
     }),
+});
+
+const PEDAL_WEBHID_MESSAGES = Object.freeze({
+    unavailable: 'Dieser Browser kann das Fußpedal nicht direkt verbinden. Sie können den Tastaturmodus verwenden.',
+    idle: 'Kein Fußpedal direkt verbunden.',
+    connecting: 'Das Fußpedal wird verbunden …',
+    connected: 'Fußpedal verbunden.',
+    disconnecting: 'Das Fußpedal wird getrennt …',
+    disconnected: 'Fußpedal wurde getrennt. Sie können es erneut verbinden.',
+    unsupported: 'Dieses Fußpedal wird nicht direkt unterstützt. Sie können den Tastaturmodus verwenden.',
+    error: 'Die Verbindung ist fehlgeschlagen. Versuchen Sie es erneut oder verwenden Sie den Tastaturmodus.',
 });
 
 export const CONSENT_LABELS = Object.freeze({
@@ -184,6 +196,14 @@ export function createPedalSettingsComponent(Vue, options = {}) {
         setup() {
             const settings = Vue.ref(loadSettings(store));
             const saveError = Vue.ref(false);
+            const webHid = options.webHid || getPedalWebHid();
+            const webHidStatus = Vue.ref('unavailable');
+            const unsubscribeHid = webHid.subscribe({ onStatus: (status) => { webHidStatus.value = status; } });
+
+            function toggleWebHid(event) {
+                if (!event.isTrusted) return;
+                return webHidStatus.value === 'connected' ? webHid.disconnect() : webHid.connect();
+            }
 
             function persist(next) {
                 const clean = normalizeSettings(next);
@@ -216,10 +236,11 @@ export function createPedalSettingsComponent(Vue, options = {}) {
                 persist(Object.assign({}, settings.value, { [field]: raw === '' ? NaN : Number(raw) }));
                 if (input) input.value = settings.value[field]; // a refused value shows the kept one
             }
-            Vue.onBeforeUnmount(() => capture.stop());
+            Vue.onBeforeUnmount(() => { capture.stop(); unsubscribeHid(); });
             return {
                 settings, saveError, rows, capture, capturing: capture.capturing, message: capture.message,
                 setAction, removeKey, setSeconds, labels: PEDAL_LABELS, actions: ACTIONS, text: PEDAL_TEXT,
+                webHidStatus, toggleWebHid, webHidMessages: PEDAL_WEBHID_MESSAGES,
             };
         },
     };
@@ -278,6 +299,21 @@ const CHOICES = '[&_legend]:mb-2 [&_legend]:text-[12px] [&_legend]:font-bold [&_
     + '[&_label.block]:flex [&_label.block]:items-center [&_label.block]:gap-2 [&_label.block]:text-[13px] [&_label.block]:font-medium';
 
 const PEDAL_TEMPLATE = `
+<section class="panel col-span-full" aria-labelledby="clinic-settings-webhid-title">
+  <h2 id="clinic-settings-webhid-title">Direkte Pedalverbindung</h2>
+  <div class="actions">
+    <button v-if="webHidStatus !== 'unavailable'" type="button" class="!min-h-12"
+            :disabled="webHidStatus === 'connecting' || webHidStatus === 'disconnecting'"
+            data-testid="clinic-settings-pedal-webhid" @click="toggleWebHid">
+      {{ webHidStatus === 'connected' || webHidStatus === 'disconnecting' ? 'Fußpedal trennen' : 'Fußpedal verbinden' }}
+    </button>
+    <span role="status" data-testid="clinic-settings-pedal-webhid-status">{{ webHidMessages[webHidStatus] }}</span>
+  </div>
+  <p v-if="webHidStatus === 'connected'" class="hint mt-3 mb-0">
+    Halten Sie die mittlere Pedaltaste zum Aufnehmen oder Abspielen.
+    Links spulen Sie zurück, rechts springen Sie bei der Wiedergabe vor.
+  </p>
+</section>
 <section class="panel col-span-full" role="region" :aria-label="labels.title" data-testid="clinic-settings-pedal"
          style="--v8-input-line: var(--ui-text-muted)">
   <h2>{{ labels.title }}</h2>
