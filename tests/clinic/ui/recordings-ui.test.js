@@ -73,6 +73,16 @@ describe('recordings view model', () => {
         expect(toViewRow(item('1', { processing_status: 'queued' })).processing).toBe('Text wird erstellt');
         expect(toViewRow(item('1', { text_created: true })).processing).toBe('Text erstellt');
     });
+    it.each([
+        ['queued', 'Transkription wartet'],
+        ['processing', 'Transkription läuft'],
+        ['failed', 'Transkription fehlgeschlagen'],
+        ['completed', ''],
+    ])('shows the processing detail for %s without changing the next step', (processing_status, detail) => {
+        const row = toViewRow(item('1', { processing_status }));
+        expect(row.processingDetail).toBe(detail);
+        expect(row.nextStep).toBe(toViewRow(item('1')).nextStep);
+    });
     it('formats the day as de-CH and keeps unknown days explicit', () => {
         expect(formatDay('2026-11-20')).toBe('Freitag, 20.11.2026');
         expect(formatDay(null)).toBe('Ohne Datum');
@@ -108,7 +118,7 @@ describe('recordings view model', () => {
         expect(row.poolText).toBe('Pool A, Pool B');
         expect(row.leaseHolder).toBe('Frau Typ');
         const none = toViewRow(item('2', { staff_pools: [], dictated_by: null }));
-        expect(none.poolText).toBe('Kein Pool zugewiesen');
+        expect(none.poolText).toBe('Kein Schreibdienst zugeordnet');
         expect(none.leaseHolder).toBe('–');
         expect(none.author).toBe('Unbekannt');
     });

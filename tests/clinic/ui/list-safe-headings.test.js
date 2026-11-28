@@ -13,14 +13,14 @@ const item = {
 describe('safe primary list headings', () => {
     it('uses the bound case for a worklist heading and retains the date without one', () => {
         const datedRow = { ...item, created_at: item.sort_time };
-        expect(dictationLabel({ ...datedRow, case_display: 'SYN-0002' })).toBe('Fall-ID SYN-0002');
+        expect(dictationLabel({ ...datedRow, case_display: 'SYN-0002' })).toBe('Fallnummer SYN-0002');
         expect(dictationLabel({ ...datedRow, case_display: null })).toBe('Diktat vom 20.11.2026, 09:30');
     });
 
     it('prefers the approved case display, including long identifiers, without reading free text', () => {
         const case_display = 'SYNTHETIC-' + 'LONG-CASE-'.repeat(12);
         const row = toViewRow({ ...item, case_display });
-        expect(recordingLabel(row)).toBe('Fall-ID ' + case_display);
+        expect(recordingLabel(row)).toBe('Fallnummer ' + case_display);
         expect(JSON.stringify(row)).not.toContain('PRIVATE_');
         expect(row.reference).toBe('#00000000…0001');
     });
@@ -47,8 +47,10 @@ describe('safe primary list headings', () => {
         expect(RecordingsView.template).toContain(`:id="'crv-next-' + r.key"`);
         expect(RecordingsView.template).toContain('{{ r.nextStep }}');
         expect(RecordingsView.template).toContain('data-testid="recording-text-state">{{ r.processing }}</span>');
-        expect(RecordingsView.template).not.toContain('Arbeitsstand:');
-        expect(RecordingsView.template).not.toContain('Spracherkennung:');
+        expect(RecordingsView.template.match(/Arbeitsstand:/g)).toHaveLength(1);
+        expect(RecordingsView.template).toContain(`class="cl-sr-only">Arbeitsstand:</span>`);
+        expect(RecordingsView.template.match(/Spracherkennung:/g)).toHaveLength(1);
+        expect(RecordingsView.template).toContain(`class="cl-sr-only">Spracherkennung: </span>`);
         expect(RecordingsView.template).toContain(':aria-describedby=');
         expect(dictationLabel({ ...item, created_at: item.sort_time })).toBe('Diktat vom 20.11.2026, 09:30');
         expect(dictationLabel(item)).toBe('Diktat');
