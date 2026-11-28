@@ -168,8 +168,17 @@ def _check_offline_take(context, base, managed):
     context.set_offline(False)
     recovery = context.new_page()
     attest(recovery)
+    recovery.set_viewport_size({'width': 390, 'height': 844})
     recovery.goto(base + '/#/offline')
     unlock(recovery)
+    row = recovery.get_by_test_id('draft')
+    expect(row).to_be_visible()
+    assert recovery.locator('.clinic-offline .table-wrap').evaluate(
+        '(table) => table.scrollWidth === table.clientWidth'
+    )
+    for action in ('restore', 'discard'):
+        bounds = row.get_by_test_id(action).bounding_box()
+        assert bounds['width'] >= 48 and bounds['height'] >= 48 and 0 <= bounds['x'] <= 390 - bounds['width']
     with recovery.expect_download() as restored:
         recovery.get_by_test_id('restore').click()
     assert restored.value.path().read_bytes().startswith(b'\x1a\x45\xdf\xa3')  # WebM header
