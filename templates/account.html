@@ -461,6 +461,57 @@
         }
 
         /* Custom themed audio player for speaker snippets */
+        .tab-content-wrapper :is(h1, h2, h3, h4),
+        .modal-overlay .modal-title {
+            min-width: 0;
+            overflow-wrap: break-word;
+            text-wrap: balance;
+        }
+
+        :is(.tab-content-wrapper, .modal-overlay) :is(input, select, textarea):not([type="hidden"], [type="range"], .sr-only, [disabled]) {
+            border-color: var(--text-muted);
+            min-width: 0;
+        }
+
+        :is(.tab-content-wrapper, .modal-overlay) :is(input, select, textarea, button, a):focus-visible,
+        .snippet-audio-progress:focus-within, #copyTokenBtn:focus-visible {
+            outline: 2px solid var(--text-accent);
+            outline-offset: 2px;
+        }
+
+        #folderModalTabs, #folderModal .modal-footer {
+            flex-wrap: wrap;
+        }
+
+        #folderModal .modal-footer .btn, #tokenSecretModal .modal-footer .btn {
+            min-height: 48px;
+        }
+
+        #folderModalTabs button, #createFolderBtn, #createNamingTemplateBtn,
+        #testNamingTemplateBtn, #cancelNamingTemplateBtn, #deleteNamingTemplateBtn,
+        .view-snippets-btn, #newTokenValue, #copyTokenBtn {
+            min-height: 48px;
+        }
+
+        #copyTokenBtn {
+            transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+            min-width: 0;
+            flex-wrap: wrap;
+        }
+
+        #copyTokenBtn[data-copied] {
+            background: var(--bg-success-light);
+            border-color: var(--border-success);
+            color: var(--text-success-strong);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .snippet-audio-container .snippet-audio-btn,
+            .snippet-audio-container .snippet-audio-progress-bar, #copyTokenBtn {
+                transition: none;
+            }
+        }
+
         .snippet-audio-container {
             display: flex;
             align-items: center;
@@ -469,12 +520,13 @@
             background: var(--bg-tertiary);
             border: 1px solid var(--border-secondary);
             border-radius: 6px;
-            width: 100%;
+            flex: 1;
+            min-width: 0;
         }
 
         .snippet-audio-btn {
-            width: 24px;
-            height: 24px;
+            width: 48px;
+            height: 48px;
             border-radius: 50%;
             background: var(--bg-accent);
             color: var(--text-accent);
@@ -494,22 +546,39 @@
 
         .snippet-audio-progress {
             flex: 1;
+            min-width: 0;
+            height: 48px;
+            position: relative;
+            display: grid;
+            align-items: center;
+        }
+
+        .snippet-audio-progress input {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .snippet-audio-track {
+            display: block;
             height: 4px;
             background: var(--bg-secondary);
+            border: 1px solid var(--text-muted);
             border-radius: 2px;
-            position: relative;
-            cursor: pointer;
             overflow: hidden;
         }
 
         .snippet-audio-progress-bar {
-            position: absolute;
-            left: 0;
-            top: 0;
+            display: block;
             height: 100%;
-            background: var(--bg-accent);
-            border-radius: 2px;
-            transition: width 0.1s linear;
+            background: var(--text-accent);
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.1s linear;
         }
 
         .snippet-audio-time {
@@ -809,7 +878,7 @@
                             <span id="autoSummarizationToggleLabel" class="text-sm text-[var(--text-secondary)]" data-i18n="account.autoSummarize">Auto-summarize</span>
                             <label class="relative inline-flex items-center cursor-pointer">
                                 <input type="checkbox" id="autoSummarizationToggle" aria-labelledby="autoSummarizationToggleLabel" class="sr-only peer" {% if auto_summarization %}checked{% endif %}>
-                                <div class="w-11 h-6 bg-[var(--bg-tertiary)] peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[var(--border-focus)] rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-[var(--text-muted)] after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--bg-accent)] peer-checked:after:bg-white"></div>
+                                <div class="w-11 h-6 bg-[var(--bg-tertiary)] peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[var(--border-focus)] rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-[var(--text-muted)] after:rounded-full after:h-5 after:w-5 after:transition-transform motion-reduce:after:transition-none peer-checked:bg-[var(--bg-accent)] peer-checked:after:bg-white"></div>
                             </label>
                         </div>
                         {% else %}
@@ -1347,7 +1416,7 @@
                             <span id="autoSpeakerLabellingToggleLabel" class="text-sm text-[var(--text-secondary)] hidden sm:inline" data-i18n="account.autoLabel">Auto-label</span>
                             <label class="relative inline-flex items-center cursor-pointer">
                                 <input type="checkbox" id="autoSpeakerLabellingToggle" aria-labelledby="autoSpeakerLabellingToggleLabel" class="sr-only peer" {% if auto_speaker_labelling %}checked{% endif %}>
-                                <div class="w-11 h-6 bg-[var(--bg-tertiary)] peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[var(--border-focus)] rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-[var(--text-muted)] after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--bg-accent)] peer-checked:after:bg-white"></div>
+                                <div class="w-11 h-6 bg-[var(--bg-tertiary)] peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[var(--border-focus)] rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-[var(--text-muted)] after:rounded-full after:h-5 after:w-5 after:transition-transform motion-reduce:after:transition-none peer-checked:bg-[var(--bg-accent)] peer-checked:after:bg-white"></div>
                             </label>
                             {# Confidence threshold only tunes embedding (voice) matching; the contextual LLM path has no similarity score, so it is hidden there. #}
                             {% if speaker_embeddings_enabled %}
@@ -1478,8 +1547,8 @@
                     <h2 class="text-2xl font-semibold text-[var(--text-primary)] mb-6" data-i18n="folderManagement.title">Folder management</h2>
 
                     <div class="mb-6">
-                        <div class="flex justify-between items-center mb-4">
-                            <p class="text-[var(--text-secondary)]" data-i18n="folderManagement.description">A recording can be in one folder but have many tags. Tag prompts take priority over folder prompts, and folder prompts over your own.</p>
+                        <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+                            <p class="flex-1 basis-64 text-[var(--text-secondary)]" data-i18n="folderManagement.description">A recording can be in one folder but have many tags. Tag prompts take priority over folder prompts, and folder prompts over your own.</p>
                             <button id="createFolderBtn" class="inline-flex items-center px-4 py-2 bg-[var(--bg-button)] text-[var(--text-button)] rounded-md hover:bg-[var(--bg-button-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-focus)] transition-colors duration-200">
                                 <i class="fas fa-plus mr-2"></i> <span data-i18n="folderManagement.createFolder">Create folder</span>
                             </button>
@@ -1936,7 +2005,7 @@
                                                 </div>
                                             </div>
 
-                                            <div class="flex gap-3">
+                                            <div class="flex flex-wrap gap-3">
                                                 <button type="submit" class="btn btn--primary">
                                                     <i class="fas fa-save mr-2"></i>
                                                     <span data-i18n="namingTemplates.save">Save</span>
@@ -1944,7 +2013,7 @@
                                                 <button type="button" id="cancelNamingTemplateBtn" class="px-4 py-2 bg-[var(--bg-tertiary)] text-[var(--text-secondary)] rounded-md hover:bg-[var(--bg-secondary)]">
                                                     <span data-i18n="namingTemplates.cancel">Cancel</span>
                                                 </button>
-                                                <button type="button" id="deleteNamingTemplateBtn" class="px-4 py-2 bg-[var(--bg-danger)] text-white rounded-md hover:bg-[var(--bg-danger-hover)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors duration-200 hidden">
+                                                <button type="button" id="deleteNamingTemplateBtn" class="btn btn--danger hidden">
                                                     <i class="fas fa-trash mr-2"></i>
                                                     <span data-i18n="namingTemplates.delete">Delete</span>
                                                 </button>
@@ -2071,14 +2140,14 @@
                             </div>
 
                             <!-- Security Notice -->
-                            <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                            <div class="bg-[var(--bg-warn-light)] border border-[var(--text-warn-strong)] rounded-lg p-4">
                                 <div class="flex">
                                     <div class="flex-shrink-0">
-                                        <i class="fas fa-exclamation-triangle text-amber-400"></i>
+                                        <i class="fas fa-exclamation-triangle text-[var(--text-warn-strong)]"></i>
                                     </div>
                                     <div class="ml-3">
-                                        <h3 class="text-sm font-medium text-amber-800" data-i18n="apiTokens.securityNotice">Security notice</h3>
-                                        <div class="mt-2 text-sm text-amber-700">
+                                        <h3 class="text-sm font-medium text-[var(--text-warn-strong)]" data-i18n="apiTokens.securityNotice">Security notice</h3>
+                                        <div class="mt-2 text-sm text-[var(--text-warn-strong)]">
                                             <p data-i18n="apiTokens.securityWarning">
                                                 Treat tokens like passwords. Anyone who holds one can use your account. Keep them out of GitHub, client-side code and logs..
                                             </p>
@@ -2459,7 +2528,7 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
     <div id="clearVoiceProfilesModal" class="modal-overlay hidden">
         <div class="modal-panel modal-panel--sm">
             <div class="modal-header">
-                <i class="fas fa-eraser text-2xl" style="color: #f97316;"></i>
+                <i class="fas fa-eraser text-2xl text-[var(--text-warn-strong)]"></i>
                 <div class="flex-1">
                     <h3 class="modal-title" data-i18n="account.speakersTab.clearVoiceProfiles">Clear voice profiles</h3>
                     <div class="modal-subtitle" data-i18n="account.speakersTab.clearSubtitle">Delete saved voice data</div>
@@ -2484,7 +2553,7 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
             </div>
             <div class="modal-footer">
                 <button id="cancelClearVoiceProfilesBtn" class="btn btn--ghost" data-i18n="common.cancel">Cancel</button>
-                <button id="confirmClearVoiceProfilesBtn" class="btn btn--primary" style="background: #f97316; border-color: #f97316;">
+                <button id="confirmClearVoiceProfilesBtn" class="btn btn--primary bg-[var(--bg-warn-light)] text-[var(--text-warn-strong)] border-[var(--text-warn-strong)]">
                     <i class="fas fa-eraser"></i><span data-i18n="account.speakersTab.clearProfiles">Clear profiles</span>
                 </button>
             </div>
@@ -2594,10 +2663,10 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                         <p class="text-xs text-[var(--text-light)] mt-1" data-i18n="account.tokensTab.scopeHelp">Give an integration only the access it needs, and an expiry date. Scoped tokens work only in the Authorization header, and only on the API.</p>
                     </div>
 
-                    <div class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    <div class="bg-[var(--bg-warn-light)] border border-[var(--text-warn-strong)] rounded-lg p-3">
                         <div class="flex">
-                            <i class="fas fa-info-circle text-amber-500 mr-2 mt-0.5"></i>
-                            <p class="text-xs text-amber-700" data-i18n="account.tokensTab.shownOnce">
+                            <i class="fas fa-info-circle text-[var(--text-warn-strong)] mr-2 mt-0.5"></i>
+                            <p class="text-xs text-[var(--text-warn-strong)]" data-i18n="account.tokensTab.shownOnce">
                                 You'll see the token only once. Copy it somewhere safe.
                             </p>
                         </div>
@@ -2618,13 +2687,13 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
     <div id="tokenSecretModal" class="modal-overlay hidden">
         <div class="modal-panel modal-panel--sm">
             <div class="modal-header">
-                <i class="fas fa-check-circle text-green-500"></i>
+                <i class="fas fa-check-circle text-[var(--text-success-strong)]" aria-hidden="true"></i>
                 <h3 class="modal-title" data-i18n="account.tokensTab.createdTitle">Token created</h3>
             </div>
 
             <div class="modal-body">
                 <div class="space-y-4">
-                    <div class="bg-red-50 border border-red-200 rounded-lg p-3">
+                    <div class="bg-[var(--bg-danger-light)] border border-[var(--border-danger)] rounded-lg p-3">
                         <div class="flex">
                             <i class="fas fa-exclamation-triangle text-[var(--text-danger)] mr-2 mt-0.5"></i>
                             <p class="text-xs text-[var(--text-danger-strong)]">
@@ -2634,14 +2703,13 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium text-[var(--text-secondary)] mb-1" data-i18n="account.tokensTab.yourToken">Your API token</label>
-                        <div class="relative">
-                            <input type="text" id="newTokenValue" readonly class="w-full px-3 py-2 pr-12 border border-[var(--border-secondary)] rounded-md bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-mono text-sm">
-                            <button type="button" id="copyTokenBtn" class="absolute right-2 top-1/2 transform -translate-y-1/2 px-3 py-1.5 hover:bg-[var(--bg-tertiary)] rounded-md transition-all duration-200 flex items-center gap-1.5 border border-transparent hover:border-[var(--border-secondary)]" title="Copy to clipboard" data-i18n-title="buttons.copyToClipboard">
-                                <i id="copyTokenIcon" class="fas fa-copy text-[var(--text-muted)]"></i>
-                                <span id="copyTokenText" class="text-xs text-[var(--text-muted)] hidden" data-i18n="webhooks.copied">Copied</span>
-                            </button>
-                        </div>
+                        <label for="newTokenValue" class="block text-sm font-medium text-[var(--text-secondary)] mb-1" data-i18n="account.tokensTab.yourToken">Your API token</label>
+                        <input type="text" id="newTokenValue" readonly class="w-full px-3 py-2 border rounded-md bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-mono text-sm">
+                        <button type="button" id="copyTokenBtn" class="btn btn--ghost mt-2">
+                            <i id="copyTokenIcon" class="fas fa-copy" aria-hidden="true"></i>
+                            <span data-i18n="buttons.copyToClipboard">Copy to clipboard</span>
+                            <span id="copyTokenText" class="text-xs hidden" data-i18n="webhooks.copied">Copied</span>
+                        </button>
                     </div>
 
                     <div id="newTokenInfo" class="space-y-2 text-sm">
@@ -3671,11 +3739,12 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                                                 ${idx + 1}
                                             </div>
                                             <div class="snippet-audio-container">
-                                                <button class="snippet-audio-btn snippet-play-btn" data-audio-id="snippet-${speakerId}-${idx}">
-                                                    <i class="fas fa-play"></i>
+                                                <button type="button" class="snippet-audio-btn snippet-play-btn" data-audio-id="snippet-${speakerId}-${idx}" aria-label="${escapeHtml(tf('speakerModal.play', 'Play'))}">
+                                                    <i class="fas fa-play" aria-hidden="true"></i>
                                                 </button>
                                                 <div class="snippet-audio-progress" data-audio-id="snippet-${speakerId}-${idx}">
-                                                    <div class="snippet-audio-progress-bar"></div>
+                                                    <span class="snippet-audio-track" aria-hidden="true"><span class="snippet-audio-progress-bar"></span></span>
+                                                    <input type="range" min="0" max="100" value="0" aria-label="${escapeHtml(tf('speakerModal.seek', 'Playback position'))}" disabled>
                                                 </div>
                                                 <div class="snippet-audio-time">
                                                     <span class="snippet-current-time">0:00</span>
@@ -3713,6 +3782,7 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                     const playBtn = container.querySelector(`.snippet-play-btn[data-audio-id="${audioId}"]`);
                     const progressBar = container.querySelector(`.snippet-audio-progress[data-audio-id="${audioId}"]`);
                     const progressFill = progressBar.querySelector('.snippet-audio-progress-bar');
+                    const seek = progressBar.querySelector('input');
                     const timeDisplay = playBtn.closest('.snippet-audio-container').querySelector('.snippet-current-time');
                     const icon = playBtn.querySelector('i');
 
@@ -3738,35 +3808,41 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                     audio.addEventListener('play', () => {
                         icon.classList.remove('fa-play');
                         icon.classList.add('fa-pause');
+                        playBtn.setAttribute('aria-label', tf('speakerModal.pause', 'Pause'));
                     });
 
                     audio.addEventListener('pause', () => {
                         icon.classList.remove('fa-pause');
                         icon.classList.add('fa-play');
+                        playBtn.setAttribute('aria-label', tf('speakerModal.play', 'Play'));
                     });
 
                     // Update progress and time
                     audio.addEventListener('timeupdate', () => {
                         if (audio.duration) {
                             const percent = (audio.currentTime / audio.duration) * 100;
-                            progressFill.style.width = percent + '%';
+                            progressFill.style.transform = `scaleX(${percent / 100})`;
+                            seek.value = percent;
                             timeDisplay.textContent = formatTime(audio.currentTime);
+                            seek.setAttribute('aria-valuetext', timeDisplay.textContent);
                         }
                     });
 
                     // Reset on end
                     audio.addEventListener('ended', () => {
-                        progressFill.style.width = '0%';
+                        progressFill.style.transform = 'scaleX(0)';
+                        seek.value = 0;
+                        seek.setAttribute('aria-valuetext', '0:00');
                         timeDisplay.textContent = '0:00';
                         icon.classList.remove('fa-pause');
                         icon.classList.add('fa-play');
                     });
 
-                    // Seek by clicking progress bar
-                    progressBar.addEventListener('click', (e) => {
-                        const rect = progressBar.getBoundingClientRect();
-                        const percent = (e.clientX - rect.left) / rect.width;
-                        audio.currentTime = percent * audio.duration;
+                    audio.addEventListener('loadedmetadata', () => {
+                        seek.disabled = !Number.isFinite(audio.duration) || audio.duration <= 0;
+                    });
+                    seek.addEventListener('input', () => {
+                        audio.currentTime = (seek.valueAsNumber / 100) * audio.duration;
                     });
                 });
 
@@ -3920,7 +3996,7 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
 
                 // Populate list with clickable cards
                 list.innerHTML = selectedSpeakers.map(s => `
-                    <div class="merge-speaker-card flex items-center justify-between px-4 py-3 bg-[var(--bg-tertiary)] hover:bg-[var(--bg-primary)] border-2 border-transparent rounded-lg cursor-pointer transition-all"
+                    <div class="merge-speaker-card flex items-center justify-between px-4 py-3 bg-[var(--bg-tertiary)] hover:bg-[var(--bg-primary)] border-2 border-transparent rounded-lg cursor-pointer transition-colors motion-reduce:transition-none"
                          data-speaker-id="${s.id}">
                         <div class="flex items-center">
                             <i class="fas fa-user text-[var(--text-accent)] mr-3"></i>
@@ -4614,7 +4690,7 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
         function showToast(message, type = 'success') {
             // Create toast element
             const toast = document.createElement('div');
-            toast.className = `fixed top-4 right-4 z-50 px-4 py-2 rounded-lg shadow-lg transition-all duration-300 transform translate-x-full ${
+            toast.className = `fixed top-4 right-4 z-50 px-4 py-2 rounded-lg shadow-lg transition-transform duration-300 motion-reduce:transition-none transform translate-x-full ${
                 type === 'error'
                     ? 'bg-[var(--bg-danger)] text-[var(--text-button)]'
                     : 'bg-[var(--bg-success-light)] text-[var(--text-success-strong)]'
@@ -6214,13 +6290,13 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
 
             switch (status) {
                 case 'active':
-                    return `${baseClasses} bg-green-100 text-green-800`;
+                    return `${baseClasses} bg-[var(--bg-success-light)] text-[var(--text-success-strong)]`;
                 case 'expired':
-                    return `${baseClasses} bg-yellow-100 text-yellow-800`;
+                    return `${baseClasses} bg-[var(--bg-warn-light)] text-[var(--text-warn-strong)]`;
                 case 'revoked':
-                    return `${baseClasses} bg-red-100 text-red-800`;
+                    return `${baseClasses} bg-[var(--bg-danger-light)] text-[var(--text-danger-strong)]`;
                 default:
-                    return `${baseClasses} bg-gray-100 text-gray-800`;
+                    return `${baseClasses} bg-[var(--bg-tertiary)] text-[var(--text-secondary)]`;
             }
         }
 
@@ -6289,6 +6365,7 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
             }
         });
 
+        let copyFeedbackTimer;
         // Copy token button
         document.getElementById('copyTokenBtn')?.addEventListener('click', async () => {
             const tokenValue = document.getElementById('newTokenValue').value;
@@ -6299,20 +6376,14 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
             try {
                 await navigator.clipboard.writeText(tokenValue);
 
-                // Visual feedback - change to success state
-                copyIcon.classList.remove('fa-copy', 'text-[var(--text-muted)]');
-                copyIcon.classList.add('fa-check', 'text-green-500');
-                copyText.classList.remove('hidden', 'text-[var(--text-muted)]');
-                copyText.classList.add('text-green-500');
-                copyBtn.classList.add('bg-green-50', 'border-green-200');
-
-                // Reset after 2 seconds
-                setTimeout(() => {
-                    copyIcon.classList.remove('fa-check', 'text-green-500');
-                    copyIcon.classList.add('fa-copy', 'text-[var(--text-muted)]');
-                    copyText.classList.add('hidden', 'text-[var(--text-muted)]');
-                    copyText.classList.remove('text-green-500');
-                    copyBtn.classList.remove('bg-green-50', 'border-green-200');
+                copyIcon.classList.replace('fa-copy', 'fa-check');
+                copyText.classList.remove('hidden');
+                copyBtn.dataset.copied = '';
+                clearTimeout(copyFeedbackTimer);
+                copyFeedbackTimer = setTimeout(() => {
+                    copyIcon.classList.replace('fa-check', 'fa-copy');
+                    copyText.classList.add('hidden');
+                    delete copyBtn.dataset.copied;
                 }, 2000);
 
                 showToast(tf('account.tokensTab.copied', 'Token copied to clipboard'), 'success');
@@ -7449,7 +7520,7 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
                 const wrapper = document.createElement('div');
                 wrapper.className = 'flex items-start justify-between';
                 const inner = document.createElement('div');
-                inner.className = 'flex-1';
+                inner.className = 'flex-1 min-w-0 break-words';
                 inner.appendChild(nameEl);
                 inner.appendChild(templateEl);
 
@@ -7559,7 +7630,7 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
         function addRegexPatternRow(varName = '', pattern = '') {
             const container = document.getElementById('regexPatternsContainer');
             const row = document.createElement('div');
-            row.className = 'flex gap-2 items-center';
+            row.className = 'flex flex-wrap gap-2 items-center';
 
             const varInput = document.createElement('input');
             varInput.type = 'text';
@@ -7763,11 +7834,12 @@ curl "https://your-speakr-instance.com/api/recordings?token=YOUR_TOKEN_HERE"</co
         function showToast(message, type = 'info') {
             // Simple toast notification
             const toast = document.createElement('div');
-            toast.className = `fixed top-4 right-4 px-4 py-2 rounded-md text-white z-50 ${
-                type === 'success' ? 'bg-green-600' :
-                type === 'error' ? 'bg-red-600' :
-                'bg-blue-600'
+            toast.className = `fixed top-4 right-4 px-4 py-2 rounded-md z-50 ${
+                type === 'success' ? 'bg-[var(--bg-success-light)] text-[var(--text-success-strong)]' :
+                type === 'error' ? 'bg-[var(--bg-danger-light)] text-[var(--text-danger-strong)]' :
+                'bg-[var(--bg-info-light)] text-[var(--text-info-strong)]'
             }`;
+            toast.setAttribute('role', 'status');
             toast.style.cursor = 'pointer';
             toast.textContent = message;
             document.body.appendChild(toast);

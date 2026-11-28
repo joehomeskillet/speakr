@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+    CorrectionBody,
     CorrectionView,
     STEP_SECONDS,
     TEXT,
@@ -112,17 +113,40 @@ describe('compose-correction contract', () => {
         expect(CorrectionView.emits).toContain('close');
     });
 
-    it('composes exactly the eight building blocks and reuses tokens, api-client and key bindings', () => {
+    it('composes the editor and finish building blocks and reuses tokens, api-client and key bindings', () => {
         for (const mod of [
             'correction-editor-ui', 'correction-alignment-ui', 'correction-waveform-ui', 'playback-tempo-ui',
             'correction-modes-ui', 'correction-save-ui', 'audio-markers-ui', 'playback-gain-ui',
+            'finish-options-ui', 'workflow-actions-ui',
         ]) expect(source).toContain(`./${mod}.js`);
         expect(source).toContain("from './tokens.js'");
         expect(source).toContain("from './api-client.js'");
-        const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
+        const imports = [...source.matchAll(/from '(\.\/(?!correction-player-position\.js')[^']+)'/g)].map((m) => m[1]);
         expect(imports).toHaveLength(new Set(imports).size);
         expect(imports).toContain('./key-bindings-ui.js');
-        expect(imports).toHaveLength(12);
+        expect(imports).toHaveLength(14);
+    });
+
+    it('keeps the fixed finish command in the focused section alongside personal shortcuts', () => {
+        const ref = (value) => ({ value });
+        const vue = { ref, shallowRef: ref, reactive: (value) => value, computed: (fn) => ({ get value() { return fn(); } }) };
+        const view = CorrectionBody.setup({ client: fakeClient(), dictationId: 'd1', currentUser: user, vue });
+        const finish = vi.fn();
+        view.finishOptions.value = { onKeydown: finish };
+        const hasFocus = vi.fn(() => false);
+        const event = { key: 'F5', currentTarget: { ownerDocument: { hasFocus } },
+            stopPropagation: vi.fn(), preventDefault: vi.fn() };
+
+        view.onSectionKeydown(event);
+        expect(finish).not.toHaveBeenCalled();
+        hasFocus.mockReturnValue(true);
+        view.onSectionKeydown(event);
+        expect(finish).toHaveBeenCalledOnce();
+        expect(finish).toHaveBeenCalledWith(event);
+        expect(event.stopPropagation).toHaveBeenCalledOnce();
+        expect(event.preventDefault).toHaveBeenCalledOnce();
+        expect(view.SHORTCUTS.value).toContainEqual(['Fertigstellen (wenn verfügbar)', 'F5']);
+        view.c.dispose();
     });
 
     it('uses German labels, tokens only, keyboard-operable native controls and no browser storage', () => {

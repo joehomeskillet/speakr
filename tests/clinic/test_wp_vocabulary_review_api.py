@@ -8,18 +8,22 @@ pool promotion prevention, idempotency, and undo transitions.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from flask import Flask, jsonify
 from flask_login import LoginManager, UserMixin, login_user
 from flask_wtf.csrf import CSRFProtect, generate_csrf
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from src.clinic.identity import ClinicAccountPolicy, create_tables as create_identity_tables
 from src.clinic.parity_dispatch import ParityDispatch
-from src.clinic.pools import ClinicAuthorPool, ClinicAuthorPoolMember, create_tables as create_pool_tables
+from src.clinic.pools import (
+    ClinicAuthorPool,
+    ClinicAuthorPoolMember,
+    ClinicVisibilityGrant,
+    create_tables as create_pool_tables,
+)
 from src.clinic import routes_vocabulary_review as rvr
 from src.clinic import vocabulary
 from src.clinic.routes_vocabulary import VocabularyApi
@@ -152,6 +156,29 @@ def _proposal(**payload):
         "payload": {"scope_type": "author_pool", "scope_id": "pool-cardio",
                     "operation": "add", "written": "NeuesWort", **payload},
     }
+
+
+def test_review_catalog_uses_reviewer_authority_instead_of_pool_membership(app_env):
+    app, _ = app_env
+    client = app.test_client()
+    url = f"{PATH_REVIEWS}?catalog=author_pools"
+    assert client.get(url).status_code == 401
+    with app.app_context():
+        db.session.add(ClinicAuthorPool(id="pool-ortho", name="Orthopädie", created_by=999))
+        db.session.add(ClinicVisibilityGrant(
+            user_id=102, scope="pool", pool_id="pool-cardio", effect="allow",
+            actions="edit", created_by=999,
+        ))
+        db.session.commit()
+    _login(client, 101)
+    assert client.get(url).json == {"author_pools": []}
+    _login(client, 102)
+    assert client.get(url).json == {"author_pools": [{"id": "pool-cardio", "name": "Kardiologie"}]}
+    _login(client, 999)
+    assert client.get(url).json == {"author_pools": [
+        {"id": "pool-cardio", "name": "Kardiologie"},
+        {"id": "pool-ortho", "name": "Orthopädie"},
+    ]}
 
 
 @pytest.mark.parametrize("operation", ["add", "negative", "reactivate"])
@@ -852,3 +879,90 @@ def test_bt_voc_005_session_review_and_defer(app_env):
         assert "Privatwort" in eff_alpha
         eff_beta = vocabulary.get_effective_vocabulary(user_id=102, pool_ids=["pool-cardio"])
         assert "Privatwort" not in eff_beta
+
+
+
+def test_open_review_query_combines_pending_and_deferred(app_env):
+    app, _ = app_env
+    client = app.test_client()
+
+    with app.app_context():
+        pending = vocabulary.submit_review_item(user_id=101, written_form="Offen")
+        deferred = vocabulary.submit_review_item(user_id=101, written_form="Spaeter")
+        vocabulary.defer_item(deferred.id, actor_id=101)
+        db.session.commit()
+        pending_id, deferred_id = pending.id, deferred.id
+
+    headers = _login(client, 101)
+    for status in ("OPEN", "PENDING,DEFERRED"):
+        response = client.get(
+            f"{PATH_REVIEWS}?scope_type=user&scope_id=101&status={status}", headers=headers,
+        )
+        assert response.status_code == 200
+        assert {item["id"] for item in response.json["items"]} == {pending_id, deferred_id}
+
+    pending_only = client.get(
+        f"{PATH_REVIEWS}?scope_type=user&scope_id=101&status=PENDING", headers=headers,
+    )
+    assert {item["id"] for item in pending_only.json["items"]} == {pending_id}
+    invalid = client.get(
+        f"{PATH_REVIEWS}?scope_type=user&scope_id=101&status=PENDING,UNKNOWN", headers=headers,
+    )
+    assert invalid.status_code == 400
+
+
+def test_capture_session_changes_covers_words_commands_and_replay(app_env):
+    app, _ = app_env
+    base = datetime.now(timezone.utc)
+
+    with app.app_context():
+        word = vocabulary.add_vocabulary_entry(
+            scope="user", user_id=101, written_form="Bestehend", spoken_form="alt",
+        )
+        command = vocabulary.add_voice_command(
+            scope="user", user_id=101, trigger_phrase="Befund einfügen", action_payload="alt",
+        )
+        word.created_at = word.updated_at = base - timedelta(minutes=2)
+        command.created_at = command.updated_at = base - timedelta(minutes=2)
+        db.session.commit()
+
+        vocabulary.add_vocabulary_entry(
+            scope="user", user_id=101, written_form="Bestehend", spoken_form="neu",
+        )
+        vocabulary.add_voice_command(
+            scope="user", user_id=101, trigger_phrase="Befund einfügen", action_payload="neu",
+        )
+        removed = vocabulary.add_vocabulary_entry(
+            scope="user", user_id=101, written_form="Gelöscht", status=vocabulary.STATUS_SUPPRESSED,
+        )
+        db.session.commit()
+
+        created = vocabulary.capture_session_changes(
+            user_id=101, dictation_id=str(uuid.uuid4()),
+            started_at=(base - timedelta(minutes=1)).replace(tzinfo=None),
+            ended_at=(base + timedelta(minutes=1)).replace(tzinfo=None), pool_id="pool-cardio",
+            before_text="Bekannt", after_text="Bekannt Suedhangwort",
+        )
+        db.session.commit()
+        by_form = {item.written_form: item for item in created}
+        assert by_form["Bestehend"].operation == vocabulary.REVIEW_OP_MODIFY
+        assert by_form["Befund einfügen"].operation == vocabulary.REVIEW_OP_MODIFY
+        assert by_form["Gelöscht"].operation == vocabulary.REVIEW_OP_DELETE
+        assert by_form["Suedhangwort"].operation == vocabulary.REVIEW_OP_ADD
+        assert all(item.status == vocabulary.REVIEW_STATUS_PENDING for item in created)
+        assert all(item.origin == vocabulary.ORIGIN_SESSION for item in created)
+        assert all(item.dictation_id == by_form["Suedhangwort"].dictation_id for item in created)
+
+        vocabulary.defer_item(by_form["Suedhangwort"].id, actor_id=101)
+        replay = vocabulary.capture_session_changes(
+            user_id=101, dictation_id=by_form["Suedhangwort"].dictation_id,
+            started_at=base - timedelta(minutes=1), ended_at=base + timedelta(minutes=1),
+            pool_id="pool-cardio", before_text="Bekannt", after_text="Bekannt Suedhangwort",
+        )
+        assert replay == []
+
+        accepted = vocabulary.accept_to_pool(by_form["Befund einfügen"].id, actor_id=999)
+        target = db.session.get(vocabulary.ClinicVoiceCommand, accepted.target_entry_id)
+        assert target.scope == "pool" and target.pool_id == "pool-cardio"
+        assert target.action_payload == "neu"
+        assert db.session.get(vocabulary.ClinicVocabularyEntry, removed.id) is not None
