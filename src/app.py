@@ -1145,7 +1145,10 @@ def register_clinic_resources(flask_app):
         lambda user_id, pool_id: routes_vocabulary_review.can_review_pool(user_id, pool_id)).blueprint)
     flask_app.register_blueprint(routes_vocabulary_review.vocabulary_review_bp)
     flask_app.register_blueprint(routes_commands.commands_blueprint)
-    flask_app.register_blueprint(routes_asr_profiles.create_asr_profiles_blueprint())
+    flask_app.register_blueprint(routes_asr_profiles.create_asr_profiles_blueprint(
+        lambda: flask_app.extensions.get('clinic_capability_registry'),
+        observe_engine=routes_asr_profiles.local_engine_receipt,
+    ))
     flask_app.extensions['clinic_parity_dispatch'] = dispatch
     flask_app.extensions['clinic_run_once'] = run_once
 
@@ -1158,11 +1161,11 @@ def register_clinic_worklist(flask_app):
     Stores are process-local; release stays fail-closed until a trusted-context source and
     the review-flag count (W11) exist, and the acceptance ledger starts as "not required, no approver".
     """
-    from datetime import datetime, timezone
+    from datetime import date, datetime, timezone
 
     from sqlalchemy import or_
 
-    from src.clinic import (policy, pool_policy, routes_categories, routes_columns, routes_dictation_detail,
+    from src.clinic import (lease, policy, pool_policy, routes_categories, routes_columns, routes_dictation_detail,
                             routes_history, routes_regex, routes_templates, routes_workflow, routes_worklist,
                             workflow, workflow_metadata, worklist_entries)
     from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, PolicyError
@@ -1242,16 +1245,36 @@ def register_clinic_worklist(flask_app):
     def load_entries(actor):
         return worklist_entries.load_entries(actor)
 
+    def layout_policy(_actor):
+        return routes_worklist._DEFAULT_LAYOUT, routes_worklist.layout_columns(worklist_entries.active_metadata_fields())
+
     def assign_regex(actor, dictation_id, fields):
-        dictation = db.session.query(ClinicDictation).filter_by(id=dictation_id).with_for_update().first()
+        targets = {
+            'title': 'title', 'dictation_name': 'title',
+            'notes': 'notes', 'remarks': 'notes',
+            'priority': 'priority', 'urgency': 'priority',
+            'deadline': 'deadline_date', 'due_date': 'deadline_date',
+        }
+        requested = {targets[key]: value for key, value in fields.items()}
+        if 'deadline_date' in requested:
+            try:
+                requested['deadline_date'] = date.fromisoformat(requested['deadline_date'])
+            except ValueError as error:
+                raise CommandProblem('INVALID_PAYLOAD') from error
         try:
+            dictation = db.session.query(ClinicDictation).filter_by(id=dictation_id).with_for_update().first()
+            if dictation is None:
+                raise CommandProblem('POLICY_DENIED')
             applied = workflow_metadata.apply_metadata(
                 dictation_id=dictation.id, workflow_id=dictation.id, actor_user_id=actor,
                 expected_version=dictation.version_counter,
-                lease_generation=routes_workflow._generation(dictation.id), requested=fields,
+                lease_generation=routes_workflow._generation(dictation.id), requested=requested,
                 allowed_actions=allowed_actions(actor, dictation), now=datetime.now(timezone.utc))
             record_audit(applied.audit_rows)
             db.session.commit()
+        except lease.LeaseConflict as error:
+            db.session.rollback()
+            raise CommandProblem('REVISION_CONFLICT') from error
         except ChangeError as error:
             db.session.rollback()
             code = str(error)
@@ -1285,9 +1308,10 @@ def register_clinic_worklist(flask_app):
     routes_workflow.register_commands(dispatch, workflow_authorize, acceptance_policy, ledger)
     routes_worklist.register_save_filter(dispatch, filters.create)
     flask_app.register_blueprint(routes_worklist.create_blueprint(
-        load_entries, filters, layouts, load_case_displays=worklist_entries.case_displays))
+        load_entries, filters, layouts, load_case_displays=worklist_entries.case_displays,
+        load_metadata_fields=worklist_entries.active_metadata_fields))
     flask_app.register_blueprint(routes_columns.create_columns_blueprint(
-        layouts, lambda _actor: (routes_worklist._DEFAULT_LAYOUT, routes_worklist.LAYOUT_COLUMNS), run_once))
+        layouts, layout_policy, run_once))
     flask_app.register_blueprint(routes_workflow.create_blueprint(
         authorize=workflow_authorize, run_once=run_once, allowed_actions=allowed_actions,
         record_audit=record_audit, trusted_context=context_is_trusted,
@@ -1355,9 +1379,10 @@ def register_clinic_identity(flask_app):
     these modules registers a parity command, so the stored ParityDispatch is only checked
     to be present (one dispatcher, mounted once). Identity providers stay disabled (default
     EntraConfig, IWA off): their routes answer the inert 422 and the exchange never runs.
-    The directory has no provider, so it answers its capability-unavailable problem.
+    Directory comparison is disabled unless an approved provider is configured.
     The last selection is durable (clinic user-preset row per user); workstation preferences are process-local.
     """
+    from src.clinic import directory_provider
     from src.clinic import (app_wiring, entra, pool_policy, routes_admin_dictations, routes_directory, routes_grants,
                             routes_identity_providers, routes_pool_admin, routes_pools, routes_preferences)
     from src.clinic.last_selection import Allowed, PresetUserPreferences, SelectionStore
@@ -1394,6 +1419,8 @@ def register_clinic_identity(flask_app):
 
     flask_app.register_blueprint(
         routes_identity_providers.IdentityProvidersApi(entra.EntraConfig(), disabled_exchange).blueprint)
+    flask_app.extensions[directory_provider.PROVIDER_EXTENSION] = directory_provider.select_provider(
+        os.environ.get("CLINIC_DIRECTORY_PROVIDER"), os.environ.get("CLINIC_DIRECTORY_SNAPSHOT_FILE"))
     flask_app.register_blueprint(routes_directory.blueprint)
     flask_app.register_blueprint(routes_admin_dictations.blueprint)
     flask_app.register_blueprint(routes_pools.blueprint)
@@ -1410,13 +1437,13 @@ def register_clinic_identity(flask_app):
 def register_clinic_audio(flask_app):
     """Mount the audio, dictation-property, bundle, live, correction and TTS handlers.
 
+    Live draft switching and the draft API share one durable store.
+
     Called at startup only in clinic mode, after register_clinic_worklist, and reuses the one
     ParityDispatch (start/stop live session are registered on it). Object decisions go through
     pool_policy.decide; an active site admin may open audio of any user (W12, audited by the
-    audio handler). Capabilities that do not exist yet answer "unavailable" and are never faked:
-    no local TTS engine or declared capability (CAPABILITY_UNAVAILABLE), no live-draft
-    coordinator (CAPABILITY_UNAVAILABLE). The derived
-    rendering reads the stored originals (app_wiring.make_source_loader); the protection store is
+    audio handler). TTS without a local engine or declared capability answers CAPABILITY_UNAVAILABLE.
+    Derived rendering reads the stored originals (app_wiring.make_source_loader); the protection store is
     durable (clinic_dictation_protection). The mounted sdict export uses that same current
     revision. A source that cannot be read stays empty and is never replaced by synthetic audio.
     """
@@ -1425,8 +1452,10 @@ def register_clinic_audio(flask_app):
                             routes_correction_documents, routes_dictation_properties, routes_live,
                             routes_output, routes_tts, startup)
     from src.clinic.admin_dictation_access import can_open_content
+    from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
     from src.clinic.models import ClinicDictation
+    from src.clinic import routes_live_drafts
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
     run_once = flask_app.extensions['clinic_run_once']
@@ -1482,6 +1511,7 @@ def register_clinic_audio(flask_app):
             subject=policy.build_subject(actor),
             recording=policy.build_facts(dictation.recording_id, dictation.author_user_id))
 
+    drafts = DraftStore()
     routes_live.register_live_commands(dispatch, may_edit_live)
     flask_app.register_blueprint(routes_audio.create_blueprint(
         authorize=authorize, run_once=run_once, load_sources=load_sources))
@@ -1492,7 +1522,9 @@ def register_clinic_audio(flask_app):
         bundle_load, lambda actor, dictation_id, action: may(actor, action, db.session.get(ClinicDictation, dictation_id)),
         bundle_persist, lambda scope, digest, operation: bundle_store.run_locked(scope, digest, operation, run_once, may),
         managed_client))
-    flask_app.register_blueprint(routes_live.create_blueprint(may_edit_live, IngestService(originals_root)))
+    flask_app.register_blueprint(routes_live.create_blueprint(
+        may_edit_live, IngestService(originals_root), drafts=drafts))
+    flask_app.register_blueprint(routes_live_drafts.create_blueprint(drafts, may_edit_live))
     flask_app.register_blueprint(routes_correction.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         run_once=run_once, require_if_match=True))
@@ -1529,6 +1561,7 @@ def register_clinic_operations(flask_app):
         routes_agent, routes_agent_admin, routes_jobs, routes_recordings, routes_statistics, routes_training, startup,
     )
     from src.clinic.agent_channel import ChannelPolicy
+    from src.clinic.author_aliases import resolve_stored_author
     from src.clinic.ingest import IngestService
     from src.clinic.worklist_entries import load_entries
 
@@ -1546,7 +1579,8 @@ def register_clinic_operations(flask_app):
     agent_bp = routes_agent.create_agent_blueprint(
         ChannelPolicy(master_secret=master_secret or secrets.token_bytes(routes_agent.MIN_PROXY_SECRET_BYTES)),
         IngestService(startup.originals_root(flask_app)),
-        proxy_secret or secrets.token_bytes(routes_agent.MIN_PROXY_SECRET_BYTES))
+        proxy_secret or secrets.token_bytes(routes_agent.MIN_PROXY_SECRET_BYTES),
+        author_lookup=resolve_stored_author)
     flask_app.register_blueprint(routes_recordings.create_blueprint(load_entries))
     flask_app.register_blueprint(routes_jobs.create_blueprint(run_once=run_once))
     flask_app.register_blueprint(routes_statistics.blueprint)

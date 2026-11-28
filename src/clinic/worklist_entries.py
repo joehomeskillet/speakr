@@ -25,26 +25,33 @@ identifiers only, never patient identifiers, audio or transcript text.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+import re
+from collections.abc import Iterable, Sequence
 from datetime import timezone
 
 from flask import after_this_request, has_request_context, request
 from sqlalchemy import and_, or_
 
-from src.clinic import recognition_state, release, revisions, routes_history, routes_worklist, workflow
+from src.clinic import (
+    policy, recognition_state, release, revisions, routes_columns, routes_history, routes_worklist, workflow,
+)
 from src.clinic.admin_dictation_access import _is_active_site_admin
+from src.clinic.list_layout import LayoutError
 from src.clinic.models import (
     ClinicContextRevision,
     ClinicDictation,
     ClinicOriginal,
 )
 from src.clinic.pools import ClinicPoolRoute, ClinicStaffPool
+from src.clinic.presets import ClinicMetadataField
+from src.clinic.worklist_layout import WorklistLayoutError
 from src.database import db
 from src.models import GroupMembership, Recording, User
 from src.services import audit
 
 LEAD_ROLE = "admin"  # GroupMembership.role of a typist-pool lead
-_DEFAULT_SOURCE = ("audio", None)
+_DEFAULT_SOURCE = ("audio", None, None)
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
 
 
 def stamp(value):
@@ -126,8 +133,8 @@ def _open_mode(actor: int, dictation: ClinicDictation, status: str) -> str:
     return "player" if status == workflow.TO_WRITE else "correction"
 
 
-def _sources(dictation_ids: list[str]) -> dict[str, tuple[str, str | None]]:
-    """Worklist source kind and origin label from each dictation's first original."""
+def _sources(dictation_ids: list[str]) -> dict[str, tuple[str, str | None, str | None]]:
+    """Source kind, label and optional XML from each dictation's first original receipt."""
     earliest: dict[str, str] = {}
     for start in range(0, len(dictation_ids), 500):
         part = dictation_ids[start:start + 500]
@@ -149,8 +156,48 @@ def _sources(dictation_ids: list[str]) -> dict[str, tuple[str, str | None]]:
         kind = "document" if data.get("kind") == "document" else "audio"
         origin = data.get("origin")
         label = routes_worklist.ORIGIN_LABELS.get(origin) if isinstance(origin, str) else None
-        sources[dictation_id] = kind, label
+        xml = data.get("metadata_xml")
+        sources[dictation_id] = kind, label, xml if isinstance(xml, str) else None
     return sources
+
+
+def active_metadata_fields() -> list[ClinicMetadataField]:
+    """Return active, projectable XML definitions in configured order."""
+    field = ClinicMetadataField
+    rows = (db.session.query(field)
+            .filter(field.is_active.is_(True), field.xml_path != "", field.field_type.in_(routes_columns.DISPLAY_TYPES))
+            .order_by(field.position, field.name))
+    reserved = {*routes_worklist.COLUMNS, *routes_worklist.ROLE_COLUMNS, 'assignee', 'case_display',
+                'metadata_xml', 'constructor', 'prototype'}
+    return [row for row in rows
+            if row.name not in reserved and routes_columns._FIELD_NAME.fullmatch(row.name)]
+
+
+def project_metadata_values(
+    subject: policy.Subject, recording: policy.RecordingFacts,
+    fields: Sequence[ClinicMetadataField], xml: str | None,
+) -> dict[str, str | None]:
+    """Project only configured scalar values from the recording's own original."""
+    names = [field.name for field in fields]
+    values = dict.fromkeys(names)
+    if xml is None:
+        return values
+    for start in range(0, len(names), 30):
+        try:
+            # Original metadata inherits the recording's view decision, which the projector rechecks.
+            projected = routes_columns.project_metadata_columns(
+                subject, recording, fields[start:start + 30], names[start:start + 30],
+                can_read_field=lambda *_: True, load_xml=lambda: xml,
+            )
+        except (LayoutError, WorklistLayoutError):
+            # A malformed original or a revoked grant leaves this row's XML cells empty.
+            return dict.fromkeys(names)
+        for cell in projected:
+            value = cell['value']
+            # Use sortable strings without changing any standard worklist field.
+            if value:
+                values[cell['key']] = _CONTROL_CHARS.sub(" ", value).strip() or None
+    return values
 
 
 def _assignee_names(rows: Iterable[workflow.ClinicWorkflowDictation]) -> dict[int, str | None]:
@@ -196,7 +243,7 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
     entries = []
     for dictation, row, rec in found:
         queue_status = row.resume_status if row.status == workflow.IN_PROGRESS else row.status
-        source_kind, source_label = sources.get(dictation.id, _DEFAULT_SOURCE)
+        source_kind, source_label, metadata_xml = sources.get(dictation.id, _DEFAULT_SOURCE)
         has_recipient = row.assignee_user_id is not None
         entries.append(routes_worklist.WorklistEntry(rec, dict(
             dictation_id=dictation.id, title=rec.title or "", status=row.status,
@@ -210,7 +257,7 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
             source_kind=source_kind,
             open_mode=_open_mode(actor, dictation, queue_status), revision=dictation.version_counter,
             source_label=source_label, asr_state=_asr_state(dictation, queue_status, outcomes),
-            **roles[dictation.id]), dictation.pool_id))
+            **roles[dictation.id]), dictation.pool_id, metadata_xml=metadata_xml))
     if admin:
         foreign = {d.id: (rec.id, rec.user_id) for d, _, rec in found
                    if actor not in (d.author_user_id, rec.user_id)}
