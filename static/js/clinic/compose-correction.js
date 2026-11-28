@@ -804,6 +804,7 @@ const BODY_PROPS = {
     dictator: { type: String, default: null },
     pool: { type: String, default: null },
     openMode: { type: String, default: '' },
+    openAudioEdits: { type: Boolean, default: false },
 };
 
 /** Inner body: one instance per dictation. The outer view re-keys it, which disposes everything. */
@@ -975,6 +976,13 @@ export const CorrectionBody = {
             drawer.value = id;
             later(() => { if (drawer.value === id) drawerClose.value?.focus(); });
         };
+        if (props.openAudioEdits) {
+            const stop = V.watch([c.ready, e.canEdit, e.audio], ([ready, canEdit, audio]) => {
+                if (!ready || !canEdit || audio.status !== 'ready') return;
+                if (drawer.value !== 'options') toggleDrawer('options');
+                stop();
+            });
+        }
         // saveMessage already says "Nicht gespeicherte Änderungen." while dirty; do not repeat it.
         const unsavedSuffix = () => Boolean(e.dirty.value) && !/nicht gespeicherte/i.test(String(s.message.value || ''));
         const pickTemplate = (id) => { templatesOpen.value = false; if (id) e.applyTemplate(id); };
@@ -1319,7 +1327,7 @@ export const CorrectionBody = {
         <div class="panel-header"><h2>{{ TEXT.options }}</h2></div>
         <PlaybackGain v-if="gainState" :state="gainState.value" :controller="c.gain()" />
         <CorrectionAudioPanel v-if="canEdit && audio.status === 'ready'" :client="c.client" :dictation-id="dictationId"
-            :lease="c.editor.leaseController" :position="c.getPositionMs" :visible="drawer === 'options'"
+            :lease="c.editor.leaseController" :position="c.getPositionMs" :visible="drawer === 'options'" :open-on-mount="openAudioEdits"
             @revision="c.adoptAudioRevision" />
         <div data-testid="repeat-transcription">
           <button type="button" class="button small" :style="FOCUS" :disabled="!c.repeat.eligible()"
@@ -1349,7 +1357,7 @@ export const CorrectionView = {
     emits: ['close'],
     template: `<CorrectionBody :key="dictationId" :client="client" :dictation-id="dictationId" :current-user="currentUser"
                               :vue="vue" :recording-id="recordingId" :create-audio-context="createAudioContext"
-        :dictator="dictator" :pool="pool" :open-mode="openMode" @close="$emit('close')">
+        :dictator="dictator" :pool="pool" :open-mode="openMode" :open-audio-edits="openAudioEdits" @close="$emit('close')">
           <template v-if="$slots['back-action']" #back-action="scope"><slot name="back-action" v-bind="scope"></slot></template>
         </CorrectionBody>`,
 };
