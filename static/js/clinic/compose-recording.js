@@ -666,7 +666,7 @@ export function createRecordingViewController(options) {
             authorId: String(user.id),
             title: s.title,
             plannedDestination: showDestination && plannedServices.length
-                ? 'Wird gesendet an: ' + (plannedServices.length === 1
+                ? (opts.draftMetadata ? 'Vorgesehen für: ' : 'Wird gesendet an: ') + (plannedServices.length === 1
                     ? singleService(plannedServices[0]) : 'Schreibdienste ' + plannedServices.join(', ')) : '',
             recordingReceipt: saved ? {
                 title: typeof saved.title === 'string' && /^Diktat \d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/.test(saved.title) ? saved.title : '',

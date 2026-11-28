@@ -13,6 +13,8 @@ describe('processing state reaches list and scoped jobs consumers', () => {
         const item = { dictation_id: 'd', workflow_status: 'neu_angelegt', processing_status: processing };
         if (asr === 'SUCCEEDED') item.text_created = true;
         expect(toViewRow(item).processing).toBe(recordingsLabel);
+        expect(toViewRow(item).processingDetail).toBe(asr === 'SUCCEEDED' ? null : worklistLabel);
+        expect(toViewRow({ ...item, workflow_status: 'vorbereitung_online' }).processingDetail).toBeNull();
         expect(statusBadge({ status: 'neu_angelegt', asr_state: asr }).label).toContain(worklistLabel);
     });
 

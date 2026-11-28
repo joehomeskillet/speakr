@@ -1,6 +1,5 @@
 """Exercise PB-03 at the real author start page using only synthetic recordings."""
 
-import os
 import re
 from itertools import product
 
@@ -8,6 +7,7 @@ import pytest
 from playwright.sync_api import expect
 
 import v8_browser_support as support
+from v8_browser_support import save_rendered_dom as _save_rendered_dom
 
 
 SEED = """
@@ -45,32 +45,6 @@ def author_states(browser, pending_base):
         "empty": support.login(browser, pending_base, "empty-v860@local.test"),
     }
     return states.__getitem__
-
-
-def _save_rendered_dom(page, path):
-    # Preserve the rendered styles when Hallmark opens the snapshot without the app server.
-    html = page.evaluate(r"""repo => {
-        const root = document.documentElement.cloneNode(true);
-        for (const node of root.querySelectorAll('script, link[rel=stylesheet], style, meta[name=csrf-token], input[name=csrf_token]')) node.remove();
-        for (const link of root.querySelectorAll('link[href^="/static/"]')) {
-            link.setAttribute('href', repo + link.getAttribute('href'));
-        }
-        const style = document.createElement('style');
-        style.textContent = Array.from(document.styleSheets).map(sheet => {
-            try {
-                const css = Array.from(sheet.cssRules).map(rule => rule.cssText).join('\n');
-                return css.replaceAll(/url\("([^"]+)"\)/g, (match, src) => {
-                    const url = new URL(src, sheet.href || document.baseURI);
-                    return url.origin === location.origin && url.pathname.startsWith('/static/')
-                        ? 'url("' + repo + url.pathname + '")' : match;
-                });
-            }
-            catch { return ''; }
-        }).join('\n');
-        root.querySelector('head').append(style);
-        return '<!doctype html>\n' + root.outerHTML;
-    }""", os.path.relpath(support.ROOT, path.parent))
-    path.write_text(html, encoding="utf-8")
 
 
 @pytest.mark.parametrize(("scenario", "size", "theme"), list(product(("rows", "empty"), support.VIEWPORTS, support.THEMES)))

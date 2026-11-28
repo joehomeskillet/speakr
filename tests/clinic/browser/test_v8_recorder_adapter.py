@@ -29,8 +29,7 @@ with app.app_context():
 '''
 
 
-@pytest.fixture(scope="module")
-def app_base(tmp_path_factory):
+def _serve_p04_app(tmp_path):
     # P-030 requires explicit grants for each action, including on the author's own draft.
     seed = support.SERVER.replace(
         "server = make_server",
@@ -38,23 +37,63 @@ def app_base(tmp_path_factory):
         "server = make_server",
         1,
     )
-    with support.serve_app(tmp_path_factory.mktemp("p04"), seed) as base:
+    return support.serve_app(tmp_path, seed)
+
+
+@pytest.fixture(scope="module")
+def app_base(tmp_path_factory):
+    with _serve_p04_app(tmp_path_factory.mktemp("p04")) as base:
         yield base
 
 
-def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
+@pytest.fixture
+def recorder_retry_base(tmp_path):
+    # Chromium's synthetic takes can be identical and resolve to a previously submitted draft.
+    with _serve_p04_app(tmp_path) as base:
+        yield base
+
+
+@pytest.mark.parametrize("size", support.VIEWPORTS)
+@pytest.mark.parametrize("theme", support.THEMES)
+def test_recorder_can_retry_and_opens_no_upload_modal(recorder_retry_base, size, theme):
+    app_base = recorder_retry_base
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
             executable_path=os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE") or None,
             args=["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
         )
         try:
-            context = browser.new_context(storage_state=login(browser, app_base, ROLES["author"]))
+            width, height = support.VIEWPORTS[size]
+            context = browser.new_context(
+                storage_state=login(browser, app_base, ROLES["author"]),
+                viewport={"width": width, "height": height},
+                **support.theme_context_options(theme),
+            )
+            context.add_init_script(support.theme_init_script(theme))
             page = context.new_page()
             page.goto(app_base + "/#/neu")
             view = page.get_by_test_id("clinic-recording-view")
+
+            def capture(state):
+                if out := os.environ.get("P04_ARTIFACTS"):
+                    page.wait_for_function(
+                        "dark => document.documentElement.classList.contains('dark') === dark",
+                        arg=theme == "dark",
+                    )
+                    if state == "review":
+                        page.wait_for_function("""() => {
+                            const audio = document.querySelector('[data-testid="clinic-recording-view"] audio');
+                            return audio?.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+                                && Number.isFinite(audio.duration) && !audio.seeking && audio.currentTime === 0;
+                        }""")
+                        page.evaluate("() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+                    stem = Path(out) / f"pb03-p04-{state}-{size}-{theme}"
+                    page.screenshot(path=stem.with_suffix(".png"), full_page=True, animations="disabled", caret="hide")
+                    support.save_rendered_dom(page, stem.with_suffix(".html"))
+
             expect(view.get_by_test_id("rec-start")).to_be_enabled()
             expect(view.locator("input")).to_have_count(0)
+            capture("empty")
             posts = []
             page.on("request", lambda req: posts.append(req.url)
                     if req.method == "POST" and req.url.startswith(app_base + "/upload") else None)
@@ -68,9 +107,12 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
             view.get_by_test_id("rec-start").click()
             page.wait_for_function("document.querySelector('#app').__vue_app__._instance.proxy.recordingTime >= 5")
             view.get_by_test_id("rec-stop").click()
+            expect(view.get_by_test_id("send-destination")).to_have_text("Vorgesehen für: Schreibdienst V860")
+            capture("review")
             page.route("**/upload", lambda route: route.fulfill(status=503), times=1)
             view.get_by_test_id("rec-send").click()
             expect(view.get_by_test_id("status")).to_contain_text("Senden fehlgeschlagen")
+            expect(view.get_by_test_id("receipt-saved")).to_have_count(0)
             assert page.url.endswith("/#/neu")
 
             with page.expect_response(app_base + "/upload") as upload:
@@ -80,10 +122,18 @@ def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
             assert re.fullmatch(r"Diktat \d{2}\.\d{2}\.\d{4} \d{2}:\d{2}", receipt["title"]), receipt
             expect(view.get_by_test_id("created-id")).to_have_text(receipt["dictation_id"])
             expect(view.get_by_test_id("submit-draft")).to_be_disabled()
+            expect(view.get_by_test_id("receipt-saved")).to_have_text("Aufnahme gespeichert")
+            expect(view.get_by_test_id("receipt-title")).to_have_text(receipt["title"])
+            expect(view.get_by_test_id("receipt-arrived")).to_have_count(0)
+            expect(view.get_by_test_id("draft-metadata")).to_be_visible()
+            capture("saved")
             view.get_by_test_id("save-draft").click()
             expect(view.get_by_test_id("submit-draft")).to_be_enabled()
             view.get_by_test_id("submit-draft").click()
             expect(view.get_by_test_id("status")).to_have_text("Eingereicht.")
+            expect(view.get_by_test_id("receipt-arrived")).to_have_text("Beim Schreibdienst V860 angekommen")
+            expect(view.get_by_role("button", name="Diktat öffnen")).to_be_visible()
+            capture("submitted")
             assert page.url.endswith("/#/neu")
             assert page.evaluate("window.stockUploadUsed") is False
             assert posts == [app_base + "/upload"] * 2
