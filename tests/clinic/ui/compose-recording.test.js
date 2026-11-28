@@ -290,6 +290,40 @@ describe('recording view controller', () => {
         c.setTitle('xy');
         expect(seen.mock.calls.length).toBe(n);
     });
+    it('defaults Stimmsteuerung off and applies a pause change only to the next take', async () => {
+        const rec = recorder();
+        const { c } = make({ recorder: rec });
+        expect(c.model().voxEnabled).toBe(false);
+        expect(c.model().voxStatus).toContain('Sprachpausen bleiben erhalten');
+        c.setTitle('erste');
+        await c.start();
+        c.pause();
+        expect(c.toggleVox()).toEqual({ ok: true, enabled: true });
+        expect(rec.startRecording.mock.calls).toEqual([[{ voxEnabled: false }]]);
+        expect(c.model().voxEnabled).toBe(true);
+        expect(c.model().voxStatus).toBe('Ein ab der nächsten Aufnahme.');
+        c.resume();
+        await c.stop();
+        expect(rec.discardRecording).not.toHaveBeenCalled();
+        await c.send();
+        c.another();
+        c.setTitle('zweite');
+        await c.start();
+        expect(rec.startRecording).toHaveBeenLastCalledWith({ voxEnabled: true });
+        expect(c.model().voxStatus).toBe('Diese Aufnahme wird stimmgesteuert.');
+        c.pause();
+        c.toggleVox();
+        expect(c.model().voxStatus).toContain('Diese Aufnahme bleibt stimmgesteuert');
+        expect(rec.discardRecording).not.toHaveBeenCalled();
+    });
+
+    it('exposes a keyboard-native switch without adding an input or clearing audio on toggle', () => {
+        expect(RECORDING_TEMPLATE).toContain('data-testid="vox-toggle"');
+        expect(RECORDING_TEMPLATE).toContain('role="switch"');
+        expect(RECORDING_TEMPLATE).toContain(':aria-checked="m.voxEnabled"');
+        expect(RECORDING_TEMPLATE).toContain('Stimmsteuerung');
+        expect(RECORDING_TEMPLATE).not.toContain('type="checkbox"');
+    });
 });
 
 describe('file upload path', () => {

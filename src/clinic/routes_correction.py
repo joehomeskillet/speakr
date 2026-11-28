@@ -329,6 +329,11 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
             out['document'] = payload
             out['document_version'] = _version
         if clinic_mode_enabled():
+            from src.clinic.bundle_store import ClinicBundleDocument, audio_synced
+
+            saved = db.session.get(ClinicBundleDocument, head.id) if head else None
+            if saved is not None:
+                out['audio_synced'] = audio_synced(saved, audio)
             evidence = current_marks(dictation.id, audio.id, head.id) if head and audio else []
             out['recognition_spans'] = [
                 dict(id=row.id, kind=row.kind, start_ms=row.start_ms, end_ms=row.end_ms)
