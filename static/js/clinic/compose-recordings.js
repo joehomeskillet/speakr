@@ -29,6 +29,7 @@ export const RecordingsView = {
     props: {
         client: { type: Object, required: true },
         currentUser: { type: Object, required: true },
+        startSelection: { type: Promise, default: null },
         vue: { type: Object, default: null },
         memory: { type: Object, default: null },
         autoStart: { type: Boolean, default: true },
@@ -37,6 +38,7 @@ export const RecordingsView = {
         const c = createRecordingsController({
             client: props.client,
             currentUser: props.currentUser,
+            startSelection: props.startSelection,
             vue: props.vue || undefined,
             memory: props.memory || undefined,
             onOpen: (payload) => { if (ctx && typeof ctx.emit === 'function') ctx.emit('open', payload); },
@@ -127,7 +129,7 @@ export const RecordingsView = {
     <div>
       <div class="eyebrow">{{ t.eyebrow }}</div>
       <div class="hline"><h1 id="crv-title" class="cl-title" tabindex="-1">{{ t.title }}</h1><span v-if="c.state.loaded" class="count-pill" data-testid="total-count">{{ c.totalLabel() }}</span></div>
-      <p class="subtitle">{{ t.subtitle }}</p>
+      <p class="subtitle break-words" role="status" data-testid="start-selection-status">{{ c.state.startNotice || t.subtitle }}</p>
     </div>
     <div class="page-actions">
       <button type="button" class="btn btn--ghost btn--icon" :aria-label="t.refresh" :title="t.refresh"
@@ -185,7 +187,7 @@ export const RecordingsView = {
       </template>
       <div class="page-actions">
         <button v-if="c.hasDraftChanges()" type="submit" class="btn btn--primary primary" style="font-size: 12px; min-height: 40px" data-testid="apply">{{ t.apply }}</button>
-        <button v-if="c.canReset()" type="button" class="btn btn--ghost" style="font-size: 12px; min-height: 40px" data-testid="reset" @click="c.resetFilters()">{{ t.reset }}</button>
+        <button v-if="c.canReset()" type="button" class="btn btn--ghost !min-h-12" style="font-size: 12px" data-testid="reset" @click="c.resetFilters()">{{ t.reset }}</button>
       </div>
     </div>
   </form>
@@ -209,7 +211,7 @@ export const RecordingsView = {
       <div class="empty-icon" aria-hidden="true">◉</div>
       <h2 class="font-bold">{{ c.searchPartial() ? t.noMatchLoaded : (c.hasFilters() || c.hasQuery() ? t.noMatch : t.empty) }}</h2>
       <p>{{ c.searchPartial() ? t.searchLoadedHint : (c.hasFilters() || c.hasQuery() ? t.noMatchHint : t.emptyHint) }}</p>
-      <button v-if="c.hasFilters() || c.hasQuery()" type="button" class="primary" @click="c.resetFilters()">{{ t.resetFilters }}</button>
+      <button v-if="c.hasFilters() || c.hasQuery()" type="button" class="primary !min-h-12" @click="c.resetFilters()">{{ t.resetFilters }}</button>
     </div>
     <!-- One responsive list for desktop and phone: the grid of .recording-row changes at the prototype breakpoints.
          The former copies (table "hidden md:table" and cards) are gone; the role cells keep their data-cell markers. -->
@@ -223,7 +225,7 @@ export const RecordingsView = {
         <div class="record-group-list" data-testid="cards">
           <div v-for="r in g.rows" :key="r.key" class="cl-reference-row">
           <button type="button" class="recording-row" data-row data-card :data-id="r.dictationId" data-testid="open-link"
-             :disabled="!r.dictationId" :aria-label="r.ariaLabel" :aria-describedby="'crv-workflow-' + r.key + (r.processing ? ' crv-processing-' + r.key : '')" @click.prevent="c.open(r)">
+             :disabled="!r.dictationId" :aria-label="r.ariaLabel" :aria-describedby="'crv-next-' + r.key + (r.processing ? ' crv-processing-' + r.key : '')" @click.prevent="c.open(r)">
             <time class="record-time" :datetime="r.datetime || null">{{ r.time }}</time>
             <span class="record-icon" aria-hidden="true">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5zM15 3v6h5M9 12h6M9 16h6"/></svg>
@@ -237,10 +239,11 @@ export const RecordingsView = {
                 <span v-if="r.hasLease" class="record-role"><span class="record-role-label">{{ t.lease }}:</span> <span class="dictator-name" data-cell="lease">{{ r.leaseHolder }}</span></span>
               </span>
               <span class="record-subtitle" :class="r.isFallback ? 'date-fallback' : ''"><span>Diktat {{ r.reference }}</span><span v-if="r.fallbackText" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackText }}</span><span v-else-if="r.isFallback" data-testid="fallback" :title="r.fallbackTip" :aria-label="r.fallbackTip"> · {{ r.fallbackLabel }}</span></span>
-              <span v-if="r.processing" :id="'crv-processing-' + r.key" class="cl-processing">Spracherkennung: {{ r.processing }}</span>
+              <span v-if="r.processing" :id="'crv-processing-' + r.key" class="cl-processing" data-testid="recording-text-state">{{ r.processing }}</span>
             </span>
-            <span class="status" :id="'crv-workflow-' + r.key" :class="r.statusClass">Arbeitsstand: {{ r.status }}</span>
-            <span class="record-source" aria-hidden="true"></span>
+            <span class="status" :id="'crv-next-' + r.key" :class="r.needsAction ? 'wartet' : r.statusClass"
+                   data-testid="recording-next-step" :data-action-needed="r.needsAction ? 'true' : 'false'"><span>{{ r.nextStep }}</span></span>
+            <span class="record-source" hidden></span>
             <span class="record-duration">{{ r.duration }}</span>
             <span class="record-chevron" aria-hidden="true">›</span>
           </button>
