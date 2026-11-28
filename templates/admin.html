@@ -5201,6 +5201,14 @@ Summarization Instructions:
         // V8 administration pages (compose-*.js, registered on this app below). Own navigation row, same probe pattern:
         // the page stays hidden when the API answers 403/404. The component tag carries the module's registered name.
         const v8props = { client, currentUser: { id: userId, is_admin: !team } };
+        async function probeActivity() {
+            const aggregates = await client.request('/statistics/aggregates');
+            if (!team && aggregates.outcome === 'permission') {
+                const collection = await client.request('/statistics/collection');
+                if (collection.outcome === 'ok') return collection;
+            }
+            return aggregates;
+        }
         const v8defs = [
             { id: 'admin-pools', label: 'Schreibkräfte-Pools', probe: '/pool-admin/pools', comp: 'clinic-admin-pools-view', props: { ...v8props, userClient: routingClient } },
             { id: 'authors', label: 'Diktierende und Autorenpools', probe: '/admin/users', probeVia: adminClient, comp: 'clinic-authors-view', props: { ...v8props, client: routingClient } },
@@ -5210,7 +5218,7 @@ Summarization Instructions:
             { id: 'asr-profiles', label: 'Sprachprofile', probe: '/admin/clinic/training/schedule', probeVia: adminClient, comp: 'clinic-asr-profiles-view', props: { ...v8props, adminClient } },
             { id: 'import', label: 'Import', probe: '/imports/intents', comp: 'clinic-import-view', props: v8props },
             { id: 'jobs', label: 'Verarbeitung', probe: '/jobs/health', comp: 'clinic-jobs-view', props: { client, canRetry: !team, adminLayout: true } },
-            { id: 'activity', label: 'Aktivität und Audit', probe: '/statistics/aggregates', comp: 'clinic-activity-view', props: v8props },
+            { id: 'activity', label: 'Aktivität und Audit', probe: '/statistics/aggregates', probeVia: { request: probeActivity }, comp: 'clinic-activity-view', props: v8props },
         ].map((d) => Object.assign(d, { v8: true }));
         // Policy pages (v8-92): own navigation row; the page is hidden for accounts the admin API refuses.
         const policyDefs = [

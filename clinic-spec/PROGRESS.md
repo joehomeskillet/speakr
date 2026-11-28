@@ -10,3 +10,6 @@ Bestehenden Fortschritt nicht durch diese Anfangsnotiz löschen; versioniert zus
 
 ## P-145 – PAR-COR-005
 Zeitbasierter Rücksprung im Schreibplatz (Standard 2 s, 0 s ohne Rücksprung) lokal in Chromium mit synthetischem Audio geprüft: Tipp-Pause, Weiterlaufmodus, manuelle Pause/Neustart und Tastaturemulation der Pedalsteuerung. Referenzvergleich, Wortzahl-Rücksprung und physisches Pedal bleiben `not_run`.
+
+## P-162 – PAR-OPS-005
+In der synthetischen Staging-Konfiguration können Standortadmins die Erfassung von Anwendungsnutzung und Diktatverlauf getrennt einstellen. Aktivität und Audit unterscheidet nicht erhobene Zeiträume von gemessener Nullaktivität. Kein Referenzvergleich und keine Produktivfreigabe.
