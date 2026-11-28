@@ -4,6 +4,10 @@
 
 Im lokalen Klinik-Browserlauf wurden Titel, Anmerkung, Priorität und ein Zürcher Tagesendtermin eines synthetischen P04-Entwurfs gespeichert und nach erneutem Öffnen geprüft. Die angezeigte Abnahmepflicht folgte einer separaten Admin-Änderung. Staging und Originalsystemvergleich stehen aus; die offenen Paritätslücken bleiben unverändert.
 
+## P-141 – ASR-Wartezeit (PAR-ASR-003)
+
+Die Klinik-API erlaubt berechtigten Bearbeitern nach Ablauf der Profilfrist den Wechsel von In Vorbereitung zu Zu schreiben. Ein lokaler synthetischer API-/DB-Test prüft eine verspätete ASR-Antwort als Nebenversion bei vorhandenem menschlichem Textkopf. Staging und Referenzvergleich bleiben offen.
+
 ## Implementierung P-084
 
 Versionierte Importabsichten werden pro Datei in den bestehenden Klinik-Import übernommen. Synthetische HTTP-/DB-Tests prüfen Metadaten, Poolwahl, Empfänger, die drei ASR-Modi und den unveränderten nicht ausgewählten Inventareintrag. Staging- und Philips-Referenztests für BT-IMP-003 stehen noch aus.
@@ -71,3 +75,7 @@ PR #2 wurde nach sechs grünen Projektprüfungen in clinic/main gemergt. Der Lau
 ### Automatische Zusammenfassung neuer Klinikdiktate
 
 Für neue Diktate kann die erste erfolgreiche lokale Transkription eine Zusammenfassung auslösen. Dazu muss in den Systemeinstellungen `disable_auto_summarization=false` gelten und der Autor die persönliche Option `auto_summarization` eingeschaltet haben. Die Klinik speichert die erste ASR-Fassung und deren Auftrag gemeinsam. Der bestehende Summary-Worker verarbeitet ihn mit dem freigegebenen lokalen Modell und den Objektrechten des Autors. Der Titel entsteht weiterhin im bisherigen Titelauftrag. Bestandsdiktate, erneute Erkennung und menschliche Korrekturen lösen keine nachträgliche Automatik aus. Ein berechtigter Nutzer kann die aktuelle Textfassung über die Diktatdetails weiterhin ausdrücklich zusammenfassen lassen.
+
+## P-133 – Playerposition im Schreibplatz (PAR-COR-001)
+
+Teilfunktion umgesetzt und lokal mit synthetischem Audio im Browser geprüft: Die Playerleiste lässt sich per Zeiger und Pfeiltasten im sichtbaren Editorbereich verschieben und zurücksetzen. Audioelement, laufende Wiedergabe, Textauswahl und Bearbeitungslease blieben auch beim Wechsel auf 390 px erhalten. Die Prüfung auf Staging und der unveränderte Originaltest BT-COR-001 mit Referenzvergleich stehen aus; keine Aussage zur vollständigen Parität.
