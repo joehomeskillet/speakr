@@ -1,5 +1,9 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## Implementierung P-084
+
+Versionierte Importabsichten werden pro Datei in den bestehenden Klinik-Import übernommen. Synthetische HTTP-/DB-Tests prüfen Metadaten, Poolwahl, Empfänger, die drei ASR-Modi und den unveränderten nicht ausgewählten Inventareintrag. Staging- und Philips-Referenztests für BT-IMP-003 stehen noch aus.
+
 ## P-216 – Lokale Inline-Grafiken
 
 Im Klinikbetrieb nimmt die Flask-API validierte PNGs pro Diktat auf und liefert sie nur nach erneuter Zugriffskontrolle über eine unveränderliche Inhalts-ID aus. Kein Abruf externer Quellen, keine aktive Grafik und keine Bildanhänge. Editoranschluss, Staging-Prüfung und BT-LIVE-005 bleiben offen.
