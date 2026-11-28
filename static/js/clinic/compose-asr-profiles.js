@@ -345,7 +345,7 @@ const CONSENT_TEMPLATE = `
   <p v-if="view.notice" role="status" aria-live="polite">{{ view.notice }}</p>
   <p v-if="view.error" role="alert" class="asr-feedback-error">{{ view.error.message }}
     <button type="button" class="small" :disabled="view.loading || view.busy" @click="controller.load()">{{ view.labels.reload }}</button></p>
-  <div role="status"><span class="tag" :style="surfaceStyle(view.statusSurface)" data-testid="voice-status">{{ view.status.label }}</span></div>
+  <div><span class="tag" :style="surfaceStyle(view.statusSurface)" data-testid="voice-status" role="status">{{ view.status.label }}</span></div>
   <h3>{{ view.statement.label }}</h3>
   <p class="hint">{{ view.statement.text }}</p>
   <div class="actions">
