@@ -49,9 +49,15 @@ it.each([
     app.unmount();
 });
 
-it.each([SettingsView, RecordingView])('mounts the shared status in $name', (view) => {
-    expect(view.components.SessionTransportNotice).toBe(SessionTransportNotice);
-    expect(view.template).toContain('<SessionTransportNotice ');
+it('mounts the shared status in settings', () => {
+    expect(SettingsView.components.SessionTransportNotice).toBe(SessionTransportNotice);
+    expect(SettingsView.template).toContain('<SessionTransportNotice ');
+});
+
+it('mounts the shared status in recording through its setup binding', () => {
+    const setup = RecordingView.setup({ vue: { ref: Vue.ref, computed: Vue.computed }, currentUser: { id: 7 }, recorder: {}, uploadFile: vi.fn() }, {});
+    expect(setup.SessionTransportNotice).toBe(SessionTransportNotice);
+    expect(RecordingView.template).toContain('<component :is="SessionTransportNotice" ');
 });
 
 it('mounts the shared status in the correction body through its setup binding', () => {

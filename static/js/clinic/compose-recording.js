@@ -432,7 +432,7 @@ export const RECORDING_TEMPLATE = `
          style="display: grid; place-items: center; min-height: min(56dvh, 30rem); padding: var(--ui-space-6) var(--ui-space-4); color: var(--ui-text)">
   <h1 id="crv-title" class="sr-only">{{ c.text.title }}</h1>
   <div style="width: 100%; max-width: 28rem; text-align: center">
-    <SessionTransportNotice :client="client" :vue="vue" class="mb-3" />
+    <component :is="SessionTransportNotice" :client="client" :vue="vue" class="mb-3" />
     <p v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
        :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}</p>
     <template v-if="!m.routing">
@@ -501,7 +501,6 @@ export const RECORDING_TEMPLATE = `
 
 export const RecordingView = {
     name: 'ClinicRecordingView',
-    components: { SessionTransportNotice },
     emits: ['open', 'worklist'],
     props: {
         client: { type: Object, default: null },
@@ -631,6 +630,7 @@ export const RecordingView = {
             finishDurationProbe,
             shortcuts,
             icons: ICON_PATHS,
+            SessionTransportNotice,
             enabled, level, elapsed, previewUrl,
             act: (id) => { if (RECORDER_ACTIONS.includes(id)) c[id](); },
             discard: () => {
