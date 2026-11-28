@@ -75,11 +75,18 @@ def _guard():
     if not (current_user.is_authenticated and current_user.is_active
             and session.get("_user_id") == current_user.get_id()):
         return _problem("UNAUTHORIZED")
-    if request.method not in ("GET", "HEAD"):
-        try:
-            validate_csrf(request.headers.get("X-CSRF-Token"))
-        except ValidationError:
-            return _problem("FORBIDDEN")
+    if request.endpoint == "clinic_live.stream_audio":
+        from src.clinic.routes_live_stream import stream_csrf
+
+        token = stream_csrf()
+    elif request.method not in ("GET", "HEAD"):
+        token = request.headers.get("X-CSRF-Token")
+    else:
+        return
+    try:
+        validate_csrf(token)
+    except ValidationError:
+        return _problem("FORBIDDEN")
 
 
 def _no_store(response):
@@ -204,7 +211,8 @@ def _valid_fence(data: dict) -> bool:
 
 
 def register_live_commands(
-    dispatch: ParityDispatch, authorize_dictation: Authorize, now: Clock = _utcnow
+    dispatch: ParityDispatch, authorize_dictation: Authorize, now: Clock = _utcnow,
+    *, stream_enabled: bool = False,
 ) -> None:
     """Bind ``start_live_session`` and ``stop_live_session``. run_once commits."""
 
@@ -221,9 +229,14 @@ def register_live_commands(
         return "dictation:" + payload["dictation_id"]
 
     def execute_start(actor: int, target: str, envelope: dict) -> dict:
+        client_id = request.headers.get("X-Live-Client-Id") if stream_enabled else None
+        if client_id is not None and not _client_id(client_id):
+            raise CommandProblem("INVALID_PAYLOAD")
         try:
-            row = live_session.start(target.split(":", 1)[1], actor, now())
+            row = live_session.start(target.split(":", 1)[1], actor, now(), client_id=client_id)
             _require_undiscarded(row.dictation_id)
+            if client_id is not None:
+                row.holder_generation = 1
         except (live_session.LiveSessionError, DraftError) as error:
             raise CommandProblem(_code(error)) from error
         return result(envelope, row.ack_seq + 1)
@@ -270,6 +283,7 @@ def create_blueprint(
     authorize_dictation: Authorize, store: IngestService,
     drafts: LiveDrafts | DraftStore | None = None, now: Clock = _utcnow, *,
     authorize_view: Authorize | None = None, authorize_play: Authorize | None = None,
+    stream_adapter=None,
 ) -> Blueprint:
     """Mount pause, continue, phrase append, resume and draft switch.
 
@@ -339,6 +353,10 @@ def create_blueprint(
             return _problem("INVALID_PAYLOAD")
 
         def act():
+            if stream_adapter is not None:
+                live_session.lock_author(current_user.id)
+                if live_session._load(session_id).holder_generation is not None:
+                    return _problem("POLICY_DENIED")
             receipt = live_phrases.store_phrase(
                 store, dictation_id=row.dictation_id, session_id=session_id,
                 user_id=current_user.id, client_id=data.pop("client_id", None), now=now(),
@@ -501,5 +519,10 @@ def create_blueprint(
             db.session.commit()
             return jsonify(result)
         return run(act)
+
+    if stream_adapter is not None:
+        from src.clinic.routes_live_stream import register_stream_route
+
+        register_stream_route(blueprint, authorize_dictation, store, stream_adapter, now)
 
     return blueprint
