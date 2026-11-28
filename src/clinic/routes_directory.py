@@ -10,18 +10,17 @@ services. Local account management never depends on the provider: without one,
 the routes answer ``ldap_capability_unavailable``. Reading local Windows accounts
 stays open (WG-ADM-009).
 
-Mounting ``blueprint``, a provider and the creation of linked accounts for
-``create_pending_user`` (explicit linking) are left to the consumers
-(w167, w196).
+The application selects its provider at startup. Creation of linked accounts
+for ``create_pending_user`` stays in the explicit linking flow.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Callable
+from typing import Any
 
-from flask import Blueprint, abort, jsonify, request
+from flask import Blueprint, abort, current_app, jsonify, request
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
 from wtforms.validators import ValidationError
@@ -29,6 +28,7 @@ from wtforms.validators import ValidationError
 from src.clinic import directory_diff as dd
 from src.clinic import identity, ldap_profile, pools
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.directory_provider import PROVIDER_EXTENSION, SnapshotProvider
 from src.clinic.directory_reconcile import Action, DirectoryReconcileError, LocalUser
 from src.clinic.entra import ClinicExternalIdentity
 from src.database import db
@@ -48,25 +48,21 @@ _TITLES = {400: "Ungültige Anfrage", 401: "Anmeldung erforderlich", 403: "Zugri
            409: "Versionskonflikt", 422: "Verknüpfung erforderlich",
            503: "Verzeichnis nicht verfügbar"}
 
-_provider: Callable[[], dd.DirectorySnapshot | None] | None = None
+_provider: SnapshotProvider | None = None
 
 
-def set_provider(provider: Callable[[], dd.DirectorySnapshot | None] | None) -> None:
-    """Register the configured directory read; ``None`` removes it."""
+def set_provider(provider: SnapshotProvider | None) -> None:
+    """Set the fallback for standalone blueprint consumers without app wiring."""
     global _provider
     _provider = provider
 
 
-def _snapshot() -> dd.DirectorySnapshot:
-    snapshot = None
-    if _provider is not None:
-        try:
-            snapshot = _provider()
-        except ldap_profile.LdapCapabilityError:
-            snapshot = None
-    if snapshot is None:
-        raise dd.DirectoryDiffError("ldap_capability_unavailable", "Directory unavailable")
-    return snapshot
+def _read_snapshot() -> dd.DirectorySnapshot | None:
+    provider = current_app.extensions.get(PROVIDER_EXTENSION, _provider)
+    try:
+        return provider() if provider is not None else None
+    except ldap_profile.LdapCapabilityError:
+        return None
 
 
 def _local_state() -> tuple[list[LocalUser], list[dd.LocalMembership]]:
@@ -128,7 +124,9 @@ def _preview_json(preview: dd.DirectoryPreview) -> dict[str, Any]:
 
 
 def _build(body: dict) -> tuple[dd.DirectorySnapshot, list, list, dd.DirectoryPreview]:
-    snapshot = _snapshot()
+    snapshot = _read_snapshot()
+    if snapshot is None:
+        raise dd.DirectoryDiffError("ldap_capability_unavailable", "Directory unavailable")
     users, members = _local_state()
     preview = dd.build_preview(snapshot, users, members, _managed(body), enabled=True)
     return snapshot, users, members, preview
@@ -225,7 +223,7 @@ def _body() -> dict:
 
 @blueprint.get(PREFIX + "/capability")
 def capability():
-    return jsonify(directory_available=_provider is not None, local_accounts=True,
+    return jsonify(directory_available=_read_snapshot() is not None, local_accounts=True,
                    local_windows_accounts="unavailable", gap="WG-ADM-009")
 
 

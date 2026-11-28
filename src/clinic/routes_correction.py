@@ -37,7 +37,7 @@ from wtforms.validators import ValidationError
 
 from src.clinic import alignment_tokens as at
 from src.clinic import correction as corr
-from src.clinic import caution_words, lease, live_session, revisions, vocabulary
+from src.clinic import caution_rules, caution_words, lease, live_session, revisions, vocabulary
 from src.clinic.alignment import ClinicAlignmentRevision
 from src.clinic.audio_invalidation import get_compatible_links
 from src.clinic.audio_revisions import current_audio_revision
@@ -450,7 +450,8 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
     def get_review_markers(dictation_id: UUID) -> Response:
         dictation = object_for(dictation_id, 'correction_read')
         head = revisions.current_revision(dictation)
-        hits = caution_words.open_review_hits(dictation, head)
+        rules = caution_rules.effective_rule_set(dictation.pool_id)
+        hits = caution_words.open_review_hits(dictation, head, rules)
         return jsonify(text_revision_id=head.id if head else None, review_markers=[
             dict(id=hit.marker_id, label=hit.word, anchor_offset=to_utf16_offset(head.body, hit.offset))
             for hit in hits
@@ -480,7 +481,12 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
             head = current_head(dictation)
             if dictation.pool_id != pool_id:
                 abort(409)
-            caution_words.confirm_review_hit(dictation, head, str(marker_id), actor, lease_generation=generation)
+            rules = caution_rules.effective_rule_set(dictation.pool_id)
+            audio = current_audio_revision(dictation)
+            caution_words.confirm_review_hit(
+                dictation, head, str(marker_id), actor, lease_generation=generation,
+                rules=rules, audio_revision_id=audio.id if audio else None,
+            )
             return dict(id=str(marker_id), text_revision_id=head.id, confirmed=True)
 
         return write(dictation_id, 'review_marker_confirm', f'{pool_id}:{marker_id}', data, apply)
