@@ -796,11 +796,12 @@ export function createCorrectionViewController(options) {
     }
 
     async function open() {
+        const waiting = v8 && refreshAsrWait();
         if (opts.openMode === 'correction') {
-            const res = await client.request('/dictations/' + encodeURIComponent(dictationId) + '/leases');
-            if (!disposed && res.outcome === 'ok' && res.data?.may_acquire === true) await editor.acquire();
+            const [res] = await Promise.all([client.request(dictationPath + '/leases'), waiting]);
+            if (!disposed && !asrWait.value && res.outcome === 'ok' && res.data?.may_acquire === true) await editor.acquire();
         }
-        const [res] = await Promise.all([load(), v8 && refreshAsrWait()]);
+        const [res] = await Promise.all([load(), waiting]);
         if (!disposed && !res?.ok && opts.openMode === 'correction'
             && editor.lease.value.status === 'held') await editor.release();
         return res;

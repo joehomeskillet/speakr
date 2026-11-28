@@ -302,6 +302,7 @@ def test_signed_in_owner_types_saves_and_reopens(manual_server):
             saved = response.value.json()
             expect(page.locator('[data-testid=save-state]')).to_have_attribute('data-state', 'saved')
             page.locator('[data-testid=clinic-correction-back]').click()
+            page.get_by_test_id('session-review-close').click()
             _open_from_worklist(page, base)
             expect(page.locator('[data-testid=text]')).to_have_value(TEXT)
             stored = page.request.get(f'{base}/api/clinic/v1/dictations/{did}/correction').json()
@@ -358,6 +359,7 @@ def test_asr_wait_opens_manual_editor(manual_server, tmp_path):
             with page.expect_response(lambda r: r.url.endswith('/leases/release')) as released:
                 page.get_by_test_id('clinic-correction-back').click()
             assert released.value.status == 200, released.value.text()
+            page.get_by_test_id('session-review-close').click()
             detail = page.request.get(f'{base}/api/clinic/v1/dictations/{did}/detail').json()
             assert detail['status_axes']['workflow'] == 'zu_schreiben'
             _open_from_worklist(page, base)

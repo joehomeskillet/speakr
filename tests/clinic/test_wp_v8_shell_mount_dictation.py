@@ -116,6 +116,7 @@ def test_leaving_the_editor_with_unsaved_text_saves_first(live_server):
             assert not writes
 
             page.locator("[data-testid=clinic-dictation-link-detail]").click()
+            page.get_by_test_id('session-review-close').click()
             page.locator("[data-testid=clinic-detail-view]").wait_for(state="visible", timeout=30000)
             shown = time.monotonic()
             assert writes, "the editor was left without a save request"

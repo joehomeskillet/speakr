@@ -134,7 +134,12 @@ def _capture(page, focus, dest, state):
 def _open_output(page, dictation_id):
     page.locator(f'[data-testid=open-link][data-id="{dictation_id}"]').click()
     page.get_by_test_id('clinic-dictation-link-output').click()
-    return page.get_by_test_id('output-view')
+    output = page.get_by_test_id('output-view')
+    close = page.get_by_test_id('session-review-close')
+    expect(output.or_(close)).to_be_visible()
+    if close.is_visible():
+        close.click()
+    return output
 
 
 def test_review_and_release_current_bound_versions(review_scene, tmp_path):
@@ -200,6 +205,7 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
                 assert _get(page, path + "/review")["revision"] == ready["revision"]
 
             page.get_by_test_id("clinic-dictation-link-detail").click()
+            page.get_by_test_id('session-review-close').click()
             edit = page.locator(".clinic-lease").get_by_role("button", name="Bearbeiten", exact=True)
             expect(edit).to_be_enabled()
             # Acquiring the lease refreshes P03. Publish only after that read bound the old rule.
