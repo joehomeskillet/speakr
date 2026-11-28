@@ -134,15 +134,38 @@ function style(kind) {
     return { background: s.background, color: s.color, borderColor: s.border };
 }
 
+const ASR_STATUS_ROWS = `
+  <div><dt>{{ view.labels.profile }}</dt><dd>{{ view.profile ? view.profile.name : (adminLayout ? 'Keines' : 'Kein Serverprofil') }}</dd></div>
+  <div v-if="view.profile"><dt>Version</dt><dd>{{ view.profile.version }}</dd></div>
+  <div><dt>{{ view.labels.engine }}</dt><dd>{{ view.engine.label }}{{ adminLayout ? '' : ' · Lokal' }}</dd></div>`;
+
+const ASR_TECHNICAL_ROWS = `
+  <div><dt>{{ view.labels.prompts }}</dt><dd>{{ view.prompts.label }}</dd></div>
+  <div v-if="view.output">
+    <dt>{{ view.labels.format }}</dt>
+    <dd class="actions" style="min-width:0;gap:var(--sp-1) var(--sp-3);overflow-wrap:anywhere">
+      <span v-if="view.output.container">{{ view.output.container }}{{ (view.output.codec || view.output.sampleRate != null) ? (adminLayout ? ' · ' : ' ') : '' }}</span>
+      <span v-if="view.output.codec">{{ view.output.codec }}{{ view.output.sampleRate != null ? (adminLayout ? ' · ' : ' ') : '' }}</span>
+      <span v-if="view.output.sampleRate != null" style="white-space:nowrap">{{ view.output.sampleRate }}&nbsp;Hz</span>
+    </dd>
+  </div>
+  <div><dt>Cloudumleitung</dt><dd>Nicht vorgesehen</dd></div>`;
+
+const ASR_TRAINING_NOTE = 'Eine Wortliste ersetzt kein Akustiktraining. Korrekturtexte benötigen eine bewusste Freigabe und einen geprüften Audioabgleich.';
+
 const ASR_TEMPLATE = `
-<section class="panel" role="form" :aria-label="view.title" :aria-busy="view.loading || view.busy" @keydown.esc="onKey">
-  <h2>Profilkonfiguration</h2>
+<div :class="adminLayout ? 'asr-profile-layout' : 'panel'">
+<section :class="adminLayout ? 'panel' : null" :role="adminLayout ? null : 'form'"
+  :aria-label="adminLayout ? null : view.title" :aria-labelledby="adminLayout ? 'asr-config-title' : null"
+  :aria-busy="view.loading || view.busy" @keydown.esc="onKey">
+  <h2 id="asr-config-title">Profilkonfiguration</h2>
   <p v-if="view.loading" class="text-status" role="status">Sprachprofile werden geladen …</p>
-  <p v-if="view.notice" class="note" role="status">{{ view.notice }}</p>
-  <div v-if="view.error" class="note burgundy" role="alert">
+  <p v-if="!adminLayout && view.notice" class="note" role="status">{{ view.notice }}</p>
+  <div v-if="view.error" :class="adminLayout ? 'asr-feedback-error' : 'note burgundy'" role="alert">
     {{ errorMessage(view.error) }}
     <button class="small" type="button" :disabled="view.loading || view.busy" @click="controller.load()">{{ view.labels.reload }}</button>
   </div>
+  <p v-if="adminLayout && view.ready && !view.profile" class="hint">Für Ihr Konto ist noch kein Sprachprofil gespeichert.</p>
   <p class="hint" id="res-asr-source">{{ view.labels.source }}<template v-if="view.profileMode === 'separate'"> für Live-Erkennung</template></p>
   <div class="actions" role="radiogroup" aria-labelledby="res-asr-source" @keydown="onSourceKey">
     <button v-for="s in view.sources" :key="s.value" type="button" role="radio" class="asr-source"
@@ -150,7 +173,7 @@ const ASR_TEMPLATE = `
       :aria-checked="s.selected ? 'true' : 'false'" :tabindex="s.selected ? 0 : -1"
       @click="controller.setSource(s.value)">{{ s.value === 'recorder' ? 'Aufnahmegerät' : s.label }}</button>
   </div>
-  <div class="field-grid" style="margin-block-start:var(--sp-3)">
+  <div class="field-grid" :style="adminLayout ? null : 'margin-block-start:var(--sp-3)'">
     <div v-if="view.profileMode" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
       <label for="res-asr-mode">{{ view.labels.profileMode }}</label>
       <select id="res-asr-mode" :disabled="!view.ready || view.busy" :value="view.profileMode" @change="controller.setProfileMode($event.target.value)">
@@ -164,41 +187,38 @@ const ASR_TEMPLATE = `
         <option v-for="o in view.sources" :key="o.value" :value="o.value">{{ o.value === 'recorder' ? 'Aufnahmegerät' : o.label }}</option>
       </select>
     </div>
-    <div class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
+    <div v-if="!adminLayout || view.supportsSaveRule" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
       <label for="res-asr-save-rule">{{ view.labels.saveRule }}</label>
       <select id="res-asr-save-rule" :disabled="!view.ready || view.busy" :value="view.saveRule" @change="controller.setSaveRule($event.target.value)">
         <option v-for="o in view.saveRules" :key="o.value" :value="o.value">{{ o.label }}</option>
       </select>
     </div>
-    <div v-if="!view.profileMode" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
+    <div v-if="!view.profileMode && (!adminLayout || view.profile || view.live.length)" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
       <label for="res-asr-live">{{ view.labels.live }}</label>
-      <select id="res-asr-live" :disabled="!view.ready || view.busy" :value="selected(view.live)" @change="controller.setProfile('live', $event.target.value || null)">
+      <select id="res-asr-live" :disabled="!view.ready || view.busy || (adminLayout && !view.live.length)" :value="selected(view.live)" @change="controller.setProfile('live', $event.target.value || null)">
         <option value="">Kein Profil</option><option v-for="o in view.live" :key="o.value" :value="o.value">{{ o.label }}</option>
       </select>
     </div>
-    <div v-if="!view.profileMode" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
+    <div v-if="!view.profileMode && (!adminLayout || view.profile || view.batch.length)" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
       <label for="res-asr-batch">{{ view.labels.batch }}</label>
-      <select id="res-asr-batch" :disabled="!view.ready || view.busy" :value="selected(view.batch)" @change="controller.setProfile('batch', $event.target.value || null)">
+      <select id="res-asr-batch" :disabled="!view.ready || view.busy || (adminLayout && !view.batch.length)" :value="selected(view.batch)" @change="controller.setProfile('batch', $event.target.value || null)">
         <option value="">Kein Profil</option><option v-for="o in view.batch" :key="o.value" :value="o.value">{{ o.label }}</option>
       </select>
     </div>
-    <div class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
+    <div class="field asr-wait" style="border:0;padding:0;box-shadow:none;background:transparent">
       <label for="res-asr-wait">{{ view.labels.wait }}</label>
       <input id="res-asr-wait" type="number" min="1" inputmode="numeric" autocomplete="off"
+        :aria-describedby="adminLayout ? 'asr-wait-hint' : null"
         :disabled="!view.ready || view.busy" :value="view.skipWaitMinutes"
         @change="controller.setSkipWaitMinutes($event.target.value)">
+      <small v-if="adminLayout" id="asr-wait-hint">{{ view.waitDisabled
+        ? 'Während der Erkennung ist das Schreiben von Hand ausgeschaltet.'
+        : 'Bei längerer Erkennung können Sie nach dieser Zeit von Hand schreiben.' }}</small>
     </div>
   </div>
-  <template v-if="view.ready && !view.error">
+  <template v-if="!adminLayout && view.ready && !view.error">
     <h3>Profilstand</h3>
-    <dl class="keyvalues">
-      <div><dt>{{ view.labels.profile }}</dt><dd>{{ view.profile ? view.profile.name : 'Kein Serverprofil' }}</dd></div>
-      <div v-if="view.profile"><dt>Version</dt><dd>{{ view.profile.version }}</dd></div>
-      <div><dt>{{ view.labels.engine }}</dt><dd>{{ view.engine.label }} · Lokal</dd></div>
-      <div><dt>{{ view.labels.prompts }}</dt><dd>{{ view.prompts.label }}</dd></div>
-      <div v-if="view.output"><dt>{{ view.labels.format }}</dt><dd>{{ view.output.container }}, {{ view.output.codec }}, {{ view.output.sampleRate }} Hz</dd></div>
-      <div><dt>Cloudumleitung</dt><dd>Nicht vorgesehen</dd></div>
-    </dl>
+    <dl class="keyvalues">${ASR_STATUS_ROWS}${ASR_TECHNICAL_ROWS}</dl>
     <p v-if="view.engine.fallback" class="note warning" role="status">{{ view.engine.fallbackLabel }}</p>
     <h3>Fähigkeiten und Nachweise</h3>
     <div v-if="view.capabilities.length" class="table-wrap">
@@ -209,13 +229,42 @@ const ASR_TEMPLATE = `
     </div>
     <p v-else class="hint">Keine Fähigkeiten konfiguriert. Es liegt kein Wirkungsnachweis vor.</p>
     <p v-if="view.profileMode" class="hint">Getrennte Quellen verwenden dasselbe Erkennungsmodell. Getrennte Akustikprofile werden nicht unterstützt.</p>
-    <p class="note">Eine Wortliste ersetzt kein Akustiktraining. Korrekturtexte benötigen eine bewusste Freigabe und einen geprüften Audioabgleich.</p>
+    <p class="note">${ASR_TRAINING_NOTE}</p>
   </template>
-  <div class="actions">
-    <button class="primary asr-profile-save" style="font-size:13px;padding:9px 13px" type="button" :disabled="!view.canSave" @click="controller.save()">{{ view.labels.save }}</button>
-    <button type="button" :disabled="!view.dirty || view.busy" @click="controller.cancel()">{{ view.labels.cancel }}</button>
+  <div>
+    <p v-if="adminLayout && view.profile" class="hint">Sie speichern Änderungen für Ihr eigenes Konto.</p>
+    <div class="actions asr-save-actions">
+      <button class="primary asr-profile-save" :style="adminLayout ? null : 'font-size:13px;padding:9px 13px'"
+        type="button" :disabled="!view.canSave" @click="controller.save()">{{ view.labels.save }}</button>
+      <button v-if="!adminLayout || view.dirty" type="button" :disabled="!view.dirty || view.busy" @click="controller.cancel()">{{ view.labels.cancel }}</button>
+    </div>
+    <div v-if="adminLayout" class="asr-save-feedback" role="status">
+      <span v-if="view.dirty">Ungespeicherte Änderungen.</span>
+      <span v-if="view.notice">{{ view.notice }}</span>
+    </div>
   </div>
-</section>`;
+</section>
+<section v-if="adminLayout" class="panel" aria-labelledby="asr-current-title">
+  <h2 id="asr-current-title">Profilstand</h2>
+  <template v-if="view.ready && !view.error">
+    <dl class="keyvalues">${ASR_STATUS_ROWS}</dl>
+    <p v-if="view.engine.fallback" class="asr-feedback-warning" role="status">{{ view.engine.fallbackLabel }}</p>
+    <p v-if="!view.profile" class="hint">Bei einem Ausfall der Spracherkennung können Sie den Text von Hand schreiben.</p>
+    <details>
+      <summary>Technische Details</summary>
+      <p v-if="view.profileMode" class="hint">Getrennte Quellen verwenden dasselbe Erkennungsmodell. Getrennte Akustikprofile werden nicht unterstützt.</p>
+      <dl class="keyvalues">
+        ${ASR_TECHNICAL_ROWS}
+        <div><dt>Modellhash</dt><dd>Nicht gemeldet</dd></div>
+        <div><dt>Checkpoint</dt><dd>Nicht gemeldet</dd></div>
+      </dl>
+    </details>
+  </template>
+  <p class="hint">Eine Wortliste allein trainiert die Spracherkennung nicht. Korrigierte Texte werden erst nach Freigabe und Abgleich mit der Aufnahme für das Training verwendet.</p>
+  <div class="actions"><a class="button" href="#/wortschatz">Wortschatz prüfen</a></div>
+</section>
+<slot v-if="adminLayout" name="capabilities" :profile="view"></slot>
+</div>`;
 
 // Panels for the two children that ship a controller but no component.
 export function createPanels(Vue) {
@@ -270,10 +319,10 @@ export function createPanels(Vue) {
 
     const asr = {
         name: 'ClinicAsrProfilesPanel',
-        props: { client: { type: Object, required: true } },
+        props: { client: { type: Object, required: true }, adminLayout: Boolean },
         template: ASR_TEMPLATE,
         setup(props) {
-            const controller = createAsrProfilesController({ client: props.client });
+            const controller = createAsrProfilesController({ client: props.client, adminLayout: props.adminLayout });
             const panel = usePanel(controller);
             const selected = (list) => (list.find((o) => o.selected) || { value: '' }).value;
             const onKey = (e) => controller.onKeydown(e);
