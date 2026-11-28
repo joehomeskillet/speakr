@@ -7,15 +7,15 @@ need CSRF, every object goes through the injected per-object ``authorize``
 (actions ``correction_read`` / ``correction_edit``) and every write needs a
 current review lease generation and the live-holder check.
 
-Offsets in requests and responses are UTF-16 code units (what the browser
-editor counts); the stored offsets are code points of the normalised body.
+Selection and link offsets at the API boundary are UTF-16 code units.
+Move maps use raw document code points; stored offsets index the normalised body.
 Text without a stored audio link is reported as ``aligned: false``; no audio
 range is invented. A rich ``document`` is optional on save. With it, the same
 canonical snapshot is returned by GET and by the save result, guarded by
 ``expected_document_version``. A request without it keeps the plain-text
 contract and does not delete a stored snapshot.
 
-W10: every save derives the links of the new revision from the previous one.
+W10 plain saves derive coarse links of the new revision from the previous one.
 Unchanged words keep their audio range, a replaced span takes the range
 between its neighbours, newly typed words get no link.
 """
@@ -42,7 +42,8 @@ from src.clinic.alignment import ClinicAlignmentRevision
 from src.clinic.audio_invalidation import get_compatible_links
 from src.clinic.audio_revisions import current_audio_revision
 from src.clinic.config import clinic_mode_enabled
-from src.clinic.correction_recognition_marks import current_marks
+from src.clinic.correction_document_links import carry_document_links, plan_document_links
+from src.clinic.correction_recognition_marks import MARK_KINDS, current_marks
 from src.clinic.correction_transaction import CorrectionOriginalError, save_correction_transaction
 from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
 from src.clinic.parity_dispatch import JSON, CommandProblem, RunOnce
@@ -187,7 +188,7 @@ def _parse_document(payload: object) -> CanonicalDocument:
         abort(400)
 
 
-def _stored_document(revision_id: str | None) -> tuple[int, JSON | None]:
+def _stored_document(revision_id: str | None) -> tuple[int, CanonicalDocument | None]:
     """Latest snapshot on one text revision. Version 0 means there is none."""
     if not revision_id:
         return 0, None
@@ -195,7 +196,7 @@ def _stored_document(revision_id: str | None) -> tuple[int, JSON | None]:
            .order_by(ClinicRichTextSnapshot.version.desc()).limit(1).first())
     if row is None:
         return 0, None
-    return row.version, _api_document(CanonicalDocument.from_payload(row.payload))
+    return row.version, CanonicalDocument.from_payload(row.payload)
 
 
 def _link_json(row: corr.ClinicTextAudioLink, body: str) -> JSON:
@@ -311,7 +312,7 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
     @bp.get(PATH)
     def get_correction(dictation_id: UUID) -> Response:
         dictation = object_for(dictation_id, 'correction_read')
-        head = revisions.current_revision(dictation)
+        head, bundle_version = revisions.current_revision_with_count(dictation)
         state = corr.get_state(dictation, current_user.id)
         body = head.body if head else ''
         held = lease.current(dictation.id)
@@ -327,15 +328,23 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
             markers=[_marker_json(m) for m in corr.list_markers(dictation) if not caution_words.is_review_marker(m)])
         _version, payload = _stored_document(head.id if head else None)
         if payload is not None:
-            out['document'] = payload
+            out['document'] = _api_document(payload)
             out['document_version'] = _version
         if clinic_mode_enabled():
             from src.clinic.bundle_store import ClinicBundleDocument, audio_synced
 
+            out['bundle_version'] = bundle_version
             saved = db.session.get(ClinicBundleDocument, head.id) if head else None
             if saved is not None:
                 out['audio_synced'] = audio_synced(saved, audio)
             evidence = current_marks(dictation.id, audio.id, head.id) if head and audio else []
+            evidence = [row for row in evidence if row.kind in MARK_KINDS and row.source]
+            out['recognition_evidence'] = [
+                dict(id=row.id, kind=row.kind, start_ms=row.start_ms, end_ms=row.end_ms,
+                     source=row.source, run_id=row.run_id, confidence=row.confidence,
+                     text_revision_id=row.transcript_revision_id, audio_revision_id=row.audio_revision_id)
+                for row in evidence
+            ]
             out['recognition_spans'] = [
                 dict(id=row.id, kind=row.kind, start_ms=row.start_ms, end_ms=row.end_ms)
                 for row in evidence if row.kind in ('uncertain', 'unrecognized')
@@ -357,7 +366,7 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
     @bp.post(f'{PATH}/save')
     def save(dictation_id: UUID) -> Response:
         data = _body({'text', 'audio_position_ms', 'lease_generation', 'expected_state_version',
-                      'expected_text_revision_id', 'document', 'expected_document_version'},
+                      'expected_text_revision_id', 'document', 'expected_document_version', 'move_map'},
                      {'text', 'audio_position_ms', 'lease_generation', 'expected_text_revision_id'})
         if not isinstance(data['text'], str) or len(data['text']) > 1_000_000:
             abort(400)
@@ -373,7 +382,7 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
                 abort(400)
         parsed = None
         expected_doc = None
-        if 'document' in data or 'expected_document_version' in data:
+        if {'document', 'expected_document_version', 'move_map'} & data.keys():
             if 'document' not in data or 'expected_document_version' not in data:
                 abort(400)
             expected_doc = data['expected_document_version']
@@ -405,24 +414,33 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
             if (head.id if head else None) != expected_rev:
                 raise corr.CorrectionConflict('text changed since it was read')
             doc_version = None
+            transfers = []
+            provenance_changed = False
             if parsed is not None:
                 same_text = head is not None and head.body == revisions.normalise_text(data['text'])
-                if same_text:
-                    doc_version = expected_doc
-                else:
-                    # A new text revision has no snapshot. The version the client read
-                    # belongs to expected_text_revision_id; 0 there means none.
-                    if expected_doc != _stored_document(expected_rev)[0]:
-                        raise corr.CorrectionConflict('document changed since it was read')
-                    doc_version = 0
+                current_version, previous = _stored_document(expected_rev)
+                if expected_doc != current_version and (
+                    not same_text or 'move_map' in data or parsed != previous
+                ):
+                    raise corr.CorrectionConflict('document changed since it was read')
+                if previous is not None:
+                    transfers, provenance_changed = plan_document_links(previous, parsed, data.get('move_map', []))
+                elif 'move_map' in data:
+                    raise RichTextError('invalid_move_map')
+                doc_version = expected_doc if same_text and not provenance_changed else 0
             try:
                 revision, state = save_correction_transaction(
                     dictation, actor, text=data['text'], audio_position_ms=position,
                     lease_generation=generation, expected_state_version=expected_state,
                     expected_text_revision_id=expected_rev, document=parsed,
-                    expected_document_version=doc_version)
-                linked = derive_links(dictation, head, revision)
-                at.tokens_for(dictation, revision)
+                    expected_document_version=doc_version, force_new_revision=provenance_changed)
+                if parsed is None:
+                    linked = derive_links(dictation, head, revision)
+                    at.tokens_for(dictation, revision)
+                else:
+                    new_revision = head is None or head.id != revision.id
+                    linked = carry_document_links(dictation, head, revision, transfers) if head and new_revision else 0
+                    at.tokens_for(dictation, revision, inherit=not new_revision)
                 has_alignment = db.session.query(ClinicAlignmentRevision.id).filter_by(
                     dictation_id=dictation.id).first() is not None
             except lease.LeaseConflict:
@@ -440,7 +458,7 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
                 stored_version, stored = _stored_document(revision.id)
                 if stored is None:
                     raise CommandProblem('DEPENDENCY_UNAVAILABLE')
-                result['document'] = stored
+                result['document'] = _api_document(stored)
                 result['document_version'] = stored_version
             return result
 

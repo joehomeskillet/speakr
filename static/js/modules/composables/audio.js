@@ -49,6 +49,17 @@ export async function acquireMicrophoneStream(mediaDevices, options = {}) {
     }
 }
 
+export function clinicRecordingFormats() {
+    const supports = (mimeType) => globalThis.MediaRecorder?.isTypeSupported?.(mimeType);
+    const mp4Aac = 'audio/mp4;codecs=mp4a.40.2';
+    return [
+        { mimeType: 'audio/wav', extension: 'wav', label: 'WAV' },
+        { mimeType: 'audio/webm;codecs=opus', extension: 'webm', label: 'WebM' },
+        { mimeType: 'audio/ogg;codecs=opus', extension: 'ogg', label: 'Ogg' },
+        { mimeType: supports(mp4Aac) ? mp4Aac : 'audio/mp4;codecs=opus', extension: 'm4a', label: 'M4A' },
+    ].filter(({ mimeType }) => supports(mimeType));
+}
+
 export function useAudio(state, utils) {
     const {
         isRecording, isPaused, mediaRecorder, audioContext, analyser, micAnalyser, systemAnalyser,
@@ -57,7 +68,7 @@ export function useAudio(state, utils) {
         maxRecordingMB, fileSizeWarningShown, sizeCheckInterval, isServerStreamedRecording, isFinalizingRecording, recordingDisclaimer,
         showRecordingDisclaimerModal, pendingRecordingMode, currentView, showUploadModal, showSystemAudioHelp, disableAudioProcessing,
         recordSystemVideo, recordingVideoActive, videoRetentionEnabled,
-        inputAudioDevices, selectedMicDeviceId, selectedSecondaryDeviceId,
+        inputAudioDevices, selectedMicDeviceId, selectedSecondaryDeviceId, clinicRecordingMime,
         isDarkMode, wakeLock, animationFrameId,
         activeStreams, visualizer, micVisualizer, systemVisualizer, canRecordAudio,
         canRecordSystemAudio, systemAudioSupported, systemAudioError, globalError,
@@ -70,6 +81,7 @@ export function useAudio(state, utils) {
 
     // Local state for pending streams and chunk tracking
     let pendingDisplayStream = null;
+    let clinicInput = null;
     let currentChunkIndex = 0;
     // Carries resume info ({sessionId, mimeType, startIndex, priorSeconds,
     // priorBytes}) across the disclaimer detour when resuming an existing
@@ -274,6 +286,8 @@ export function useAudio(state, utils) {
     // `new AudioContext()` throws, killing recording until reload. Called on
     // stop, discard, and the start-error path.
     function _releaseAudioContext() {
+        clinicInput?.destination.stream.getTracks().forEach(track => track.stop());
+        clinicInput = null;
         if (audioContext.value) {
             try { audioContext.value.close(); } catch (_) { /* already closed */ }
             audioContext.value = null;
@@ -463,6 +477,30 @@ export function useAudio(state, utils) {
         }
     };
 
+    const switchClinicMicrophone = async (deviceId) => {
+        const input = clinicInput;
+        const recorder = mediaRecorder.value;
+        if (!input || !isClinicRecordingView() || !isRecording.value || recorder.state === 'inactive') return false;
+        const { stream } = await acquireMicrophoneStream(navigator.mediaDevices, {
+            deviceId, disableAudioProcessing: disableAudioProcessing?.value, requireDevice: true,
+        });
+        try {
+            // Keep the old source live through permission prompts and failed device opens.
+            if (clinicInput !== input || !isClinicRecordingView() || !isRecording.value || recorder.state === 'inactive') return false;
+            const source = audioContext.value.createMediaStreamSource(stream);
+            // A single encoder keeps the sections in one playable container.
+            recorder.requestData();
+            source.connect(analyser.value);
+            input.source.disconnect();
+            activeStreams.value.forEach(previous => previous.getTracks().forEach(track => track.stop()));
+            activeStreams.value = [stream];
+            input.source = source;
+            return true;
+        } finally {
+            if (!activeStreams.value.includes(stream)) stream.getTracks().forEach(track => track.stop());
+        }
+    };
+
     // Start recording
     // IMPORTANT: For Firefox, getDisplayMedia MUST be the first async call from user gesture
     const startRecording = async (mode = 'microphone', resumeContext = null) => {
@@ -471,6 +509,10 @@ export function useAudio(state, utils) {
         const clinicTake = isClinicRecordingView();
 
         try {
+            if (clinicTake && mode === 'microphone') {
+                // Unlock the routing graph before awaiting permissions or disclosure.
+                audioContext.value = new (window.AudioContext || window.webkitAudioContext)();
+            }
             const needsDisplayMedia = mode === 'system' || mode === 'both';
 
             // For system audio modes, get display media FIRST before any other operations
@@ -519,6 +561,7 @@ export function useAudio(state, utils) {
 
             return await startRecordingInternal(mode, resumeContext, clinicTake);
         } finally {
+            if (clinicTake && !isRecording.value) _releaseAudioContext();
             isPreparingRecording.value = false;
         }
     };
@@ -590,6 +633,12 @@ export function useAudio(state, utils) {
             return clinicTake ? false : undefined;
         }
         try {
+            let clinicMime;
+            if (clinicTake && mode === 'microphone') {
+                const formats = clinicRecordingFormats();
+                clinicMime = clinicRecordingMime?.value || formats[0]?.mimeType;
+                if (!formats.some(format => format.mimeType === clinicMime)) throw new Error('Unsupported clinic recording format');
+            }
             recordingMode.value = mode;
             recordingVideoActive.value = false;
             if (isPaused) isPaused.value = false;
@@ -700,7 +749,7 @@ export function useAudio(state, utils) {
 
                 const secondaryDeviceId = (selectedSecondaryDeviceId && selectedSecondaryDeviceId.value) || '';
                 const wantsMix = !clinicTake && !!secondaryDeviceId && secondaryDeviceId !== primaryDeviceId;
-                audioContext.value = new (window.AudioContext || window.webkitAudioContext)();
+                if (!clinicTake) audioContext.value = new (window.AudioContext || window.webkitAudioContext)();
 
                 if (wantsMix) {
                     // Mix-mode: capture a second getUserMedia stream
@@ -757,6 +806,13 @@ export function useAudio(state, utils) {
                     analyser.value = audioContext.value.createAnalyser();
                     analyser.value.fftSize = 256;
                     src.connect(analyser.value);
+                    if (clinicTake) {
+                        const destination = audioContext.value.createMediaStreamDestination();
+                        destination.channelCount = 1;
+                        analyser.value.connect(destination);
+                        clinicInput = { source: src, destination };
+                        stream = destination.stream;
+                    }
                 }
 
             } else if (mode === 'system') {
@@ -916,7 +972,7 @@ export function useAudio(state, utils) {
             // Determine best mime type. A video capture needs a video
             // container; if the browser can't mux one, fall back to
             // audio-only rather than failing the recording.
-            let mimeType = _pickRecorderMime(!!capturedVideoTrack);
+            let mimeType = clinicMime || _pickRecorderMime(!!capturedVideoTrack);
             if (capturedVideoTrack && !mimeType) {
                 console.warn('[Recording] No supported video container; falling back to audio-only');
                 showToast(
@@ -1723,6 +1779,7 @@ export function useAudio(state, utils) {
 
     return {
         startRecording,
+        switchClinicMicrophone,
         requestMicrophonePermission,
         confirmPendingMicrophoneSelection,
         cancelPendingMicrophoneSelection,
