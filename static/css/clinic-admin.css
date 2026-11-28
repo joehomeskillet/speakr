@@ -772,7 +772,7 @@
     .v8-ui .asr-admin-layout .asr-save-actions .primary { width: 100%; }
 }
 
-.cadm .clinic-vocabulary-view .vocabulary-ui > .filterbar { margin-block: 0; }
+.cadm .clinic-vocabulary-view .panel > .vocabulary-ui > .filterbar { margin-block: 0; }
 .cadm .clinic-vocabulary-view .vocabulary-ui .filterbar label { margin: 0; }
 .v8-ui .vocabulary-ui .voc-filters select { appearance: auto; }
 
