@@ -60,7 +60,7 @@ export function createCautionStore(client, onChange) {
     const state = {
         status: 'idle', // idle | loading | ready | denied | error
         scope: { kind: 'global', poolId: null },
-        version: 0, words: [], publishedBy: null, publishedAt: null, canWrite: false, history: [],
+        version: 0, words: [], publishedBy: null, publishedAt: null, canWrite: false, history: [], pools: [],
         message: '', preview: null,
     };
     let latest = 0;
@@ -86,6 +86,7 @@ export function createCautionStore(client, onChange) {
             publishedBy: d.published_by == null ? null : d.published_by, publishedAt: d.published_at || null,
             canWrite: d.can_write === true, history: Array.isArray(d.history) ? d.history : [],
         });
+        if (state.scope.kind === 'global') state.pools = Array.isArray(d.pools) ? d.pools : [];
         emit();
         return res;
     }
@@ -145,18 +146,18 @@ export const CAUTION_TEMPLATE = `
     <label for="cw-list">${CAUTION_TEXT.list}</label>
     <select id="cw-list" class="select" :style="controlStyle" :value="state.scope.poolId || ''" @change="select($event.target.value)">
       <option value="">${CAUTION_TEXT.global}</option>
-      <option v-for="pool in pools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
+      <option v-for="pool in state.pools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
     </select>
   </div>
   <p v-if="state.status === 'loading'" role="status" class="note">Wird geladen …</p>
   <p v-else-if="state.status === 'denied' || state.status === 'error'" role="alert" class="note burgundy" :style="errorStyle">${CAUTION_TEXT.failed} {{ state.message }}</p>
   <template v-else-if="state.status === 'ready'">
-    <p role="status" class="voc-result-count">${CAUTION_TEXT.version} {{ state.version }} · {{ state.words.length }} Wörter</p>
+    <p role="status" class="voc-result-count">${CAUTION_TEXT.version} {{ state.version }} · {{ state.words.length }} {{ state.words.length === 1 ? 'Wort' : 'Wörter' }}</p>
     <p v-if="state.message" role="status" class="note" :style="errorStyle" data-testid="caution-message">{{ state.message }}</p>
     <ul v-if="state.words.length" class="tags" data-testid="caution-list" style="display:flex;flex-wrap:wrap;gap:var(--space-2,0.5rem);padding:0;list-style:none">
       <li v-for="word in state.words" :key="word"><span class="tag">{{ word }}</span></li>
     </ul>
-    <p v-else class="empty" role="status" data-testid="caution-empty">${CAUTION_TEXT.empty}</p>
+    <p v-else class="empty" style="min-height:0" role="status" data-testid="caution-empty">${CAUTION_TEXT.empty}</p>
     <form v-if="state.canWrite" @submit.prevent="publish()">
       <label for="cw-edit">${CAUTION_TEXT.edit}</label>
       <textarea id="cw-edit" class="w-full" rows="5" v-model="draft"></textarea>
@@ -165,7 +166,7 @@ export const CAUTION_TEMPLATE = `
     <p v-else class="note">${CAUTION_TEXT.readOnly}</p>
     <details v-if="state.history.length > 1">
       <summary>${CAUTION_TEXT.history}</summary>
-      <ul><li v-for="h in state.history" :key="h.version">${CAUTION_TEXT.version} {{ h.version }}: {{ h.count }} Wörter, Benutzer {{ h.published_by }}, {{ h.published_at }}</li></ul>
+      <ul><li v-for="h in state.history" :key="h.version">${CAUTION_TEXT.version} {{ h.version }}: {{ h.count }} {{ h.count === 1 ? 'Wort' : 'Wörter' }}, Benutzer {{ h.published_by }}, {{ h.published_at }}</li></ul>
     </details>
     <section aria-labelledby="cw-preview-title">
       <h3 id="cw-preview-title">${CAUTION_TEXT.previewTitle}</h3>
@@ -176,38 +177,29 @@ export const CAUTION_TEMPLATE = `
         <div class="actions"><button type="submit" class="small" :disabled="!sample.trim()">${CAUTION_TEXT.previewRun}</button></div>
       </form>
       <div v-if="state.preview" role="status" data-testid="caution-preview">
-        <p v-if="!state.preview.hits.length" class="empty">${CAUTION_TEXT.previewNone}</p>
+        <p v-if="!state.preview.hits.length" class="empty" style="min-height:0">${CAUTION_TEXT.previewNone}</p>
         <ul v-else><li v-for="hit in state.preview.hits" :key="hit.offset + hit.word"><strong>{{ hit.word }}</strong> (Position {{ hit.offset }})</li></ul>
       </div>
     </section>
   </template>
 </section>`;
 
-export function createCautionComponent(Vue, client, currentUserId = () => null) {
+export function createCautionComponent(Vue, client) {
     return {
         name: 'ClinicCautionWords',
         template: CAUTION_TEMPLATE,
         setup() {
             const state = Vue.reactive({
                 status: 'idle', scope: { kind: 'global', poolId: null }, version: 0, words: [], publishedBy: null,
-                publishedAt: null, canWrite: false, history: [], message: '', preview: null,
+                publishedAt: null, canWrite: false, history: [], message: '', preview: null, pools: [],
             });
             const store = createCautionStore(client, (next) => Object.assign(state, next));
-            const pools = Vue.ref([]);
             const draft = Vue.ref('');
             const sample = Vue.ref('');
             const busy = Vue.ref(false);
             const control = surfaceFor('normal');
-            const controlStyle = { backgroundColor: control.background, color: control.color, borderColor: control.border };
+            const controlStyle = { appearance: 'auto', backgroundColor: control.background, color: control.color, borderColor: control.border };
             const errorStyle = box('error');
-            async function loadPools() {
-                const res = await client.request('/pools');
-                if (res.outcome !== 'ok') return;
-                const uid = currentUserId();
-                pools.value = ((res.data || {}).author_pools || [])
-                    .filter((p) => (p.member_user_ids || []).some((id) => String(id) === String(uid)))
-                    .map(({ id, name }) => ({ id, name }));
-            }
             // The editor always starts from the stored list, so a publish replaces it knowingly.
             const fill = () => { draft.value = state.status === 'ready' ? state.words.join('\n') : ''; };
             async function select(id) {
@@ -226,8 +218,8 @@ export function createCautionComponent(Vue, client, currentUserId = () => null) 
                 }
             }
             const runPreview = () => store.preview(sample.value);
-            Vue.onMounted(() => Promise.all([store.load().then(fill), loadPools()]));
-            return { state, pools, draft, sample, busy, controlStyle, errorStyle, select, publish, runPreview };
+            Vue.onMounted(() => store.load().then(fill));
+            return { state, draft, sample, busy, controlStyle, errorStyle, select, publish, runPreview };
         },
     };
 }
@@ -351,7 +343,7 @@ export const VOCABULARY_VIEW_TEMPLATE = `
   <p v-else-if="state.status === 'error'" role="alert" data-testid="load-error" class="note burgundy" :style="errorStyle">${TEXT.failed} {{ state.message }}
     <button type="button" class="small" @click="load()">${TEXT.retry}</button></p>
   <template v-else>
-    <div class="tabs" role="tablist" style="overflow-x:auto" aria-label="${TEXT.tablist}" @keydown="onKey">
+    <div class="tabs" role="tablist" style="flex-wrap:wrap" aria-label="${TEXT.tablist}" @keydown="onKey">
       <button v-for="t in tabs" :key="t.id" type="button" role="tab" :id="'cvv-tab-' + t.id"
         :aria-selected="state.active === t.id ? 'true' : 'false'" :aria-controls="'cvv-panel-' + t.id"
         :tabindex="state.active === t.id ? 0 : -1" @click="select(t.id)">{{ t.label }}</button>
@@ -403,7 +395,7 @@ export const VocabularyView = {
         });
         // Vorbehaltswörter live under Vorschläge; built only when that tab is shown.
         const cautionComponent = Vue.computed(() => {
-            if (!components.caution) components.caution = Vue.markRaw(createCautionComponent(Vue, props.client, () => ctrl.state.userId));
+            if (!components.caution) components.caution = Vue.markRaw(createCautionComponent(Vue, props.client));
             return components.caution;
         });
         const activeProps = Vue.computed(() => {

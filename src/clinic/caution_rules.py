@@ -124,11 +124,12 @@ def publish(scope_key: str, words: Any, actor_id: int, expected_version: int) ->
     return current(scope_key)
 
 
-def effective_rule_set(pool_id: str) -> CautionRuleSet:
-    """Global baseline plus this pool's additions as input for the W11 matcher."""
-    baseline, additions = current(GLOBAL_KEY), current(pool_key(pool_id))
-    words = {w.casefold(): w for w in (*baseline.words, *additions.words)}
+def effective_rule_set(pool_id: str | None) -> CautionRuleSet:
+    """Global baseline plus any additions from the dictation's pool."""
+    baseline = current(GLOBAL_KEY)
+    additions = current(pool_key(pool_id)) if pool_id else None
+    words = {w.casefold(): w for w in (*baseline.words, *(additions.words if additions else ()))}
     return CautionRuleSet(
-        pool_id=pool_id, version=f"g{baseline.version}.p{additions.version}",
+        pool_id=pool_id, version=f"g{baseline.version}.p{additions.version if additions else 0}",
         words=tuple(sorted(words.values(), key=str.casefold)), authorized=True,
     )

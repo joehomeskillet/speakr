@@ -41,8 +41,8 @@ def world(pool_db, monkeypatch):  # noqa: F811
     for user in (lead, member):
         pools.add_author_member(pool.id, user.id, actor_id=admin.id)
     pools.add_author_member(foreign.id, outsider.id, actor_id=admin.id)
-    writers = {lead.id}
-    api = VocabularyApi(lambda uid, pid: uid in writers and pid == pool.id)
+    admin_id, lead_id, pool_id = admin.id, lead.id, pool.id
+    api = VocabularyApi(lambda uid, pid: uid == admin_id or (uid == lead_id and pid == pool_id))
     flask = Flask(__name__)
     flask.config.update(TESTING=True, SECRET_KEY="synthetic",
                         SQLALCHEMY_DATABASE_URI=real_app.config["SQLALCHEMY_DATABASE_URI"])
@@ -116,6 +116,18 @@ def test_pool_scope_is_enforced_on_reads_and_writes(world):
     assert _publish_pool(outsider, oh, world["pool"].id, ["X"], 1).status_code == 403
     assert _publish_pool(lead, lh, world["foreign"].id, ["X"], 0).status_code == 403
     assert lead.get(URL + "?scope=pool&pool_id=" + world["foreign"].id).status_code == 403
+
+
+def test_pool_selector_lists_only_readable_pools_including_nonmember_writers(world):
+    outsider, _ = world["client"](world["outsider"])
+    assert outsider.get(URL + "?scope=global").json["pools"] == [
+        {"id": world["foreign"].id, "name": world["foreign"].name}]
+    pools.remove_author_member(world["pool"].id, world["lead"].id, actor_id=world["admin"].id)
+    lead, _ = world["client"](world["lead"])
+    assert lead.get(URL + "?scope=global").json["pools"] == [
+        {"id": world["pool"].id, "name": world["pool"].name}]
+    admin, ah = world["client"](world["admin"])
+    assert _publish_pool(admin, ah, str(uuid.uuid4()), ["X"], 0).status_code == 403
 
 
 def test_publish_two_patterns_preview_as_author_and_unrelated_pool(world):

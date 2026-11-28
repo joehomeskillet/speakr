@@ -28,6 +28,7 @@ from wtforms.validators import ValidationError
 from src.clinic import caution_rules, caution_words, pool_policy, vocabulary
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.identity import ClinicAccountPolicy
+from src.clinic.pools import ClinicAuthorPool
 from src.database import db
 
 PREFIX = "/api/clinic/v1/vocabulary"
@@ -273,10 +274,22 @@ class VocabularyApi:
         """Pool readers are members or pool writers; only pool writers publish. Checked live."""
         if not isinstance(pool_id, str) or not pool_id:
             raise ApiError("invalid_payload")
+        if db.session.get(ClinicAuthorPool, pool_id) is None:
+            raise ApiError("unauthorized")
         writer = self._can_write_pool(current_user.id, pool_id)
         if not (writer or (not write and pool_id in pool_policy.author_pool_ids(current_user.id))):
             raise ApiError("unauthorized")
         return pool_id
+
+    def _caution_pools(self) -> list[dict[str, str]]:
+        actor_id = current_user.id
+        member_pools = pool_policy.author_pool_ids(actor_id)
+        return [
+            {"id": pool_id, "name": name}
+            for pool_id, name in db.session.query(ClinicAuthorPool.id, ClinicAuthorPool.name)
+            .order_by(ClinicAuthorPool.name)
+            if pool_id in member_pools or self._can_write_pool(actor_id, pool_id)
+        ]
 
     @staticmethod
     def _rule_json(rules: caution_rules.RuleList) -> dict[str, Any]:
@@ -292,11 +305,12 @@ class VocabularyApi:
         else:
             raise ApiError("invalid_payload")
         versions = [self._rule_json(row) for row in caution_rules.history(key)]
+        extra = {"pools": self._caution_pools()} if scope == "global" else {}
         return jsonify(scope=scope, pool_id=pool_id, can_write=self._site_admin() if scope == "global"
                        else self._can_write_pool(current_user.id, pool_id),
                        **(versions[0] if versions else self._rule_json(caution_rules.current(key))),
                        history=[{k: v[k] for k in ("version", "published_by", "published_at")}
-                                | {"count": len(v["words"])} for v in versions])
+                                | {"count": len(v["words"])} for v in versions], **extra)
 
     def _publish(self, key: str, scope: str, pool_id: str | None, body: dict[str, Any]):
         rules = caution_rules.publish(key, body.get("words"), current_user.id, body.get("expected_version"))

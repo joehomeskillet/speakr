@@ -40,6 +40,7 @@ MODEL_MODULES = (
     "import_source_config",
     "author_aliases",
     "context_grants",
+    "case_handoff",
     "audio_invalidation",
     "parity_receipts",
     "acceptance_policy",
