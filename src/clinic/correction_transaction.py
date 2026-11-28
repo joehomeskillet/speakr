@@ -109,7 +109,7 @@ def save_correction_transaction(
             original = originals[0]
         revision = add_human_revision(
             dictation, parent_revision, text, user_id, original_version=original,
-            force_new_revision=force_new_revision)
+            force_new=force_new_revision)
         if head_before is None or revision.id != head_before.id:
             _resubmit_accepted(dictation, user_id, revision.id)
 
