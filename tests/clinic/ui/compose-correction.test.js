@@ -97,9 +97,10 @@ function controllerFor(client, extra = {}) {
 
 const count = (client, method, suffix) => client.calls.filter((c) => c.method === method && c.path.endsWith(suffix)).length;
 
-it('inserts an eligible text block at the selection as one undoable edit', async () => {
+it.each(['plain', 'document'])('inserts an eligible text block at the %s selection as one undoable edit', async (mode) => {
     let detail = ok({ insert_text: 'Praxis' });
     const client = fakeClient(base({
+        'GET /dictations/d1/correction': ok(correction({ links: [] })),
         'GET /resources/text-blocks': ok({ items: [{ id: 'block-1', title: 'Testbaustein' }], next_cursor: null }),
         'GET /resources/text-blocks/block-1': () => detail,
     }));
@@ -111,14 +112,20 @@ it('inserts an eligible text block at the selection as one undoable edit', async
         await view.c.editor.acquire();
         expect(view.canEdit.value).toBe(true);
         const editor = { selectionStart: 6, selectionEnd: 10, setSelectionRange: vi.fn(), focus: vi.fn() };
-        view.setTextEl(editor);
+        if (mode === 'plain') {
+            view.doc.available.value = false;
+            view.setTextEl(editor);
+        } else {
+            expect(view.documentMode.value).toBe(true);
+            view.setRunRoot({ querySelector: () => editor });
+        }
         await view.toggleBlocks();
         expect(view.blocks.value.items).toEqual([{ id: 'block-1', title: 'Testbaustein' }]);
         await view.pickBlock('block-1');
         expect(view.text.value).toBe('Hallo Praxis heute');
         expect(editor.setSelectionRange).toHaveBeenCalledWith(12, 12);
         expect(editor.focus).toHaveBeenCalled();
-        expect(view.tb.undo()).toBe(true);
+        expect(view.historyAction('undo')).toBe(true);
         expect(view.text.value).toBe('Hallo Welt heute');
         detail = fail('http', 404, 'nicht gefunden');
         await view.toggleBlocks();
@@ -149,8 +156,8 @@ async function openForEdit(client, extra = {}) {
 }
 
 describe('compose-correction contract', () => {
-    it('opens a local editable draft for the selection hotkey and writes only on dialog submit', async () => {
-        const client = fakeClient(base());
+    it.each(['plain', 'document'])('opens a local draft from the %s selection hotkey and writes only on submit', async (mode) => {
+        const client = fakeClient(base({ 'GET /dictations/d1/correction': ok(correction({ links: [] })) }));
         const vue = {
             ref: (value) => ({ value }), shallowRef: (value) => ({ value }),
             computed: (fn) => ({ get value() { return fn(); } }), nextTick: async () => {},
@@ -158,9 +165,17 @@ describe('compose-correction contract', () => {
         const ui = CorrectionBody.setup({ client, vue, dictationId: 'd1', currentUser: { id: 9 } });
         await ui.c.start();
         await ui.c.editor.acquire();
-        ui.c.editor.setText('Hallo   Welt heute');
         const area = { selectionStart: 0, selectionEnd: 0, focus: vi.fn() };
-        ui.setTextEl(area);
+        if (mode === 'plain') {
+            ui.doc.available.value = false;
+            ui.c.editor.setText('Hallo   Welt heute');
+            ui.setTextEl(area);
+        } else {
+            expect(ui.documentMode.value).toBe(true);
+            const [node] = ui.doc.doc.value.nodes;
+            ui.doc.editRun(node.id, node.runs[0].id, 'Hallo   Welt heute');
+            ui.setRunRoot({ querySelector: () => area });
+        }
         const press = (extra = {}) => ui.onTextKeydown({ ctrlKey: true, altKey: true, key: 'p', preventDefault: vi.fn(), ...extra });
         press();
         expect(ui.entryDraft.value).toBeNull();
@@ -191,20 +206,16 @@ describe('compose-correction contract', () => {
     });
 
     it('composes the editor and finish building blocks and reuses tokens and api-client', () => {
-        for (const mod of [
+        const expected = [
             'correction-editor-ui', 'correction-alignment-ui', 'correction-waveform-ui', 'playback-tempo-ui',
             'correction-modes-ui', 'correction-save-ui', 'audio-markers-ui', 'playback-gain-ui',
-            'finish-options-ui', 'workflow-actions-ui',
-        ]) expect(source).toContain(`./${mod}.js`);
-        expect(source).toContain("from './tokens.js'");
-        expect(source).toContain("from './api-client.js'");
-        const allImports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
-        const additions = ['./compose-settings.js', './handmic-webhid.js', './correction-player-position.js'];
-        for (const path of additions) expect(allImports.filter((entry) => entry === path)).toHaveLength(1);
-        const imports = allImports.filter((path) => !additions.includes(path));
+            'correction-toolbar-ui', 'richtext-editor-ui', 'finish-options-ui', 'workflow-actions-ui',
+            'correction-player-position', 'worklist-ui', 'tokens', 'api-client',
+            'compose-settings', 'handmic-webhid', 'vocabulary-ui',
+        ].map((mod) => `./${mod}.js`).sort();
+        const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
         expect(imports).toHaveLength(new Set(imports).size);
-        expect(imports).toContain('./vocabulary-ui.js');
-        expect(imports).toHaveLength(14);
+        expect(imports.sort()).toEqual(expected);
     });
 
     it('uses German labels, tokens only, keyboard-operable native controls and no browser storage', () => {
