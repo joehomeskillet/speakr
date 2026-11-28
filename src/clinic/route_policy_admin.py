@@ -47,6 +47,7 @@ AUTH: tuple[str, ...] = (
     # Metadata field definitions (x28), mounted by register_clinic_identity in clinic mode only.
     # Reading is for any signed-in user; the handler lists inactive fields to admins only.
     'clinic_metadata_fields.list_fields',
+    'clinic_regex.list_rules',
     # Recordings list, processing overview, statistics, ASR training and import-agent handlers,
     # mounted by register_clinic_operations in src/app.py only in clinic mode. Recordings, jobs
     # and statistics are AUTH: each handler authenticates the browser session itself and decides
@@ -88,6 +89,8 @@ ADMIN: tuple[str, ...] = (
     # Category set writes (PAR-CFG-003). The handler also requires an active site admin.
     'clinic_categories.create_category_set',
     'clinic_categories.update_category_set',
+    'clinic_regex.save_rule',
+    'clinic_regex.delete_rule',
     'clinic_training.manifest',
     'clinic_training.schedule',
     'clinic_training.start',
