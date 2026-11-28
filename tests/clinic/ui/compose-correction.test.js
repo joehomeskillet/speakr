@@ -157,11 +157,19 @@ describe('compose-correction contract', () => {
 });
 
 describe('loading and shared state', () => {
-    it('requests missing word alignment once the current audio is playable', async () => {
+    it('keeps opening read-only and requests missing word alignment for a saved revision once audio is playable', async () => {
+        let textRevision = correction();
         const client = fakeClient(base({
+            'GET /dictations/d1/correction': () => ok(textRevision),
             'GET /dictations/d1/leases': ok({ may_acquire: true }),
             'GET /transcript-revisions/r1/document': ok({ document_hash: 'synthetic-hash' }),
             'GET /alignment?audio_revision_id=a1&transcript_revision_id=r1': fail('http', 404, 'Keine Ausrichtung'),
+            'POST /dictations/d1/correction/save': (_path, { body }) => {
+                textRevision = correction({ text_revision_id: 'r2', text: body.text });
+                return ok({ text_revision_id: 'r2', state_version: 2, audio_position_ms: 4000 });
+            },
+            'GET /transcript-revisions/r2/document': ok({ document_hash: 'saved-hash' }),
+            'GET /alignment?audio_revision_id=a1&transcript_revision_id=r2': fail('http', 404, 'Keine Ausrichtung'),
             'POST /alignment': ok({ state: 'failed' }),
         }));
         const c = controllerFor(client, { openMode: 'correction' });
@@ -172,9 +180,20 @@ describe('loading and shared state', () => {
             await c.start();
             expect(c.editor.canEdit.value).toBe(true);
             expect(count(client, 'POST', '/alignment')).toBe(0);
+            expect(count(client, 'GET', '/alignment?audio_revision_id=a1&transcript_revision_id=r1')).toBe(1);
 
             audio.src = new URL(c.editor.audio.value.src, 'http://localhost').href;
             audio.getAttribute = () => c.editor.audio.value.src;
+            audio.readyState = 1;
+            audio.currentSrc = audio.src;
+            audio.dispatchEvent(new Event('loadedmetadata'));
+            expect(count(client, 'POST', '/alignment')).toBe(0);
+
+            audio.readyState = 0;
+            expect(c.setText('Hallo Welt heute morgen')).toBe(true);
+            expect((await c.save()).ok).toBe(true);
+            expect(count(client, 'POST', '/alignment')).toBe(0);
+
             audio.readyState = 1;
             audio.currentSrc = 'http://localhost/previous-audio-revision';
             audio.dispatchEvent(new Event('loadedmetadata'));
@@ -184,6 +203,8 @@ describe('loading and shared state', () => {
             audio.dispatchEvent(new Event('loadedmetadata'));
             audio.dispatchEvent(new Event('loadedmetadata'));
             expect(count(client, 'POST', '/alignment')).toBe(1);
+            expect(client.calls.find(({ method, path }) => method === 'POST' && path.endsWith('/alignment')).options.body)
+                .toMatchObject({ audio_revision_id: 'a1', transcript_revision_id: 'r2', document_hash: 'saved-hash' });
         } finally {
             c.dispose();
         }

@@ -541,7 +541,8 @@ export function createCorrectionViewController(options) {
         }
         ready.value = true;
         loadGeneration.value += 1;
-        await Promise.all([alignment.refresh(), doc ? null : saver.loadResume(), modes.load(), loadReview()]);
+        // Opening with a write lease still only reads alignment until a revision changes.
+        await Promise.all([alignment.refresh({ allowRequest: false }), doc ? null : saver.loadResume(), modes.load(), loadReview()]);
         return res;
     }
 
