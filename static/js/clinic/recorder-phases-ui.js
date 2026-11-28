@@ -114,7 +114,7 @@ export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = (
             gatedTake = null;
             await audio.clearRecording();
         },
-        async uploadRecordedAudio({ title }) {
+        async uploadRecordedAudio({ title, ...uploadOptions }) {
             const chunks = state.audioChunks.value;
             if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
             const gated = gatedTake?.chunks === chunks ? gatedTake.blob : null;
@@ -125,7 +125,7 @@ export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = (
             let binding = retained.get(chunks);
             let receipt;
             try {
-                receipt = await uploadFile(file, title);
+                receipt = await uploadFile(file, title, uploadOptions);
                 if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
             } catch (error) {
                 if (drafts && (globalThis.navigator?.onLine === false || error instanceof TypeError)) {
@@ -318,7 +318,7 @@ export function createRecorderPhases(options) {
         }
     }
 
-    async function send() {
+    async function send(uploadOptions) {
         const blocked = guard(['review', 'failed']);
         if (blocked) return blocked;
         if (!automaticTitle && !state.title.trim()) return denied('missing_title');
@@ -328,7 +328,10 @@ export function createRecorderPhases(options) {
         let receipt = null;
         let error = 'no_receipt';
         try {
-            receipt = await recorder.uploadRecordedAudio({ title: state.title.trim() || localDictationTitle() });
+            receipt = await recorder.uploadRecordedAudio({
+                title: state.title.trim() || localDictationTitle(),
+                ...uploadOptions,
+            });
         } catch (e) {
             if (e?.message === 'offline_retained') error = 'offline_retained';
         }
