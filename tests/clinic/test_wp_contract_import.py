@@ -113,7 +113,9 @@ def test_refs_and_operation_ids_across_all_contracts():
            for document in documents.values()
            for operation in _operations(document).values()]
     assert len(ids) == len(set(ids)), Counter(ids)
-    assert len(_operations(documents[CONTRACT])) == 11
+    operations = _operations(documents[CONTRACT])
+    assert len(operations) == 12
+    assert {method for method, path in operations if path == "/api/clinic/v1/imports/devices"} == {"GET"}
     assert documents[CONTRACT]["x-contract-status"] == "specified_not_implemented"
     assert documents[CONTRACT]["x-manufacturer-interfaces"] == "unresolved"
 

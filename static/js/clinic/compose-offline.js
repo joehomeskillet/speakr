@@ -269,10 +269,11 @@ export function createOfflineViewController(options) {
             if (auth === 'kept') { await keep(); return false; }
             if (auth === 'denied') { deny(TEXT.denied); return false; }
             state.lastContact = now();
-            if (wrapped) await crypto.unlock(secret, wrapped, who);
+            const existing = typeof wrapped === 'function' ? await wrapped() : wrapped;
+            if (existing) await crypto.unlock(secret, existing, who);
             else {
                 const created = await crypto.setup(secret, who);
-                if (typeof opts.onWrapped === 'function') opts.onWrapped(created);
+                if (typeof opts.onWrapped === 'function') await opts.onWrapped(created);
             }
         } catch (e) {
             say(messageFor(e && e.code, TEXT.unlockFailed), 'error');
@@ -379,6 +380,7 @@ export const OfflineView = {
     props: {
         client: { type: Object, default: null },
         who: { type: Object, required: true },
+        managed: { type: Object, default: null },
         storage: { type: Object, default: null },
         getWrapped: { type: Function, default: null },
         crypto: { type: Object, default: null },
@@ -392,7 +394,7 @@ export const OfflineView = {
     setup(props) {
         const V = props.vue || globalThis.Vue;
         if (!V) throw new Error('Vue is required to mount the offline view');
-        const c = createOfflineViewController({
+        const c = props.managed?.controller || createOfflineViewController({
             client: props.client || undefined,
             who: props.who,
             storage: props.storage || undefined,
@@ -404,13 +406,17 @@ export const OfflineView = {
             onLoggedOut: props.onLoggedOut || undefined,
             onWrapped: props.onWrapped || undefined,
         });
-        if (typeof V.onMounted === 'function') V.onMounted(() => { c.start(); });
-        if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
+        if (typeof V.onMounted === 'function') V.onMounted(() => { props.managed ? c.refresh() : c.start(); });
+        if (!props.managed && typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
         const s = c.state;
         const noticeClass = () => (s.noticeKind === 'error' ? NOTE_BURGUNDY : s.noticeKind === 'warning' ? NOTE_WARNING : 'note');
         const profileLabel = () => PROFILE_LABELS[s.profile] || 'Nicht freigegebenes Profil';
         const contact = () => (s.lastContact ? s.lastContact.toLocaleTimeString('de-CH') : TEXT.noContact);
-        const submit = () => c.unlock(props.getWrapped ? props.getWrapped() : null);
+        const submit = () => {
+            // Read the wrapped key after a fresh grant check inside unlock.
+            const getWrapped = props.managed?.getWrapped || props.getWrapped;
+            return c.unlock(getWrapped);
+        };
         const confirmLogout = () => {
             if (window.confirm(TEXT.logoutHelp)) return c.logout();
         };

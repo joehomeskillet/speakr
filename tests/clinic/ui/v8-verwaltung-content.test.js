@@ -16,6 +16,10 @@ describe('V8 prototype structure of the content Verwaltung pages', () => {
         expect(template.match(/<h1[ >]/g)).toHaveLength(1);
     });
 
+    it('names Ploudrli in the admin device help', () => {
+        expect(ASR_PROFILES_TEMPLATE).toContain('Ihr Gerät sendet Aufnahmen an Ploudrli. Die Erkennung ist lokal vorgesehen.');
+    });
+
     it('uses the prototype tab bar and panel card, keeping tab roles', () => {
         for (const template of [VOCABULARY_VIEW_TEMPLATE, COMMANDS_TEMPLATES_TEMPLATE]) {
             expect(template).toContain('class="tabs" role="tablist"');

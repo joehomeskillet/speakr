@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { createPreferencesComponent } from '../../../static/js/clinic/preferences-ui.js';
+import { createCentralPreferencesComponent, createPreferencesComponent } from '../../../static/js/clinic/preferences-ui.js';
 
 function ok(data) {
     return { outcome: 'ok', status: 200, data, message: '' };
@@ -115,6 +115,33 @@ describe('preferences panel component', () => {
         expect(wsPuts).toEqual([{ changes: { theme_dark_mode: false }, expected_version: 3 }]);
     });
 
+    it('discards only the current draft and writes only changed editable values', async () => {
+        let saved = { ...WS.values };
+        const client = makeClient(routes({
+            'GET /preferences/workstations/ws1': () => ok({ ...WS, values: saved }),
+            'PUT /preferences/workstations/ws1': ({ body }) => {
+                saved = { ...saved, ...body.changes };
+                return ok({ version: 4 });
+            },
+        }));
+        const { b } = await mountPanel(client);
+        b.controller.setWorkstationValue('theme_dark_mode', true);
+        expect(b.view.value.dirty).toBe(false);
+        b.controller.setWorkstationValue('theme_dark_mode', false);
+        b.controller.cancel();
+        expect(b.view.value.settings.find((field) => field.key === 'theme_dark_mode').value).toBe(true);
+        expect(client.calls.filter(({ method }) => method === 'PUT')).toEqual([]);
+        b.controller.setWorkstationValue('theme_dark_mode', false);
+        expect(b.controller.setWorkstationValue('ui_language', 'fr')).toBe(false);
+        expect(await b.onSave()).toBe(true);
+        b.controller.setWorkstationValue('theme_dark_mode', true);
+        b.controller.cancel();
+        expect(b.view.value.settings.find((field) => field.key === 'theme_dark_mode').value).toBe(false);
+        expect(client.calls.filter(({ method }) => method === 'PUT').map(({ body }) => body)).toEqual([
+            { changes: { theme_dark_mode: false }, expected_version: 3 },
+        ]);
+    });
+
     it('shows the server refusal on 403 and sends no retry offer', async () => {
         const client = makeClient(routes({
             'PUT /preferences/recipient-default': () => bad('permission', 'RECIPIENT_NOT_ELIGIBLE', 403, 'Nicht erlaubt'),
@@ -183,5 +210,105 @@ describe('preferences panel component', () => {
         for (const fn of Vue.unmounted) fn();
         b.controller.setMode('all_eligible');
         expect(b.view.value).toBe(before);
+    });
+});
+
+describe('central preferences component', () => {
+    const central = {
+        workstation_locks: { theme_dark_mode: false },
+        presets: {},
+        preset_defaults: { priority: 1, use_speech_recognition: true, with_approval: false },
+    };
+
+    async function mountCentral(extra = {}) {
+        const client = makeClient({ 'GET /preferences/central': () => ok(structuredClone(central)), ...extra });
+        const Vue = fakeVue();
+        const comp = createCentralPreferencesComponent(Vue, client);
+        const b = comp.setup();
+        await Vue.mounted[0]();
+        return { b, client, comp };
+    }
+
+    it('hides the editor when the central server gate refuses access', async () => {
+        const { b, client, comp } = await mountCentral({
+            'GET /preferences/central': () => bad('permission', 'FORBIDDEN', 403),
+        });
+        expect(comp.template).toContain('v-if="!denied"');
+        expect(b.denied.value).toBe(true);
+        expect(b.data.value).toBeNull();
+        expect(await b.save()).toBe(false);
+        expect(client.calls.map(({ method }) => method)).toEqual(['GET']);
+    });
+
+    it('shows false as a lock, saves it as a boolean and confirms before removing it', async () => {
+        const { b, client } = await mountCentral({
+            'PUT /preferences/workstation-locks/theme_dark_mode': () => ok(null),
+            'DELETE /preferences/workstation-locks/theme_dark_mode': () => ok(null),
+        });
+        const confirm = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+        vi.stubGlobal('window', { confirm });
+        try {
+            b.select('theme_dark_mode');
+            expect(b.currentStatus.value).toBe('Zentral gesperrt: Aus');
+            expect(await b.save()).toBe(true);
+            expect(await b.remove()).toBe(false);
+            expect(b.hasOverride.value).toBe(true);
+            expect(await b.remove()).toBe(true);
+            expect(confirm).toHaveBeenCalledTimes(2);
+            expect(b.currentStatus.value).toContain('Nicht gesperrt');
+            expect(b.notice.value).toContain('entfernt');
+            expect(client.calls.slice(1)).toEqual([
+                { path: '/preferences/workstation-locks/theme_dark_mode', method: 'PUT', body: { value: false } },
+                { path: '/preferences/workstation-locks/theme_dark_mode', method: 'DELETE', body: undefined },
+            ]);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('preserves the draft on failure and saves typed presets independently', async () => {
+        const priority = vi.fn().mockReturnValueOnce(bad('validation', 'bad_value', 400, 'Ungültiger Wert'))
+            .mockReturnValueOnce(ok(null));
+        const { b, client } = await mountCentral({
+            'PUT /preferences/presets/priority': priority,
+            'PUT /preferences/presets/with_approval': () => ok(null),
+        });
+        b.select('priority');
+        expect(b.currentStatus.value).toBe('Standardwert (keine zentrale Vorgabe): Normal');
+        b.draftValue.value = 128;
+        b.draftLocked.value = true;
+        expect(await b.save()).toBe(false);
+        expect(b.error.value).toBe('Ungültiger Wert');
+        expect(b.currentStatus.value).toContain('Normal');
+        expect(b.draftValue.value).toBe(128);
+        expect(await b.save()).toBe(true);
+        expect(b.currentStatus.value).toBe('Zentral gesperrt: Dringend');
+        b.select('with_approval');
+        b.draftValue.value = true;
+        expect(await b.save()).toBe(true);
+        expect(b.currentStatus.value).toBe('Zentrale Vorgabe (änderbar): Ein');
+        b.select('use_speech_recognition');
+        expect(b.hasOverride.value).toBe(false);
+        expect(client.calls.slice(1).map(({ body }) => body)).toEqual([
+            { value: 128, is_locked: true }, { value: 128, is_locked: true }, { value: true, is_locked: false },
+        ]);
+    });
+
+    it('removes a workflow override without touching workstation locks', async () => {
+        const { b, client } = await mountCentral({
+            'GET /preferences/central': () => ok({ ...structuredClone(central), presets: { with_approval: { value: true, is_locked: false } } }),
+            'DELETE /preferences/presets/with_approval': () => ok(null),
+        });
+        vi.stubGlobal('window', { confirm: vi.fn(() => true) });
+        try {
+            b.select('with_approval');
+            expect(await b.remove()).toBe(true);
+            expect(b.currentStatus.value).toBe('Standardwert (keine zentrale Vorgabe): Aus');
+            expect(client.calls.at(-1)).toEqual({ path: '/preferences/presets/with_approval', method: 'DELETE', body: undefined });
+            b.select('theme_dark_mode');
+            expect(b.currentStatus.value).toBe('Zentral gesperrt: Aus');
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });
