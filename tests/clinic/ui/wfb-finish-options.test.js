@@ -5,6 +5,8 @@ import { createWorkflowActions } from '../../../static/js/clinic/workflow-action
 const ok = (data) => ({ outcome: 'ok', data });
 const binding = (revision) => ({ original_version_id: 'audio', transcript_revision_id: revision,
     context_revision_id: 'context', text_sha256: 'hash' });
+const releasePaths = ['/api/clinic/v1/dictations/dictation/leases', '/api/clinic/v1/dictations/dictation/releases'];
+const outputPaths = [...releasePaths, '/dictations/dictation/output-targets', '/preferences/output'];
 
 function setup({ active = 'reviewed', released = 'reviewed', refusal, empty = false } = {}) {
     const client = { request: vi.fn(async (path, options) => {
@@ -14,6 +16,9 @@ function setup({ active = 'reviewed', released = 'reviewed', refusal, empty = fa
             ...['txt', 'docx', 'pdf'].map((id) => ({ id, channel: 'file', available: true })),
             { id: 'kis', channel: 'kis', available: true },
         ] });
+        if (path === '/preferences/output' && !options?.method) {
+            return ok({ formats: ['txt', 'docx'], open_after_export: false, version: 1 });
+        }
         if (options?.body.format === 'txt') return ok({ id: 'txt-job', status: 'ready' });
         if (options?.body.format === 'docx') return { outcome: 'validation' };
         throw new Error(`Unexpected request: ${path}`);
@@ -26,7 +31,7 @@ function setup({ active = 'reviewed', released = 'reviewed', refusal, empty = fa
     load('reviewed', 3);
     const c = createFinishOptionsController({ workflow, client });
     const check = () => { c.state.content = c.state.context = true; };
-    const paths = () => client.request.mock.calls.map(([path]) => path.split('/').at(-1));
+    const paths = () => client.request.mock.calls.map(([path]) => path);
     return { c, check, client, load, paths };
 }
 
@@ -45,7 +50,7 @@ it('cancels without a request; reopening resets confirmations and no-output only
     check();
     await c.release(false);
     expect(c.state.step).toBe('done');
-    expect(paths()).toEqual(['leases', 'releases']);
+    expect(paths()).toEqual(releasePaths);
 });
 
 it('requires separate selections and uses the same released revision with distinct IDs and results', async () => {
@@ -56,7 +61,7 @@ it('requires separate selections and uses the same released revision with distin
     expect(c.state.targets.map(({ id }) => id)).toEqual(['txt', 'docx']);
     c.state.selected.kis = true;
     await c.exportSelected();
-    expect(paths()).toEqual(['leases', 'releases', 'output-targets']);
+    expect(paths()).toEqual(outputPaths);
     c.state.selected.txt = c.state.selected.docx = true;
     await Promise.all([c.exportSelected(), c.exportSelected()]);
     const writes = client.request.mock.calls.filter(([, options]) => options?.method === 'POST');
@@ -77,7 +82,7 @@ it.each([{ active: 'different' }, { released: 'different' }, { empty: true }])('
     expect(c.state.targets).toEqual([]);
     c.state.selected.txt = true;
     await c.exportSelected();
-    expect(paths()).toEqual(['leases', 'releases', 'output-targets']);
+    expect(paths()).toEqual(outputPaths);
 });
 
 it('never loads output or exports after a release refusal', async () => {
@@ -87,7 +92,7 @@ it('never loads output or exports after a release refusal', async () => {
     await c.release(true);
     expect(c.state.step).toBe('release');
     expect(c.state.error).toBe('Veraltet');
-    expect(paths()).toEqual(['leases', 'releases']);
+    expect(paths()).toEqual(releasePaths);
 });
 
 it('does not confirm a different workflow state under an already open dialog', async () => {
