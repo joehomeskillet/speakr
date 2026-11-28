@@ -39,7 +39,7 @@ function happy(extra) {
     return {
         ['GET ' + base + '/correction']: ok({ dictation_id: D, text_revision_id: REV, text: 'Befund unauffällig', links: [] }),
         ['GET ' + base + '/audio-revisions/current']: ok({ revision_id: AUDIO, segments: [] }),
-        'GET /templates': ok({ items: [template('t1', 2), template('t0', 1)] }),
+        ['GET /templates?dictation_id=' + D]: ok({ items: [template('t1', 2), template('t0', 1)] }),
         ['POST ' + base + '/leases']: ok({ lease_id: 'L1', generation: 5, expires_at: new Date(Date.now() + 600000).toISOString() }),
         ...(extra || {}),
     };
@@ -65,6 +65,17 @@ describe('correction editor ui', () => {
         expect(editor.audio.value.src).toBe(`/api/clinic/v1${base}/audio/derived?format=wav&audio_revision_id=${AUDIO}`);
         expect(editor.templates.items.map((t) => t.id)).toEqual(['t1', 't0']);
         expect(client.switchContext).toHaveBeenCalledWith({ accountId: 7, dictationId: D });
+    });
+
+    it('fails closed when the current case no longer has access to templates', async () => {
+        const { editor, client } = make();
+        await editor.load();
+        expect(await editor.applyTemplate('t1')).toMatchObject({ ok: true });
+        client.request.mockResolvedValueOnce(fail('permission', 403));
+        expect(await editor.loadTemplates()).toMatchObject({ ok: false });
+        expect(editor.templates.items).toEqual([]);
+        expect(editor.template.value).toBeNull();
+        expect(client.request).toHaveBeenLastCalledWith('/templates?dictation_id=' + D);
     });
 
     it('runs in manual mode when ASR produced no text and edits only with the lease', async () => {
@@ -152,7 +163,7 @@ describe('correction editor ui', () => {
     });
 
     it('stale template list entry is flagged and a template failure does not block transcription', async () => {
-        const down = make(happy({ 'GET /templates': { outcome: 'network', status: null, code: 'NETWORK' } }));
+        const down = make(happy({ ['GET /templates?dictation_id=' + D]: { outcome: 'network', status: null, code: 'NETWORK' } }));
         expect((await down.editor.load()).ok).toBe(true);
         expect(down.editor.templatesError.value).not.toBe('');
         expect(down.editor.text.value).toBe('Befund unauffällig');

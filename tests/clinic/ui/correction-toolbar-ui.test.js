@@ -77,6 +77,16 @@ describe('text history', () => {
         expect(h.undo().text).toBe('a');
     });
 
+    it('undoes a confirmed insertion back to the unsaved draft and captured selection', () => {
+        const { editor, toolbar } = make('Text');
+        editor.type('Neuer Text');
+        toolbar.notifyChange();
+        toolbar.insertText('Befund', { text: 'Neuer Text', start: 0, end: 5 }, 3);
+        expect(editor.st).toMatchObject({ text: 'Befund Text', start: 3, end: 3 });
+        expect(toolbar.undo()).toBe(true);
+        expect(editor.st).toMatchObject({ text: 'Neuer Text', start: 0, end: 5 });
+    });
+
     it('discards redo through the controller when typing after undo', () => {
         const { editor, toolbar } = make('x');
         toolbar.insertParagraph();

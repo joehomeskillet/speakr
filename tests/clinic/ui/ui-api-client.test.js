@@ -82,6 +82,22 @@ describe('clinic api client', () => {
         expect(writes).toEqual([]);
     });
 
+    it('uses multipart and CSRF without counting a preview as a dictation change', async () => {
+        fetchMock.mockResolvedValue(http({ status: 200, body: { text: 'Vorschau' } }));
+        const client = createClinicApiClient();
+        const formData = new FormData();
+        formData.append('file', 'Vorschau');
+        const row = await client.request('/dictations/d1/documents/preview', { method: 'POST', formData });
+        expect(row.outcome).toBe('ok');
+        const [, init] = fetchMock.mock.calls[0];
+        expect(init.body.get('file')).toBe('Vorschau');
+        expect(init.headers['X-CSRFToken']).toBe('csrf-one');
+        expect(init.headers['Content-Type']).toBeUndefined();
+        expect(client.dictationChanges).toBe(0);
+        await client.request('/dictations/d1/correction/save', { method: 'POST', body: {} });
+        expect(client.dictationChanges).toBe(1);
+    });
+
     it('posts a parity command with the existing CSRF transport', async () => {
         fetchMock.mockResolvedValue(http({
             status: 200,
