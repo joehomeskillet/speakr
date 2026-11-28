@@ -326,6 +326,7 @@ def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
             expect(config.get_by_label("Speicherregel", exact=True)).to_have_value("never")
             _capture_profile(page, proof.with_name(proof.name + "-settings"))
             settings.press("Enter")
+            expect(config.get_by_role("combobox")).to_have_count(0)
             expect(primary).to_be_enabled()
         else:
             expect(view.get_by_label("Profil beim Diktieren (live)", exact=True)).to_have_value("p")
@@ -349,15 +350,17 @@ def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
         page.keyboard.press("Enter")
         expect(details.get_by_text("Eingabehinweise (Prompts)", exact=True)).to_be_visible()
         if state == "populated":
-            expect(details.get_by_text("webm · opus · 48000 Hz", exact=True)).to_be_visible()
             output = details.locator("dt").get_by_text("Ausgabeformat", exact=True).locator("..")
-            fields = output.locator("dd > span")
+            values = output.locator("dd")
+            fields = values.locator("span")
+            expect(values).to_be_visible()
+            expect(values).to_have_text("webm · opus · 48000 Hz")
+            expect(values).to_have_css("flex-wrap", "wrap")
             expect(fields).to_have_text(["webm ·", "opus ·", "48000 Hz"])
             for field in fields.all():
                 expect(field).to_be_visible()
-            assert fields.last.text_content() == "48000\u00a0Hz"
-            expect(output.locator("dd")).to_have_css("flex-wrap", "wrap")
             expect(fields.last).to_have_css("white-space", "nowrap")
+            assert fields.last.text_content() == "48000\u00a0Hz"
             assert output.evaluate("row => row.scrollWidth <= row.clientWidth")
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
             details.screenshot(path=proof.with_name(proof.name + "-details").with_suffix(".png"), animations="disabled")
@@ -385,27 +388,27 @@ def test_p15_first_profile_uses_existing_save_and_vocabulary_link(browser, app_b
 
         config = page.get_by_role("region", name="Profilkonfiguration")
         settings = config.get_by_text("Quellen und Speichern einstellen", exact=True)
-        settings.click()
         mode = config.get_by_label("Quellenzuordnung", exact=True)
+        batch_source = config.get_by_label("Quelle für Hintergrund-Erkennung", exact=True)
+        rule = config.get_by_label("Speicherregel", exact=True)
+        settings.click()
         expect(mode).to_have_value("shared")
         mode.select_option("separate")
-        batch_source = config.get_by_label("Quelle für Hintergrund-Erkennung", exact=True)
         expect(batch_source).to_have_value("recorder")
         batch_source.select_option("headset")
-        rule = config.get_by_label("Speicherregel", exact=True)
         rule.select_option("ask")
         feedback = config.locator('.asr-save-feedback[role="status"]')
+        expect(feedback.filter(has_text="Ungespeicherte Änderungen")).to_be_visible()
         expect(feedback).not_to_contain_text("Profilvorgabe gespeichert.")
-        expect(page.get_by_role("status").filter(has_text="Ungespeicherte Änderungen")).to_be_visible()
         expect(page.get_by_role("status").filter(has_text="Profilvorgabe gespeichert.")).to_have_count(0)
         with page.expect_response(lambda res: res.url.endswith("/asr-profiles/selection")) as response:
             primary.click()
         assert response.value.ok
-        payload = response.value.request.post_data_json
-        assert (payload["profile_mode"], payload["batch_source"], payload["save_rule"]) == ("separate", "headset", "ask")
+        updates = response.value.request.post_data_json
+        assert (updates["profile_mode"], updates["batch_source"], updates["save_rule"]) == ("separate", "headset", "ask")
         expect(feedback).to_contain_text("Profilvorgabe gespeichert.")
+        expect(feedback.filter(has_text="Profilvorgabe gespeichert.")).to_be_visible()
         expect(mode).to_have_value("separate")
-        expect(page.get_by_role("status").filter(has_text="Profilvorgabe gespeichert.")).to_be_visible()
         page.reload()
         settings.click()
         expect(mode).to_have_value("separate")
