@@ -265,10 +265,6 @@ class PreferenceRoutes:
 
     # -- active author pool (PAR-ADM-002) ----------------------------------
     def _active_pool(self):
-        from sqlalchemy.exc import SQLAlchemyError
-
-        from src.clinic import app_wiring
-
         actor = current_user.id
         is_write = request.method == "PUT"
         try:

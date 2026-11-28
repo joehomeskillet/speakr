@@ -643,7 +643,7 @@ describe('view registration and setup', () => {
         const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: rec, uploadFile: vi.fn(), vue }, {});
 
         view.c.setTitle('Bericht');
-        await view.c.start();
+        await view.c.start('bericht');
         expect(view.m.value.phase).toBe('recording');
         expect(readLevel).toHaveBeenCalled();
         expect(view.level.value).toBe(0.4);
@@ -673,7 +673,7 @@ describe('view registration and setup', () => {
         vi.stubGlobal('cancelAnimationFrame', undefined);
         const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: recorder(), uploadFile: vi.fn(), vue }, {});
         view.c.setTitle('Bericht');
-        await view.c.start();
+        await view.c.start('bericht');
         expect(view.m.value.phase).toBe('recording');
         expect(view.level.value).toBe(0);
         view.c.pause();
