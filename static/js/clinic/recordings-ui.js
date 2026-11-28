@@ -36,7 +36,7 @@ export const TEXT = Object.freeze({
     pendingSaved: 'Diese Aufnahmen sind gespeichert.',
     checkReceipt: 'Empfang noch offen. Öffnen Sie das Diktat, um den Stand zu sehen.',
     searchLabel: 'Aufnahmen durchsuchen',
-    searchPlaceholder: 'Person, Schreibdienst, Fallnummer',
+    searchPlaceholder: 'Person, Gruppe, Fallnummer',
     periodAny: 'Alle Zeiten',
     periodToday: 'Heute',
     period7: 'Letzte 7 Tage',
@@ -89,13 +89,13 @@ export const TEXT = Object.freeze({
     reset: 'Zurücksetzen',
     resetFilters: 'Filter zurücksetzen',
     filters: 'Filter',
-    roleFilters: 'Schreibdienst und Diktierende',
+    roleFilters: 'Gruppe und Diktierende',
     filtersShow: 'Filter anzeigen',
     filtersHide: 'Filter ausblenden',
     authorId: 'Diktiert von',
-    poolId: 'Schreibdienst',
+    poolId: 'Gruppe',
     authorAny: 'Alle Diktierenden',
-    poolAny: 'Alle Schreibdienste',
+    poolAny: 'Alle Gruppen',
     statusAny: 'Alle Status',
     range: 'Zeitraum',
     activeFilters: 'Aktive Filter',
@@ -436,7 +436,7 @@ export function createRecordingsController(options) {
 
     const state = reactive({
         rows: [], nextCursor: null, loaded: false, loading: false, loadingMore: false,
-        error: null, denied: false, stale: false,
+        error: null, denied: false, stale: false, startNotice: '',
         filters: { ...emptyFilters() }, draft: { ...emptyFilters() }, query: '',
         pendingCount: 0, unsentCount: 0,
     });
@@ -566,6 +566,7 @@ export function createRecordingsController(options) {
     }
 
     function applyFilters() {
+        state.startNotice = '';
         state.filters = { ...state.draft };
         refreshPickers();
         state.nextCursor = null;
@@ -638,6 +639,19 @@ export function createRecordingsController(options) {
             loadedRevision = snap.loadedRevision;
             loadedPages = snap.loadedPages || 1;
             return refreshIfChanged();
+        }
+        if (options.startSelection) {
+            const selection = await options.startSelection;
+            if (disposed || sequence) return null;
+            if (selection && !hasDraftChanges()) {
+                state.startNotice = selection.notice;
+                if (selection.pool) {
+                    const { id, name } = selection.pool;
+                    registry.pools.set(id, name);
+                    state.filters.pool_id = state.draft.pool_id = id;
+                    refreshPickers();
+                }
+            }
         }
         return load();
     }
