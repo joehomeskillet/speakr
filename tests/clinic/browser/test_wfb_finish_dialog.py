@@ -68,29 +68,34 @@ def _recording(page: Page) -> Locator:
     return page.get_by_test_id("clinic-recordings-view").get_by_test_id("open-link")
 
 
-def _open(page: Page, base: str, mount: str) -> str:
+def _open(page: Page, base: str, mount: str, *, expect_acquire: bool = False) -> str:
     support._show_recordings(page, base)
     row = _recording(page)
     expect(row).to_have_count(1)
     did = row.get_attribute("data-id")
     assert did
-    row.click()
+    path = base + f"/api/clinic/v1/dictations/{did}"
+    if expect_acquire:
+        with page.expect_response(lambda r: r.url == path + "/leases" and r.request.method == "POST") as lease:
+            row.click()
+        assert lease.value.ok, lease.value.text()
+    else:
+        row.click()
     if mount != "correction":
         page.get_by_test_id(f"clinic-dictation-link-{mount}").click()
-    return base + f"/api/clinic/v1/dictations/{did}"
+    return path
 
 
 def _open_dialog(page: Page, mount: str, path: str) -> Locator:
     view = page.get_by_test_id(f"clinic-{mount}-view")
     if mount == "review":
         expect(view.get_by_test_id("review-text")).to_contain_text(TEXT)
-        acquire = view.get_by_test_id("begin-review")
+        with page.expect_response(lambda r: r.url == path + "/leases" and r.request.method == "POST") as lease:
+            view.get_by_test_id("begin-review").click()
+        assert lease.value.ok, lease.value.text()
     else:
         expect(view.get_by_test_id("text")).to_have_value(TEXT)
-        acquire = view.get_by_test_id("lease-bar").locator('[data-action="acquire"]')
-    with page.expect_response(lambda r: r.url == path + "/leases" and r.request.method == "POST") as lease:
-        acquire.click()
-    assert lease.value.ok, lease.value.text()
+        expect(view.get_by_test_id("lease-bar").locator('[data-action="release"]')).to_be_visible()
     start = view.get_by_role("button", name=TITLE, exact=True)
     expect(start).to_be_enabled()
     start.click()
@@ -166,7 +171,7 @@ def _close_finished(page: Page, dialog: Locator, mount: str) -> None:
 def test_finish_dialog(browser: Browser, staging: str, mount: str, output: bool) -> None:
     with browser.new_context(storage_state=_author_state(browser, staging)) as ctx:
         page = ctx.new_page()
-        path = _open(page, staging, mount)
+        path = _open(page, staging, mount, expect_acquire=mount == "correction")
         dialog = _open_dialog(page, mount, path)
         before = ctx.request.get(path + "/detail").json()
         before_url = page.url
@@ -271,10 +276,10 @@ def test_visual_finish_dialog(browser: Browser, staging: str, viewport: str, the
                              **support.theme_context_options(theme)) as ctx:
         ctx.add_init_script(support.theme_init_script(theme))
         page = ctx.new_page()
-        path = _open(page, staging, mount)
+        state = request.node.callspec.params["staging"]
+        path = _open(page, staging, mount, expect_acquire=mount == "correction" and state != "empty")
         expect(page.locator("html")).to_have_class(re.compile(r"\bdark\b") if theme == "dark" else
                                                   re.compile(r"^(?!.*\bdark\b)"))
-        state = request.node.callspec.params["staging"]
         stem = f"p107-{mount}-{viewport}-{theme}"
         view = page.get_by_test_id(f"clinic-{mount}-view")
         expect(view).to_have_attribute("aria-busy", "false")

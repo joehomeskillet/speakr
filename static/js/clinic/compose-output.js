@@ -391,7 +391,7 @@ export const OutputView = {
                 </td>
                 <td>
                   <div class="actions">
-                    <a v-if="c.downloadUrl(t.id)" :href="c.downloadUrl(t.id)" download class="button small" style="min-height: 48px; overflow-wrap: anywhere"
+                    <a v-if="c.downloadUrl(t.id)" :href="c.downloadUrl(t.id)" download class="button small" aria-label="Herunterladen" style="min-height: 48px; overflow-wrap: anywhere"
                        @click="c.markDownloadStarted(t.id)">{{ TEXT.download }}</a>
                     <button v-else type="button" class="small" style="min-height: 48px" :aria-label="TEXT.export" :disabled="!c.canExport(t.id)" @click="c.exportTo(t.id)">{{ TEXT.start }}</button>
                     <button v-if="c.results.value[t.id] && c.results.value[t.id].job && ['pending', 'unknown'].includes(c.results.value[t.id].phase)"
