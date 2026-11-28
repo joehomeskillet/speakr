@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from sys import maxsize
 from uuid import uuid4
 
@@ -18,6 +18,7 @@ from src.clinic import policy, workflow
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.list_layout import Group
 from src.clinic.parity_dispatch import CommandProblem, ParityDispatch
+from src.clinic.presets import ClinicMetadataField
 from src.clinic.saved_filters import FilterError, validate_filter
 from src.clinic.worklist_etag import list_etag
 from src.clinic.worklist_filters import SavedFilter, WorklistFilterStore, WorklistPage, query_worklist
@@ -46,6 +47,10 @@ _PROBLEMS = {400: ('INVALID_PAYLOAD', 'Ungültige Anfrage'),
              404: ('NOT_FOUND', 'Nicht gefunden')}
 
 
+def layout_columns(metadata_fields: Sequence[ClinicMetadataField]) -> tuple[str, ...]:
+    return LAYOUT_COLUMNS + tuple(metadata_field.name for metadata_field in metadata_fields)
+
+
 @dataclass(frozen=True)
 class WorklistEntry:
     """Server-loaded recording and its bound WorklistRow metadata (ISO UTC timestamps)."""
@@ -53,6 +58,7 @@ class WorklistEntry:
     recording: Recording
     row: Mapping
     pool_id: str | None = None
+    metadata_xml: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -72,6 +78,7 @@ def _query_row(entry: WorklistEntry) -> dict:
                 author=row['author_user_id'], assignee=row['assignee_user_id'], pool=entry.pool_id,
                 created=row['created_at'][:10], deadline=(row['deadline_at'] or '')[:10] or None,
                 audio_seconds=row['duration_seconds'], recording_version=updated_at_us(rec),
+                metadata_xml=entry.metadata_xml,
                 **{'meta.notes': row['notes'], 'meta.recipient': row['recipient']})
 
 
@@ -104,8 +111,11 @@ def get_worklist(
     entries: Iterable[WorklistEntry], subject: policy.Subject, layouts: LayoutStore, *,
     spec: Mapping | None = None, search: str = '', page: int = 1, page_size: int = 20,
     load_case_displays: Callable[..., Mapping] | None = None, case_ref: str | None = None,
+    metadata_fields: Sequence[ClinicMetadataField] = (),
 ) -> WorklistSnapshot:
     """Apply current object policy, search and layout before counting or paging."""
+    from src.clinic.worklist_entries import project_metadata_values
+
     if not (type(page) is int and 1 <= page <= 100_000
             and type(page_size) is int and 1 <= page_size <= 100):
         raise FilterError('bad_value', 'invalid page')
@@ -123,10 +133,15 @@ def get_worklist(
                     if case_ref and load_case_displays else {})
         matches = tuple(row for row in matches if row['dictation_id'] in displays)
     stamps = {row['dictation_id']: row['recording_version'] for row in matches}
-    base = sorted(({key: row[key] for key in COLUMNS + ROLE_COLUMNS if key in row}
-                   for row in matches), key=lambda row: row['dictation_id'])
+    base = []
+    for source in sorted(matches, key=lambda row: row['dictation_id']):
+        row = {key: source[key] for key in COLUMNS + ROLE_COLUMNS if key in source}
+        if metadata_fields:
+            facts = policy.RecordingFacts(source['id'], source['owner_id'], source['pool_ids'])
+            row.update(project_metadata_values(subject, facts, metadata_fields, source['metadata_xml']))
+        base.append(row)
     layout, ordered, groups = layouts.refresh(subject.user_id, subject.user_id, base,
-                                              _DEFAULT_LAYOUT, LAYOUT_COLUMNS)
+                                              _DEFAULT_LAYOUT, layout_columns(metadata_fields))
     ordered = _with_names(ordered)
     buckets: dict[str, list[Mapping]] = {}
     for row in ordered:
@@ -159,6 +174,7 @@ def create_blueprint(
     load_entries: Callable[[int], Iterable[WorklistEntry]],
     filters: WorklistFilterStore, layouts: LayoutStore, *,
     load_case_displays: Callable[..., Mapping] | None = None,
+    load_metadata_fields: Callable[[], Sequence[ClinicMetadataField]] = tuple,
 ) -> Blueprint:
     """Mount with a trusted loader that narrows writer assignments and clarification scope.
 
@@ -211,6 +227,7 @@ def create_blueprint(
                 load_entries(actor) if case_ref != '' else (), policy.build_subject(actor), layouts, spec=spec,
                 search=request.args.get('search', ''), page=page, page_size=page_size,
                 load_case_displays=load_case_displays, case_ref=case_ref,
+                metadata_fields=load_metadata_fields(),
             )
         except FilterError as error:
             abort(404 if error.code == 'not_found' else 400)
@@ -320,7 +337,7 @@ def create_blueprint(
     @blueprint.get('/layout')
     def own_layout():
         actor = current_user.id
-        stored = layouts.load(actor, actor, _DEFAULT_LAYOUT, LAYOUT_COLUMNS)
+        stored = layouts.load(actor, actor, _DEFAULT_LAYOUT, layout_columns(load_metadata_fields()))
         return jsonify(version=stored.version, layout=stored.layout)
 
     return blueprint

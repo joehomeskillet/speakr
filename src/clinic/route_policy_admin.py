@@ -47,6 +47,7 @@ AUTH: tuple[str, ...] = (
     # Metadata field definitions (x28), mounted by register_clinic_identity in clinic mode only.
     # Reading is for any signed-in user; the handler lists inactive fields to admins only.
     'clinic_metadata_fields.list_fields',
+    'clinic_regex.list_rules',
     # Recordings list, processing overview, statistics, ASR training and import-agent handlers,
     # mounted by register_clinic_operations in src/app.py only in clinic mode. Recordings, jobs
     # and statistics are AUTH: each handler authenticates the browser session itself and decides
@@ -65,6 +66,11 @@ AUTH: tuple[str, ...] = (
     'voice_enrollment.enroll_own_voice_sample',
     'voice_enrollment.grant_own_voice_consent',
     'voice_enrollment.revoke_own_voice_consent',
+    # Caution-word lists (PAR-VOC-004, Q-19), mounted with the vocabulary blueprint. Reads, the
+    # preview and pool publishing are decided in the handler: pool members read, pool writers publish.
+    'clinic_vocabulary.caution_list',
+    'clinic_vocabulary.caution_publish_pool',
+    'clinic_vocabulary.caution_preview',
 )
 
 ADMIN: tuple[str, ...] = (
@@ -83,6 +89,8 @@ ADMIN: tuple[str, ...] = (
     # Category set writes (PAR-CFG-003). The handler also requires an active site admin.
     'clinic_categories.create_category_set',
     'clinic_categories.update_category_set',
+    'clinic_regex.save_rule',
+    'clinic_regex.delete_rule',
     'clinic_training.manifest',
     'clinic_training.schedule',
     'clinic_training.start',
@@ -91,4 +99,6 @@ ADMIN: tuple[str, ...] = (
     'clinic_statistics.collection_policy',
     'clinic_statistics.collection_period',
     'clinic_statistics.collection_retention',
+    # Global caution-word baseline (PAR-VOC-004, Q-19); the handler also requires an active site admin.
+    'clinic_vocabulary.caution_publish_global',
 )

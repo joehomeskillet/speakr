@@ -225,6 +225,26 @@ def test_no_title_notes_or_patient_value_in_the_response(api):
     assert not [k for k in json.loads(text) if 'patient' in k or k in ('title', 'notes')]
 
 
+def test_draft_metadata_is_only_returned_to_an_author_with_edit_access(api):
+    login_as, allowed, _ = api
+    ids = _scene()
+    db.session.get(workflow.ClinicWorkflowDictation, ids['dictation']).status = workflow.DRAFT
+    db.session.commit()
+    allowed.update((ids['author'], ids['typist']))
+    url = URL.format(ids['dictation'])
+    author = login_as(ids['author'])
+    assert author.get(url).json['draft_metadata'] == dict(
+        title=TITLE_MARKER, notes=TITLE_MARKER, priority=1, deadline_date='',
+    )
+    assert author.get(url).json['draft_edit_actions'] == ['rename', 'priority']
+    assert 'draft_metadata' not in login_as(ids['typist']).get(url).json
+    assert 'draft_edit_actions' not in login_as(ids['typist']).get(url).json
+    DENIED.add('priority')
+    assert author.get(url).json['draft_edit_actions'] == ['rename']
+    DENIED.add('review')
+    assert 'draft_metadata' not in author.get(url).json
+
+
 def test_foreign_and_unknown_dictations_look_the_same(api):
     login_as, allowed, _ = api
     ids = _scene()
