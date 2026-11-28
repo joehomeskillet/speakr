@@ -29,7 +29,10 @@ from typing import Callable, Optional
 
 from sqlalchemy import CheckConstraint, ForeignKey, UniqueConstraint
 
-from src.clinic.migration_inventory_hints import provenance, replay_hints, upgrade as upgrade_inventory_hints
+from src.clinic.firmware_catalog import normalize_device_type, normalize_version
+from src.clinic.migration_inventory_hints import (
+    provenance, replay_hints, upgrade as upgrade_inventory_hints, upgrade_firmware_claims,
+)
 from src.database import db
 from src.models import User  # noqa: F401  (resolves the user.id foreign key)
 
@@ -126,6 +129,8 @@ class ClinicAgentInventory(db.Model):
     claimed_author_code = db.Column(db.String(128), nullable=True)
     completion_source = db.Column(db.String(32), nullable=True, default="unknown")
     evidence_level = db.Column(db.String(32), nullable=True, default="unverified")
+    device_type = db.Column(db.String(56), nullable=True)
+    firmware_version = db.Column(db.String(64), nullable=True)
     reported_at = _ts(nullable=False, default=utcnow)
     __table_args__ = (
         UniqueConstraint("agent_id", "source_id", "snapshot_version", name="uq_clinic_agent_inventory"),
@@ -216,12 +221,13 @@ AGENT_TABLES = (
 
 
 def create_tables(bind=None):
-    """Create the channel tables if they are missing, then add hint columns on older ones."""
+    """Create missing channel tables and add optional columns to older inventory tables."""
     target = bind or db.engine
     db.metadata.create_all(
         bind=target, tables=[m.__table__ for m in AGENT_TABLES], checkfirst=True
     )
     upgrade_inventory_hints(target)
+    upgrade_firmware_claims(target)
 
 
 def transactional(fn):
@@ -304,8 +310,8 @@ def clean_id(value, what):
     return value
 
 
-def _agent_or_fail(agent_id):
-    agent = db.session.get(ClinicAgent, agent_id)
+def _agent_or_fail(agent_id, *, lock=False):
+    agent = db.session.get(ClinicAgent, agent_id, with_for_update=lock, populate_existing=lock)
     if agent is None:
         raise AgentChannelError("not_found", "agent")
     return agent
@@ -324,9 +330,11 @@ def register_agent(policy, *, actor_user_id, display_name, allowed_sources, cred
         credential_fingerprint=_fingerprint(credential_fingerprint),
     )
     db.session.add(agent)
+    db.session.flush()
+    key = derive_agent_key(policy, agent.id, agent.key_version).hex()
+    result = {"agent_id": agent.id, "allowed_sources": sources, "intent_signing_key_hex": key}
     db.session.commit()
-    return {"agent_id": agent.id, "allowed_sources": sources,
-            "intent_signing_key_hex": derive_agent_key(policy, agent.id, agent.key_version).hex()}
+    return result
 
 
 @transactional
@@ -337,17 +345,19 @@ def set_agent_enabled(policy, *, actor_user_id, agent_id, enabled):
 
 
 @transactional
-def rotate_signing_key(policy, *, actor_user_id, agent_id):
-    """New key version; unfinished intents were signed with the old key and are cancelled."""
+def rotate_signing_key(policy, *, actor_user_id, agent_id, commit=True):
+    """Rotate the key and cancel unfinished intents. The caller can commit with its audit row."""
     authorise(policy, actor_user_id, "manage_agent")
-    agent = _agent_or_fail(agent_id)
+    agent = _agent_or_fail(agent_id, lock=True)
     agent.key_version += 1
     for intent in ClinicAgentIntent.query.filter(
         ClinicAgentIntent.agent_id == agent_id, ClinicAgentIntent.status.in_(("OPEN", "IN_PROGRESS", "STORED"))
     ):
         intent.status = "CANCELLED"
-    db.session.commit()
-    return {"intent_signing_key_hex": derive_agent_key(policy, agent.id, agent.key_version).hex()}
+    key = derive_agent_key(policy, agent.id, agent.key_version).hex()
+    if commit:
+        db.session.commit()
+    return {"intent_signing_key_hex": key}
 
 
 def authenticate_agent(credential_fingerprint):
@@ -410,6 +420,8 @@ def _clean_item(policy, raw):
         source_id=clean_id(raw.get("source_id"), "source_id"), root_id=clean_id(raw.get("root_id"), "root_id"),
         relative_path=path, size=size, sha256=digest, mtime_utc=_parse_mtime(raw.get("mtime_utc")),
         snapshot_version=clean_id(raw.get("snapshot_version"), "snapshot_version"),
+        device_type=normalize_device_type(raw.get("device_type")),
+        firmware_version=normalize_version(raw.get("firmware_version")),
     )
 
 
@@ -460,6 +472,8 @@ def list_inventory(policy, *, actor_user_id, agent_id):
     return [{"source_id": r.source_id, "root_id": r.root_id, "relative_path": r.relative_path,
              "size": r.size, "mtime_utc": stamp(r.mtime_utc), "sha256": r.sha256,
              "snapshot_version": r.snapshot_version,
+             **({"device_type": r.device_type} if r.device_type is not None else {}),
+             **({"firmware_version": r.firmware_version} if r.firmware_version is not None else {}),
              **provenance(r.claimed_author_code, r.completion_source, r.evidence_level)} for r in rows]
 
 
