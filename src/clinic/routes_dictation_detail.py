@@ -18,6 +18,7 @@ from src.clinic.acceptance_policy import AcceptanceLedger, PolicyError, SCOPE_DI
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
 from src.clinic.pools import ClinicAuthorPool, ClinicPoolRoute, ClinicStaffPool
+from src.clinic.web_ingest import recognition_disabled
 from src.clinic.worklist_entries import stamp
 from src.database import db
 from src.models import Recording, User
@@ -169,6 +170,7 @@ def create_blueprint(
         if (recording is not None and flow is not None and flow.status == workflow.DRAFT
                 and current_user.id == dictation.author_user_id and authorize(current_user, 'review', dictation)):
             draft_fields = dict(
+                use_speech_recognition=not recognition_disabled(dictation.recording_id),
                 draft_metadata=dict(
                     title=recording.title, notes=recording.notes or '', priority=flow.priority,
                     deadline_date=flow.deadline_date.isoformat() if flow.deadline_date else '',

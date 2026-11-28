@@ -75,6 +75,21 @@ it('requires one of four templates and saves private recordings without sending 
     expect(request).not.toHaveBeenCalled();
 });
 
+it.each([
+    ['bericht', false], ['notiz', false], ['sitzung', true], ['patientengespraech', true],
+])('keeps the type and effective recognition choice when retrying a %s take', async (kind, recognition) => {
+    const rec = recorder(vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ dictation_id: 'd-1' }));
+    const { c } = make({ recorder: rec, options: { oneButton: true, requireRecordingType: true, preflightOnMount: true } });
+    expect(c.toggleSpeechRecognition().ok).toBe(true);
+    await toReview(c, kind);
+    expect(c.model()).toMatchObject({ useSpeechRecognition: recognition, canChangeSpeechRecognition: !recognition });
+    expect((await c.saveRecording()).ok).toBe(false);
+    expect((await c.saveRecording()).ok).toBe(true);
+    const [[first], [second]] = rec.uploadRecordedAudio.mock.calls;
+    expect(first).toMatchObject({ recordingType: kind, useSpeechRecognition: recognition, clientUploadId: expect.any(String) });
+    expect(second).toEqual(first);
+});
+
 describe('recording view controller', () => {
     it('requires a user id, a recorder and an upload function', () => {
         expect(() => createRecordingViewController({ currentUser: {}, recorder: recorder(), uploadFile() {} })).toThrow('currentUser.id');

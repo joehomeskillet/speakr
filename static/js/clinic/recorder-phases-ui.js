@@ -112,14 +112,14 @@ export function createClinicRecorder(audio, state, uploadFile) {
             gatedTake = null;
             await audio.clearRecording();
         },
-        async uploadRecordedAudio({ title, recordingType }) {
+        async uploadRecordedAudio({ title, ...uploadOptions }) {
             const chunks = state.audioChunks.value;
             if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
             const gated = gatedTake?.chunks === chunks ? gatedTake.blob : null;
             const file = gated
                 ? new File([gated], 'aufnahme.wav', { type: gated.type })
                 : new File(chunks, 'aufnahme.webm', { type: state.mediaRecorder.value.mimeType.split(';')[0] });
-            const receipt = recordingType ? await uploadFile(file, title, recordingType) : await uploadFile(file, title);
+            const receipt = await uploadFile(file, title, uploadOptions);
             if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
             // A new take gets its own chunk array as soon as capture starts.
             if (state.audioChunks.value === chunks) {
@@ -297,7 +297,7 @@ export function createRecorderPhases(options) {
         }
     }
 
-    async function send() {
+    async function send(uploadOptions) {
         const blocked = guard(['review', 'failed']);
         if (blocked) return blocked;
         if (!automaticTitle && !state.title.trim()) return denied('missing_title');
@@ -306,7 +306,7 @@ export function createRecorderPhases(options) {
         set({ phase: 'sending', error: null });
         let receipt = null;
         try {
-            const metadata = { title: state.title.trim() || localDictationTitle() };
+            const metadata = { title: state.title.trim() || localDictationTitle(), ...uploadOptions };
             if (state.recordingType) metadata.recordingType = state.recordingType;
             receipt = await recorder.uploadRecordedAudio(metadata);
         } catch (e) {
