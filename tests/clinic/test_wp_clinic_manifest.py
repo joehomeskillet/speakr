@@ -25,6 +25,8 @@ def test_manifest_response_by_mode(monkeypatch, clinic_mode):
     response = client.get(MANIFEST_URL)
     assert response.status_code == 200
     manifest = response.json
+    assert manifest['name'] == manifest['short_name'] == 'Ploudrli'
+    assert all(icon['src'].startswith('/static/img/brand/') for icon in manifest['icons'])
     upstream = json.loads((Path(app.static_folder) / 'manifest.json').read_text(encoding='utf-8'))
     if clinic_mode == '0':
         assert manifest == upstream
@@ -41,6 +43,8 @@ def test_manifest_response_by_mode(monkeypatch, clinic_mode):
     assert [(shortcut['name'], shortcut['url']) for shortcut in manifest['shortcuts']] == [
         (name, url) for name, (url, _) in SHORTCUTS.items()
     ]
+    assert all(shortcut['icons'] == upstream['shortcuts'][0]['icons'] for shortcut in manifest['shortcuts'])
+    assert 'Speakr' not in manifest['description']
     head = client.head(MANIFEST_URL)
     assert head.status_code == 200
     assert head.mimetype == response.mimetype

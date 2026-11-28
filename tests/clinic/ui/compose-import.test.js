@@ -13,12 +13,22 @@ const INTENTS = [
     { id: 'i2', status: 'FAILED', source_ref: 'dev-b', expected_files: ['b.dss', 'c.dss'], created_at: '2026-11-20T08:05:00Z' },
 ];
 const INVENTORY = [{ source_id: 'dev-a', root_id: 'r', relative_path: 'a.dss', size: 10, mtime_utc: '2026-11-20T07:00:00Z', snapshot_version: 's1' }];
+const FIRMWARE_CATALOG = [
+    { device_type: 'LFH9600', target_version: '1.10', version: 1 },
+    { device_type: 'LFH9620', target_version: '2.1', version: 1 },
+];
+const FIRMWARE_REPORTS = [
+    { source_id: 'dev-a', snapshot_version: 's1', device_type: 'LFH9600', firmware_version: '1.10.0', target_version: '1.10', comparison_status: 'equal' },
+    { source_id: 'dev-b', snapshot_version: 's1', device_type: 'LFH9620', firmware_version: '2.0', target_version: '2.1', comparison_status: 'older' },
+    { source_id: 'dev-c', snapshot_version: '1.10', device_type: 'LFH9600', firmware_version: null, target_version: '1.10', comparison_status: 'unknown' },
+];
 const UNASSIGNED = [{ id: 'd1', source_id: 'dev-a', relative_path: 'x.dss', snapshot_version: 's1' }];
 
 function fakeClient(overrides) {
     const routes = {
         [ENDPOINTS.intents]: () => ok({ items: INTENTS }),
         [ENDPOINTS.inventory]: () => ok({ items: INVENTORY }),
+        [ENDPOINTS.firmware]: () => ok({ catalog: FIRMWARE_CATALOG, items: FIRMWARE_REPORTS }),
         [ENDPOINTS.unassigned]: () => ok({ items: UNASSIGNED }),
         ...(overrides || {}),
     };
@@ -99,6 +109,57 @@ describe('import view composition', () => {
         expect(calls(client, ENDPOINTS.intents)).toHaveLength(2);
     });
 
+    it('loads the firmware catalog and server comparisons without a write', async () => {
+        const client = fakeClient();
+        const c = createImportController({ client, currentUser: { id: 1, role: 'admin' } });
+        await c.load();
+        expect(calls(client, '/imports/firmware')).toEqual([['/imports/firmware', { method: 'GET' }]]);
+        expect(c.state.firmware).toEqual({ catalog: FIRMWARE_CATALOG, reports: FIRMWARE_REPORTS });
+        expect(FIRMWARE_REPORTS.map((row) => c.firmwareStatusView(row.comparison_status).label))
+            .toEqual(['Aktuell', 'Älter', 'Unbekannt']);
+        expect(c.firmwareStatusView('newer').label).toBe('Aktuell');
+        expect(c.firmwareStatusView().label).toBe('Unbekannt');
+        expect(c.firmwareStatusView('constructor').label).toBe('Unbekannt');
+        expect(c.text.firmwareBlocked).toBe('Firmware-Flash gesperrt (WG-IMP-010)');
+        expect(client.command).not.toHaveBeenCalled();
+    });
+
+    it('refreshes firmware independently and clears old rows on refusal or failure', async () => {
+        const firmware = vi.fn()
+            .mockReturnValueOnce(ok({ catalog: FIRMWARE_CATALOG, items: [] }))
+            .mockReturnValueOnce({ outcome: 'permission' })
+            .mockReturnValueOnce({ outcome: 'network' })
+            .mockReturnValueOnce(ok({ catalog: [], items: [] }));
+        const client = fakeClient({ [ENDPOINTS.firmware]: firmware });
+        const c = createImportController({ client, currentUser: { id: 1, role: 'admin' } });
+        await c.load();
+        expect(c.state.firmware).toEqual({ catalog: FIRMWARE_CATALOG, reports: [] });
+        await c.load();
+        expect(c.state.firmware).toBeNull();
+        expect(c.state.firmwareError).toBe(c.text.denied);
+        await c.load();
+        expect(c.state.firmware).toBeNull();
+        expect(c.state.firmwareError).toBe(c.text.firmwareFailed);
+        expect(c.state.inventory).toEqual(INVENTORY);
+        expect(c.state.unassigned).toEqual(UNASSIGNED);
+        await c.load();
+        expect(c.state.firmware).toEqual({ catalog: [], reports: [] });
+        expect(c.state.firmwareError).toBeNull();
+        expect(firmware).toHaveBeenCalledTimes(4);
+    });
+
+    it('ignores a firmware response that arrives after disposal', async () => {
+        let release;
+        const firmware = new Promise((resolve) => { release = resolve; });
+        const client = fakeClient({ [ENDPOINTS.firmware]: () => firmware });
+        const c = createImportController({ client, currentUser: { id: 1, role: 'admin' } });
+        const load = c.load();
+        c.dispose();
+        release(ok({ catalog: FIRMWARE_CATALOG, items: FIRMWARE_REPORTS }));
+        await load;
+        expect(c.state.firmware).toBeNull();
+    });
+
     it('W13: an ordinary typist gets no clarification list and never requests it', async () => {
         const client = fakeClient();
         const c = createImportController({ client, currentUser: { id: 5, role: 'typist' } });
@@ -147,6 +208,86 @@ describe('import view composition', () => {
         expect(calls(client, ENDPOINTS.assign('d1'))[0][1].body).toEqual({
             target_author_user_id: 6, target_pool_id: 'p2', expected_snapshot_version: 's1',
         });
+    });
+
+    it('shows only eligible names as an optional hint and assigns the lead’s different choice once', async () => {
+        const hinted = { target_author_user_id: 6, target_pool_id: 'p1', author_name: 'Anna Test', pool_name: 'A' };
+        const chosen = { target_author_user_id: 7, target_pool_id: 'p2', author_name: 'Eva Test', pool_name: 'B' };
+        let delivered = false;
+        let finish;
+        const gate = new Promise((resolve) => { finish = resolve; });
+        const client = fakeClient({
+            [ENDPOINTS.unassigned]: () => ok({ items: delivered ? [] : UNASSIGNED }),
+            [ENDPOINTS.candidates('d1')]: () => ok({ items: [hinted, chosen] }),
+            [ENDPOINTS.suggestion('d1')]: () => ok({ band: 'choice', candidates: [6, 99] }),
+            [ENDPOINTS.assign('d1')]: async () => { await gate; delivered = true; return ok({}); },
+        });
+        const c = createImportController({ client, currentUser: { id: 5, isPoolLead: true } });
+        await c.load();
+        c.askAssign('d1');
+        await c.loadCandidates('d1');
+        expect(calls(client, ENDPOINTS.suggestion('d1'))).toHaveLength(0);
+        await c.loadSuggestion('d1');
+        expect(c.state.hint.names).toEqual(['Anna Test']);
+        expect(c.state.target).toBeNull();
+        expect(await c.confirmAssign('d1', { ...hinted, target_pool_id: 'p2' }, 's1')).toBeNull();
+        expect(calls(client, ENDPOINTS.assign('d1'))).toHaveLength(0);
+
+        c.state.target = chosen;
+        const first = c.confirmAssign('d1', c.state.target, 's1');
+        expect(await c.confirmAssign('d1', c.state.target, 's1')).toBeNull();
+        finish();
+        await first;
+        expect(calls(client, ENDPOINTS.assign('d1'))).toEqual([[
+            '/imports/unassigned/d1/assign',
+            { method: 'POST', idempotencyKey: expect.any(String), body: {
+                target_author_user_id: 7, target_pool_id: 'p2', expected_snapshot_version: 's1',
+            } },
+        ]]);
+        await c.load();
+        expect(c.state.unassigned).toEqual([]);
+        expect(c.state.notice).toBe(c.text.assigned);
+        expect(c.state.hint).toBeNull();
+    });
+
+    it.each([
+        [ok({ band: 'none', candidates: [6] }), []],
+        [{ outcome: 'network' }, []],
+        [ok({ band: 'single', candidates: [6] }), ['Anna Test']],
+    ])('keeps the picker blank independently of the hint response %j', async (response, names) => {
+        const client = fakeClient({
+            [ENDPOINTS.candidates('d1')]: () => ok({ items: [{
+                target_author_user_id: 6, target_pool_id: 'p1', author_name: 'Anna Test', pool_name: 'A',
+            }] }),
+            [ENDPOINTS.suggestion('d1')]: () => response,
+        });
+        const c = createImportController({ client, currentUser: { id: 5, isPoolLead: true } });
+        c.askAssign('d1');
+        await c.loadCandidates('d1');
+        await c.loadSuggestion('d1');
+        expect(c.state.hint.names).toEqual(names);
+        expect(c.state.target).toBeNull();
+        expect(calls(client, ENDPOINTS.assign('d1'))).toHaveLength(0);
+    });
+
+    it('ignores hints from a closed picker even when the same delivery was reopened', async () => {
+        const candidate = { target_author_user_id: 6, target_pool_id: 'p1', author_name: 'Anna Test' };
+        let finish;
+        const client = fakeClient({
+            [ENDPOINTS.candidates('d1')]: () => ok({ items: [candidate] }),
+            [ENDPOINTS.suggestion('d1')]: () => new Promise((resolve) => { finish = resolve; }),
+        });
+        const c = createImportController({ client, currentUser: { id: 5, isPoolLead: true } });
+        c.askAssign('d1');
+        await c.loadCandidates('d1');
+        const hint = c.loadSuggestion('d1');
+        c.cancelAssign();
+        c.askAssign('d1');
+        await c.loadCandidates('d1');
+        finish(ok({ band: 'single', candidates: [6] }));
+        await hint;
+        expect(c.state.hint).toBeNull();
+        expect(c.state.target).toBeNull();
     });
 
     it('assignment needs a confirmation step and sends one request with a key', async () => {
@@ -212,6 +353,7 @@ describe('import view composition', () => {
         c.dispose();
         expect(c.state.intents).toEqual([]);
         expect(c.state.unassigned).toEqual([]);
+        expect(c.state.firmware).toBeNull();
         expect(client.switchContext).toHaveBeenLastCalledWith({ accountId: null, dictationId: null });
     });
 

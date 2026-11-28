@@ -1,7 +1,7 @@
 """Verwaltung inside the clinic shell (v8-114; V8 P10 to P18, DESIGN_SYSTEM section 1).
 
 The administration pages share /admin#/<page>. The original shell URLs forward there, and the header menu
-"Verwaltung & Seiten" opens them directly, with the breadcrumb Speakr > Verwaltung > <page>. Visibility follows the probe rule of
+"Verwaltung & Seiten" opens them directly, with the breadcrumb Ploudrli > Verwaltung > <page>. Visibility follows the probe rule of
 templates/admin.html: a GET the API authorises; a page is withheld when the API answers 403.
 
 Reuses the harness of test_wp_mount_admin (real Flask app in a child process, throwaway SQLite database, synthetic users
@@ -81,9 +81,9 @@ def test_every_page_is_reachable_by_hash_with_breadcrumb_as_admin(live_server, b
         _mounted(page)
         shell = _wait_page(page, view)
         crumb = shell.locator("[data-testid=clinic-admin-breadcrumb]")
-        expect(crumb.get_by_role("link", name="Speakr")).to_have_attribute("href", "/#/aufnahmen")
+        expect(crumb.get_by_role("link", name="Ploudrli", exact=True)).to_have_attribute("href", "/#/aufnahmen")
         expect(crumb.locator('[aria-current="page"]')).to_have_text(label)
-        assert [t.strip() for t in crumb.locator("a, span").all_inner_texts()] == ["Speakr", "›", "Verwaltung", "›", label]
+        assert [t.strip() for t in crumb.locator("a, span").all_inner_texts()] == ["Ploudrli", "›", "Verwaltung", "›", label]
         assert page.url == _canonical(base, route)
         # The primary tabs stay in the header; neither is the current page.
         assert page.locator("[data-testid=clinic-primary-nav] [aria-current=page]").count() == 0

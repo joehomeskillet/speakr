@@ -53,9 +53,11 @@ export const ENDPOINTS = Object.freeze({
     intents: '/imports/intents',
     inventory: '/imports/inventory',
     deviceSend: '/imports/device-send',
+    firmware: '/imports/firmware',
     unassigned: '/imports/unassigned',
     candidates: (id) => '/imports/unassigned/' + encodeURIComponent(id) + '/candidates',
     assign: (id) => '/imports/unassigned/' + encodeURIComponent(id) + '/assign',
+    suggestion: (id) => '/imports/unassigned/' + encodeURIComponent(id) + '/suggestion',
     retry: (id) => '/imports/intents/' + encodeURIComponent(id) + '/retry',
 });
 
@@ -65,7 +67,7 @@ export const ACTION_TABLE = 'max-md:[&_th]:px-1.5 max-md:[&_td]:px-1.5 max-md:[&
 export const TEXT = Object.freeze({
     title: 'Dateien und Geräteimport',
     eyebrow: 'Aufnahmen',
-    subline: 'Importaufträge, Geräteinventar und Klärliste. Dateien ohne eindeutige Zuordnung bleiben sichtbar, bis Autor und Pool ausgewählt wurden.',
+    subline: 'Hier sehen Sie den Stand Ihrer Importaufträge und die gemeldeten Gerätedateien.',
     colSource: 'Quelle',
     colFiles: 'Dateien',
     colStatus: 'Status',
@@ -83,11 +85,26 @@ export const TEXT = Object.freeze({
     inventoryNote: 'Markieren Sie die Dateien, die Sie senden möchten.',
     sendQueued: 'Zur Übernahme vorgemerkt.',
     sendFailed: 'Vormerkung nicht bestätigt. Sie können es erneut versuchen.',
+    firmware: 'Firmware am Gerät',
+    firmwareBlocked: 'Firmware-Flash gesperrt (WG-IMP-010)',
+    firmwareFailed: 'Der Firmwarekatalog und der Versionsvergleich konnten nicht geladen werden.',
+    firmwareCatalog: 'Firmwarekatalog',
+    firmwareCatalogEmpty: 'Im Katalog sind keine Firmwareversionen hinterlegt.',
+    firmwareReports: 'Gemeldete Versionen',
+    firmwareReportsEmpty: 'Es liegen keine Meldungen für den Firmwarevergleich vor.',
+    deviceType: 'Gerätetyp',
+    catalogVersion: 'Im Katalog',
+    reportedVersion: 'Gemeldet',
+    firmwareVersions: 'Versionen',
+    firmwareComparison: 'Vergleich',
+    notReported: 'Keine Angabe',
+    noCatalogVersion: 'Nicht hinterlegt',
     clarification: 'Klärliste',
     clarificationEmpty: 'Keine Dateien in Klärung.',
     clarificationFailed: 'Die Klärliste konnte nicht geladen werden.',
-    clarificationHint: 'Wählen Sie für jede ungeklärte Datei einen Autor und einen Pool.',
+    clarificationHint: 'Ordnen Sie die Datei einer Person und einem Team zu.',
     assign: 'Zuweisen',
+    closePicker: 'Schliessen',
     confirm: 'Zuweisung bestätigen',
     cancel: 'Abbrechen',
     retry: 'Erneut versuchen',
@@ -95,8 +112,15 @@ export const TEXT = Object.freeze({
     assigned: 'Die Datei wurde zugewiesen.',
     assignFailed: 'Die Zuweisung ist fehlgeschlagen.',
     retryFailed: 'Der Versuch ist fehlgeschlagen. Ein erneuter Versuch verwendet denselben Schlüssel.',
-    assignmentTarget: 'Autor und Pool',
+    assignmentTarget: 'Person und Team',
+    chooseTarget: 'Bitte auswählen',
     noTargets: 'Keine verfügbaren Zuordnungen',
+    candidatesFailed: 'Die verfügbaren Personen konnten nicht geladen werden. Schliessen Sie die Auswahl und versuchen Sie es erneut.',
+    requestHint: 'Stimmhinweis anzeigen',
+    hintLoading: 'Stimmhinweis wird gesucht …',
+    hintNone: 'Kein Stimmhinweis verfügbar. Sie können die Person selbst auswählen.',
+    hintFound: 'Mögliche Person laut Stimme (bitte prüfen):',
+    hintAmbiguous: 'Stimme nicht eindeutig. Mögliche Personen:',
 });
 
 // Intent states of import_centre.py plus FAILED for a delivery that did not complete.
@@ -110,10 +134,25 @@ export const STATUS = Object.freeze({
 // Tag modifier of the shared V8 stylesheet per status surface.
 const TAG_CLASS = Object.freeze({ pending: 'wait', success: '', warning: 'wait', error: 'error', normal: 'neutral' });
 const RETRYABLE = new Set(['FAILED', 'EXPIRED']);
+const FIRMWARE_CURRENT = { label: 'Aktuell', surface: 'success' };
+const FIRMWARE_COMPARISON = new Map([
+    ['equal', FIRMWARE_CURRENT],
+    ['newer', FIRMWARE_CURRENT],
+    ['older', { label: 'Älter', surface: 'warning' }],
+]);
+const FIRMWARE_UNKNOWN = { label: 'Unbekannt', surface: 'normal' };
 
 export function statusView(status) {
     const known = STATUS[String(status || '').toUpperCase()];
     const entry = known || { label: status ? String(status) : '–', surface: 'normal' };
+    return badgeView(entry);
+}
+
+function firmwareStatusView(status) {
+    return badgeView(FIRMWARE_COMPARISON.get(status) ?? FIRMWARE_UNKNOWN);
+}
+
+function badgeView(entry) {
     const s = surfaceFor(entry.surface);
     return {
         label: entry.label,
@@ -167,14 +206,17 @@ export function createImportController(deps) {
         inventory: [], inventoryError: null, inventoryLoaded: false,
         recipients: [], selectedSnapshots: [], deviceForm: deviceForm(), deviceResults: {},
         sending: false, deviceNotice: '',
+        firmware: null, firmwareError: null,
         unassigned: [], unassignedError: null, clarificationDenied: false,
-        canClarify: mayClarify(user), candidates: null, target: null,
+        canClarify: mayClarify(user), candidates: null, candidatesError: false, target: null, hint: null,
         pending: null, // delivery id awaiting confirmation
         busy: {}, // item id -> true while a write is in flight
         notice: null,
     });
     const keys = new Map(); // item id -> Idempotency-Key reused until the write succeeds
     let disposed = false;
+    let pickerVersion = 0;
+    const isAssigning = () => Boolean(state.busy['assign:' + state.pending]);
     client.switchContext({ accountId: userId, dictationId: null });
 
     const keyFor = (action, id) => {
@@ -222,9 +264,25 @@ export function createImportController(deps) {
             state.selectedSnapshots = selectedDevices().map((item) => item.snapshot_id);
             reconcileRecipient();
             state.canClarify = res.data?.can_clarify ?? mayClarify(user);
+            if (!state.canClarify) {
+                resetPicker();
+                state.unassigned = [];
+            }
         }
         else state.inventoryError = res.outcome === 'permission' ? TEXT.denied : TEXT.inventoryFailed;
         return res;
+    }
+
+    async function loadFirmware() {
+        const res = await client.request(ENDPOINTS.firmware, { method: 'GET' });
+        if (disposed) return;
+        if (res.outcome === 'ok' && Array.isArray(res.data?.catalog) && Array.isArray(res.data?.items)) {
+            state.firmware = { catalog: res.data.catalog, reports: res.data.items };
+            state.firmwareError = null;
+        } else {
+            state.firmware = null;
+            state.firmwareError = res.outcome === 'permission' ? TEXT.denied : TEXT.firmwareFailed;
+        }
     }
 
     // An ordinary actor never requests the clarification list.
@@ -233,38 +291,65 @@ export function createImportController(deps) {
         const res = await client.request(ENDPOINTS.unassigned);
         if (disposed) return res;
         if (res.outcome === 'ok') { state.unassigned = rows(res); state.unassignedError = null; state.clarificationDenied = false; }
-        else if (res.outcome === 'permission') { state.unassigned = []; state.clarificationDenied = true; state.unassignedError = null; }
+        else if (res.outcome === 'permission') {
+            resetPicker();
+            state.unassigned = []; state.clarificationDenied = true; state.unassignedError = null;
+        }
         else state.unassignedError = TEXT.clarificationFailed;
         return res;
     }
 
     async function load() {
-        if (disposed) return;
+        if (disposed || state.loading) return;
         state.loading = true;
         try {
-            await Promise.all([loadIntents(), loadInventory().then(loadUnassigned)]);
+            await Promise.all([loadIntents(), loadInventory().then(loadUnassigned), loadFirmware()]);
         } finally {
             if (!disposed) state.loading = false;
         }
     }
 
-    function askAssign(deliveryId) {
-        if (!state.canClarify || state.clarificationDenied) return false;
-        state.pending = String(deliveryId);
+    function resetPicker() {
+        pickerVersion += 1;
+        state.pending = null;
         state.candidates = null;
+        state.candidatesError = false;
         state.target = null;
+        state.hint = null;
+    }
+
+    function askAssign(deliveryId) {
+        if (disposed || !state.canClarify || state.clarificationDenied || isAssigning()) return false;
+        resetPicker();
+        state.pending = String(deliveryId);
         state.notice = null;
         return true;
     }
-    const cancelAssign = () => { state.pending = null; };
+    const cancelAssign = () => { if (!isAssigning()) resetPicker(); };
 
     async function loadCandidates(deliveryId) {
         const id = String(deliveryId);
         if (state.pending !== id) return;
+        const version = pickerVersion;
         const res = await client.request(ENDPOINTS.candidates(id));
-        if (disposed || state.pending !== id) return;
-        state.candidates = rows(res);
-        if (res.outcome !== 'ok') state.notice = TEXT.assignFailed;
+        if (disposed || pickerVersion !== version) return;
+        state.candidates = res.outcome === 'ok' ? rows(res) : [];
+        state.candidatesError = res.outcome !== 'ok';
+    }
+
+    async function loadSuggestion(deliveryId) {
+        const id = String(deliveryId);
+        if (state.pending !== id || !state.candidates?.length || state.hint || isAssigning()) return;
+        const version = pickerVersion;
+        state.hint = { message: TEXT.hintLoading, names: [] };
+        const res = await client.request(ENDPOINTS.suggestion(id));
+        if (disposed || pickerVersion !== version) return;
+        const { band, candidates } = res.outcome === 'ok' ? (res.data || {}) : {};
+        const names = (band === 'single' || band === 'choice') && Array.isArray(candidates)
+            ? [...new Set(candidates.map((uid) => state.candidates.find((target) =>
+                target.target_author_user_id === uid)?.author_name).filter(Boolean))]
+            : [];
+        state.hint = { message: names.length ? (band === 'single' ? TEXT.hintFound : TEXT.hintAmbiguous) : TEXT.hintNone, names };
     }
 
     // One request per call; a second call for the same item while one is in flight is ignored.
@@ -272,8 +357,9 @@ export function createImportController(deps) {
         if (disposed || state.busy[action + ':' + id]) return null;
         state.busy[action + ':' + id] = true;
         try {
-            const res = await client.request(path, { method: 'POST', body, idempotencyKey: keyFor(action, id) });
-            if (res.outcome === 'ok') keys.delete(action + ':' + id);
+            const requestId = action === 'assign' ? JSON.stringify([id, body]) : id;
+            const res = await client.request(path, { method: 'POST', body, idempotencyKey: keyFor(action, requestId) });
+            if (res.outcome === 'ok') keys.delete(action + ':' + requestId);
             return res;
         } finally {
             delete state.busy[action + ':' + id];
@@ -331,7 +417,10 @@ export function createImportController(deps) {
     /** Assigns the confirmed delivery to a candidate or to an existing import intent. */
     async function confirmAssign(deliveryId, target, snapshotVersion) {
         const id = String(deliveryId);
-        if (!state.canClarify || state.pending !== id || target == null) return null;
+        if (!state.canClarify || state.clarificationDenied || state.pending !== id || target == null) return null;
+        if (typeof target === 'object' && !state.candidates?.some((candidate) =>
+            candidate.target_author_user_id === target.target_author_user_id
+            && candidate.target_pool_id === target.target_pool_id)) return null;
         const selection = typeof target === 'object'
             ? { target_author_user_id: target.target_author_user_id, target_pool_id: target.target_pool_id }
             : { intent_id: String(target) };
@@ -340,12 +429,14 @@ export function createImportController(deps) {
         });
         if (!res || disposed) return res;
         if (res.outcome === 'ok') {
-            state.pending = null;
+            resetPicker();
+            state.unassigned = state.unassigned.filter((item) => String(item.id) !== id);
             state.notice = TEXT.assigned;
             await Promise.all([loadUnassigned(), loadIntents()]);
         } else if (res.outcome === 'permission') {
+            resetPicker();
+            state.unassigned = [];
             state.clarificationDenied = true;
-            state.pending = null;
         } else {
             state.notice = TEXT.assignFailed;
         }
@@ -368,20 +459,22 @@ export function createImportController(deps) {
         if (disposed) return;
         disposed = true;
         keys.clear();
-        state.intents = []; state.inventory = []; state.unassigned = []; state.pending = null;
-        state.candidates = null; state.target = null;
+        state.intents = []; state.inventory = []; state.unassigned = [];
+        resetPicker();
         state.recipients = []; state.selectedSnapshots = []; state.deviceForm = deviceForm();
         state.deviceResults = {}; state.deviceNotice = '';
+        state.firmware = null;
         client.switchContext({ accountId: null, dictationId: null });
     }
 
     return {
         state, get canClarify() { return state.canClarify; }, load, loadIntents, loadInventory, loadUnassigned,
-        askAssign, loadCandidates, cancelAssign, confirmAssign, retry, dispose, canSendDevice, selectDevice, sendSelected,
+        askAssign, loadCandidates, loadSuggestion, cancelAssign, confirmAssign, isAssigning, retry, dispose,
+        canSendDevice, selectDevice, sendSelected,
         get sharedRecipients() { return sharedRecipients(); },
         isBusy: (action, id) => Boolean(state.busy[action + ':' + id]),
         retryable: (row) => RETRYABLE.has(String(row && row.status).toUpperCase()),
-        statusView, text: TEXT, size: formatSize, when: formatWhen,
+        statusView, firmwareStatusView, text: TEXT, size: formatSize, when: formatWhen,
     };
 }
 
@@ -396,10 +489,10 @@ export const IMPORT_TEMPLATE = `
       <p class="subline">{{ c.text.subline }}</p>
     </div>
     <div class="head-actions">
-      <button type="button" data-testid="reload" :disabled="c.state.loading || c.state.sending" @click="c.load()">${ICON_REFRESH}<span>{{ c.text.refresh }}</span></button>
+      <button type="button" data-testid="reload" class="min-h-12" :disabled="c.state.loading || c.state.sending || c.isAssigning()" @click="c.load()">${ICON_REFRESH}<span>{{ c.text.refresh }}</span></button>
     </div>
   </div>
-  <p v-if="c.state.notice" class="note" role="status" aria-live="polite" data-testid="notice">{{ c.state.notice }}</p>
+  <p v-if="c.state.notice === c.text.retryFailed" class="note" role="status" data-testid="notice">{{ c.state.notice }}</p>
   <p v-if="c.state.loading" class="result-count" role="status" aria-live="polite">{{ c.text.loading }}</p>
 
   <div class="stack">
@@ -493,6 +586,45 @@ export const IMPORT_TEMPLATE = `
       </template>
     </section>
 
+    <section class="panel" aria-labelledby="civ-firmware" data-testid="firmware-panel">
+      <h2 id="civ-firmware">{{ c.text.firmware }}</h2>
+      <p class="note warning" data-testid="firmware-blocked">{{ c.text.firmwareBlocked }}</p>
+      <p v-if="c.state.loading" class="hint">{{ c.text.loading }}</p>
+      <p v-else-if="c.state.firmwareError" class="note warning" role="alert">{{ c.state.firmwareError }}</p>
+      <template v-else-if="c.state.firmware">
+        <h3 id="civ-firmware-catalog" class="mt-4">{{ c.text.firmwareCatalog }}</h3>
+        <p v-if="!c.state.firmware.catalog.length" class="empty" data-testid="firmware-catalog-empty">{{ c.text.firmwareCatalogEmpty }}</p>
+        <div v-else class="table-wrap">
+          <table class="${ACTION_TABLE} table-fixed whitespace-normal" aria-labelledby="civ-firmware-catalog" data-testid="firmware-catalog">
+            <thead><tr><th scope="col">{{ c.text.deviceType }}</th><th scope="col">{{ c.text.catalogVersion }}</th></tr></thead>
+            <tbody>
+              <tr v-for="entry in c.state.firmware.catalog" :key="entry.device_type">
+                <td class="break-words"><strong>{{ entry.device_type }}</strong></td>
+                <td class="break-words tabular-nums">{{ entry.target_version }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 id="civ-firmware-reports" class="mt-4">{{ c.text.firmwareReports }}</h3>
+        <p v-if="!c.state.firmware.reports.length" class="empty" data-testid="firmware-reports-empty">{{ c.text.firmwareReportsEmpty }}</p>
+        <div v-else class="table-wrap">
+          <table class="${ACTION_TABLE} table-fixed whitespace-normal" aria-labelledby="civ-firmware-reports" data-testid="firmware-comparison">
+            <thead><tr><th scope="col">{{ c.text.colSource }}</th><th scope="col">{{ c.text.firmwareVersions }}</th><th scope="col">{{ c.text.firmwareComparison }}</th></tr></thead>
+            <tbody>
+              <tr v-for="(item, i) in c.state.firmware.reports" :key="i">
+                <td class="break-words"><strong>{{ item.source_id ?? c.text.notReported }}</strong><small v-if="item.device_type">{{ item.device_type }}</small></td>
+                <td class="break-words tabular-nums">
+                  <div>{{ c.text.reportedVersion }}: {{ item.firmware_version ?? c.text.notReported }}</div>
+                  <div>{{ c.text.catalogVersion }}: {{ item.target_version ?? c.text.noCatalogVersion }}</div>
+                </td>
+                <td><span class="tag !whitespace-normal break-words max-w-full" :class="c.firmwareStatusView(item.comparison_status).tag" :style="c.firmwareStatusView(item.comparison_status).style">{{ c.firmwareStatusView(item.comparison_status).label }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+    </section>
+
     <import-source-routing :client="client"></import-source-routing>
     <details class="panel">
       <summary>Geräteautor am Philips LFH9600 oder LFH9620</summary>
@@ -504,7 +636,8 @@ export const IMPORT_TEMPLATE = `
     </details>
     <section v-if="c.canClarify" class="panel" aria-labelledby="civ-clar" data-testid="clarification">
       <h2 id="civ-clar">{{ c.text.clarification }}</h2>
-      <p class="hint">{{ c.text.clarificationHint }}</p>
+      <p v-if="c.state.notice === c.text.assigned" class="note" role="status" data-testid="notice">{{ c.state.notice }}</p>
+      <p v-if="c.state.unassigned.length && !c.state.clarificationDenied" class="hint">{{ c.text.clarificationHint }}</p>
       <p v-if="c.state.clarificationDenied" class="note warning" role="alert" data-testid="clarification-denied">{{ c.text.denied }}</p>
       <p v-else-if="c.state.unassignedError" class="note warning" role="alert">{{ c.state.unassignedError }}</p>
       <p v-else-if="!c.state.unassigned.length" class="empty" data-testid="clarification-empty">{{ c.text.clarificationEmpty }}</p>
@@ -516,21 +649,34 @@ export const IMPORT_TEMPLATE = `
               <tr data-unassigned :data-id="item.id">
                 <td><strong>{{ item.relative_path }}</strong><small>{{ item.source_id }}</small></td>
                 <td>
-                  <button v-if="c.state.pending !== item.id" type="button" class="small" data-testid="assign" @click="c.askAssign(item.id) && c.loadCandidates(item.id)">{{ c.text.assign }}</button>
+                  <button type="button" class="min-h-12" data-testid="assign"
+                          :aria-label="(c.state.pending === item.id ? c.text.closePicker : c.text.assign) + ': ' + item.relative_path"
+                          :aria-expanded="c.state.pending === item.id" :disabled="c.isAssigning()"
+                          @click="c.state.pending === item.id ? c.cancelAssign() : c.askAssign(item.id) && c.loadCandidates(item.id)">{{ c.state.pending === item.id ? c.text.closePicker : c.text.assign }}</button>
                 </td>
               </tr>
               <tr v-if="c.state.pending === item.id">
                 <td colspan="2">
-                  <div class="actions">
-                    <label class="w-full md:w-auto md:flex md:items-center md:gap-2">{{ c.text.assignmentTarget }}
-                      <select v-model="c.state.target" :disabled="!c.state.candidates?.length" class="block min-w-0 md:w-auto">
-                        <option :value="null" disabled>{{ c.state.candidates === null ? c.text.loading : c.state.candidates.length ? c.text.assignmentTarget : c.text.noTargets }}</option>
-                        <option v-for="target in c.state.candidates" :key="target.target_author_user_id + ':' + target.target_pool_id" :value="target">{{ target.author_name }} · {{ target.pool_name }}</option>
+                  <div class="space-y-3 whitespace-normal">
+                    <p v-if="c.state.notice === c.text.assignFailed" class="note warning" role="alert">{{ c.state.notice }}</p>
+                    <p v-if="c.state.candidatesError" class="note warning" role="alert">{{ c.text.candidatesFailed }}</p>
+                    <label v-else class="block max-w-md font-semibold">{{ c.text.assignmentTarget }}
+                      <select v-model="c.state.target" :disabled="!c.state.candidates?.length || c.isAssigning()" class="mt-1 block min-h-12 min-w-0 max-w-full !border-[color:var(--ui-text-muted)] font-normal">
+                        <option :value="null" disabled>{{ c.state.candidates === null ? c.text.loading : c.state.candidates.length ? c.text.chooseTarget : c.text.noTargets }}</option>
+                        <option v-for="target in c.state.candidates" :key="target.target_author_user_id + ':' + target.target_pool_id" :value="target">{{ target.author_name }} ({{ target.pool_name }})</option>
                       </select>
                     </label>
-                    <button type="button" class="small primary" data-testid="confirm-assign" :disabled="c.isBusy('assign', item.id) || !c.state.target"
-                            @click="c.confirmAssign(item.id, c.state.target, item.snapshot_version)">{{ c.text.confirm }}</button>
-                    <button type="button" class="small" @click="c.cancelAssign()">{{ c.text.cancel }}</button>
+                    <div v-if="c.state.candidates?.length">
+                      <button type="button" class="min-h-12" :disabled="!!c.state.hint || c.isAssigning()" @click="c.loadSuggestion(item.id)">{{ c.text.requestHint }}</button>
+                      <div v-if="c.state.hint" class="hint mt-2 break-words" role="status">
+                        {{ c.state.hint.message }} {{ c.state.hint.names.join(', ') }}
+                      </div>
+                    </div>
+                    <div class="actions">
+                      <button type="button" class="primary min-h-12" data-testid="confirm-assign" :disabled="c.isAssigning() || !c.state.target"
+                              @click="c.confirmAssign(item.id, c.state.target, item.snapshot_version)">{{ c.text.confirm }}</button>
+                      <button type="button" class="min-h-12" :disabled="c.isAssigning()" @click="c.cancelAssign()">{{ c.text.cancel }}</button>
+                    </div>
                   </div>
                 </td>
               </tr>

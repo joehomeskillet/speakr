@@ -86,21 +86,21 @@
      * is just enough to read on either surface tint. Use the pill-*
      * primitive classes below rather than hardcoding bg-blue-500/15
      * style Tailwind utilities. */
-    --tint-info:        rgba(59, 130, 246, 0.12);    /* blue */
+    --tint-info:        var(--ui-info-bg, rgba(59, 130, 246, 0.12)); /* blue */
     --tint-info-border: rgba(59, 130, 246, 0.30);
-    --tint-info-fg:     rgb(37, 99, 235);
+    --tint-info-fg:     var(--ui-info, rgb(37, 99, 235));
 
-    --tint-success:        rgba(16, 185, 129, 0.12);  /* green */
+    --tint-success:        var(--ui-success-bg, rgba(16, 185, 129, 0.12)); /* green */
     --tint-success-border: rgba(16, 185, 129, 0.30);
-    --tint-success-fg:     rgb(5, 150, 105);
+    --tint-success-fg:     var(--ui-success, rgb(5, 150, 105));
 
-    --tint-warn:        rgba(245, 158, 11, 0.12);     /* amber */
+    --tint-warn:        var(--ui-warning-bg, rgba(245, 158, 11, 0.12)); /* amber */
     --tint-warn-border: rgba(245, 158, 11, 0.30);
-    --tint-warn-fg:     rgb(180, 83, 9);
+    --tint-warn-fg:     var(--ui-warning, rgb(180, 83, 9));
 
-    --tint-danger:        rgba(239, 68, 68, 0.12);    /* red */
+    --tint-danger:        var(--ui-danger-bg, rgba(239, 68, 68, 0.12)); /* red */
     --tint-danger-border: rgba(239, 68, 68, 0.30);
-    --tint-danger-fg:     rgb(185, 28, 28);
+    --tint-danger-fg:     var(--ui-danger, rgb(185, 28, 28));
 
     --tint-processing:        rgba(168, 85, 247, 0.12); /* purple */
     --tint-processing-border: rgba(168, 85, 247, 0.30);
@@ -115,14 +115,14 @@
 html.dark {
     /* Slightly more opaque tints + lighter foreground on dark mode so
      * tinted pills stay legible against the darker surface. */
-    --tint-info:        rgba(96, 165, 250, 0.18);
-    --tint-info-fg:     rgb(147, 197, 253);
-    --tint-success:        rgba(52, 211, 153, 0.18);
-    --tint-success-fg:     rgb(110, 231, 183);
-    --tint-warn:        rgba(251, 191, 36, 0.18);
-    --tint-warn-fg:     rgb(252, 211, 77);
-    --tint-danger:        rgba(248, 113, 113, 0.18);
-    --tint-danger-fg:     rgb(252, 165, 165);
+    --tint-info:           var(--ui-info-bg, rgba(96, 165, 250, 0.18));
+    --tint-info-fg:        var(--ui-info, rgb(147, 197, 253));
+    --tint-success:        var(--ui-success-bg, rgba(52, 211, 153, 0.18));
+    --tint-success-fg:     var(--ui-success, rgb(110, 231, 183));
+    --tint-warn:           var(--ui-warning-bg, rgba(251, 191, 36, 0.18));
+    --tint-warn-fg:        var(--ui-warning, rgb(252, 211, 77));
+    --tint-danger:         var(--ui-danger-bg, rgba(248, 113, 113, 0.18));
+    --tint-danger-fg:      var(--ui-danger, rgb(252, 165, 165));
     --tint-processing:        rgba(192, 132, 252, 0.18);
     --tint-processing-fg:     rgb(216, 180, 254);
     --tint-pending:        rgba(250, 204, 21, 0.18);

@@ -87,6 +87,20 @@ def upgrade(bind: Bind) -> list[str]:
     return statements + fills
 
 
+def upgrade_firmware_claims(bind: Bind) -> list[str]:
+    """Add nullable firmware claim columns without backfilling old inventory."""
+    names = _column_names(bind)
+    if names is None:
+        return []
+    columns = {
+        "device_type": "ALTER TABLE clinic_agent_inventory ADD COLUMN device_type VARCHAR(56)",
+        "firmware_version": "ALTER TABLE clinic_agent_inventory ADD COLUMN firmware_version VARCHAR(64)",
+    }
+    statements = [statement for name, statement in columns.items() if name not in names]
+    _run(bind, statements)
+    return statements
+
+
 def downgrade(bind: Bind) -> list[str]:
     """Drop the hint columns. File identity columns stay."""
     names = _column_names(bind)
