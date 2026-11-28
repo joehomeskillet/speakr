@@ -22,7 +22,6 @@ from test_pools import _user, pool_db as pool_db
 @pytest.fixture
 def stats_app(clinic_on):
     create_identity_tables()
-    statistics_access.clear_grants()
     app = Flask('stats-routes-test')
     app.config.update(TESTING=True, SECRET_KEY='synthetic-test-key',
                       SQLALCHEMY_DATABASE_URI=main_app.config['SQLALCHEMY_DATABASE_URI'])
@@ -35,8 +34,7 @@ def stats_app(clinic_on):
         return jsonify(ok=True)
 
     app.register_blueprint(blueprint)
-    yield app
-    statistics_access.clear_grants()
+    return app
 
 
 def _account(status='active'):
@@ -111,10 +109,13 @@ def test_request_cannot_name_actor_or_role_and_bad_input_is_400(stats_app):
 
 def test_stale_version_is_409(stats_app):
     stats, author = _account(), _user()
-    statistics_access.grant_aggregate(stats.id, 'author', author_ids=[author.id])
+    grant = statistics_access.grant_aggregate(stats.id, 'author', author_ids=[author.id])
     client = _login(stats_app, stats)
     assert client.get(PATH + '?expected_version=1').status_code == 200
     assert client.get(PATH + '?expected_version=0').status_code == 409
+    assert statistics_access.revoke_aggregate(stats.id, grant.id, expected_version=1) == 2
+    assert client.get(PATH).status_code == 403
+    assert client.get(PATH + '?expected_version=1').status_code == 409
 
 
 def test_date_bounds_are_europe_zurich_across_the_dst_switch(stats_app):
