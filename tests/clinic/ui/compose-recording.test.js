@@ -60,8 +60,14 @@ describe('recording view controller', () => {
         expect(m.authorId).toBe('4');
         expect(Object.keys(c)).not.toContain('setAuthor');
         expect(Object.keys(c)).not.toContain('setPool');
-        expect(RECORDING_TEMPLATE).not.toMatch(/<select\b(?! id="crv-microphone")|author-picker|pool/i);
-        expect(RECORDING_TEMPLATE.match(/<select\b/g)).toHaveLength(1);
+        const draftForm = RECORDING_TEMPLATE.match(/<form\b[^>]*data-testid="draft-metadata"[^>]*>[\s\S]*?<\/form>/)?.[0] || '';
+        const recordingControls = draftForm ? RECORDING_TEMPLATE.replace(draftForm, '') : RECORDING_TEMPLATE;
+        expect(recordingControls).not.toMatch(/<select\b(?! id="crv-microphone")|author-picker|pool/i);
+        expect(recordingControls.match(/<select\b/g)).toHaveLength(1);
+        expect(draftForm.match(/<select\b[^>]*>/gi) || []).toEqual(draftForm ? [
+            expect.stringContaining(':value="m.draft.fields.priority"'),
+        ] : []);
+        expect(RECORDING_TEMPLATE).not.toMatch(/author-picker|pool/i);
         expect(RECORDING_TEMPLATE).not.toContain('c.text.author');
         expect(TEXT.author).toBe('Diktiert von');
     });
