@@ -1413,12 +1413,12 @@ def register_clinic_audio(flask_app):
     """
     from src.clinic import (app_wiring, audio_render, audio_revisions, config, local_tts, policy, pool_policy,
                             revisions, routes_audio, routes_bundle, routes_clipboard, routes_correction,
-                            routes_dictation_properties, routes_live, routes_live_drafts, routes_output,
-                            routes_tts, startup)
+                            routes_dictation_properties, routes_live, routes_output, routes_tts, startup)
     from src.clinic.admin_dictation_access import can_open_content
     from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
     from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
+    from src.clinic import routes_live_drafts
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
     run_once = flask_app.extensions['clinic_run_once']
