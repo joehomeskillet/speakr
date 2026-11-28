@@ -123,6 +123,9 @@ def test_only_due_finished_case_archives_without_deleting(cases, monkeypatch, mo
         assert (after['retention_archived_at'] is not None) == (index == 2)
         for key in before[index].keys() - {'retention_archived_at', 'archive_revision', 'updated_at'}:
             assert after[key] == before[index][key]
+        if index == 2:
+            children[index][0]['version_counter'] += 1
+            children[index][1]['status'] = workflow.TO_ARCHIVE
         assert [snapshot(child) for child in group] == children[index]
         assert path.read_bytes() == files[index]
         assert ClinicArchiveEvent.query.filter_by(recording_id=row.id).count() == int(index == 2)
