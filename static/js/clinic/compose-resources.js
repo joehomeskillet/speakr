@@ -143,10 +143,9 @@ const ASR_TECHNICAL_ROWS = `
   <div><dt>{{ view.labels.prompts }}</dt><dd>{{ view.prompts.label }}</dd></div>
   <div v-if="view.output">
     <dt>{{ view.labels.format }}</dt>
-    <dd v-if="adminLayout">{{ [view.output.container, view.output.codec, view.output.sampleRate + ' Hz'].join(' · ') }}</dd>
-    <dd v-else class="actions" style="min-width:0;gap:4px 12px;overflow-wrap:anywhere">
-      <span v-if="view.output.container">{{ view.output.container }}</span>
-      <span v-if="view.output.codec">{{ view.output.codec }}</span>
+    <dd class="actions" style="min-width:0;gap:var(--sp-1) var(--sp-3);overflow-wrap:anywhere">
+      <span v-if="view.output.container">{{ view.output.container }}{{ (view.output.codec || view.output.sampleRate != null) ? (adminLayout ? ' · ' : ' ') : '' }}</span>
+      <span v-if="view.output.codec">{{ view.output.codec }}{{ view.output.sampleRate != null ? (adminLayout ? ' · ' : ' ') : '' }}</span>
       <span v-if="view.output.sampleRate != null" style="white-space:nowrap">{{ view.output.sampleRate }}&nbsp;Hz</span>
     </dd>
   </div>
@@ -174,7 +173,7 @@ const ASR_TEMPLATE = `
       :aria-checked="s.selected ? 'true' : 'false'" :tabindex="s.selected ? 0 : -1"
       @click="controller.setSource(s.value)">{{ s.value === 'recorder' ? 'Aufnahmegerät' : s.label }}</button>
   </div>
-  <component :is="adminLayout ? 'details' : 'div'" v-if="!adminLayout || view.profileMode">
+  <component :is="adminLayout ? 'details' : 'div'" v-if="!adminLayout || view.profileMode || view.supportsSaveRule">
     <summary v-if="adminLayout">Quellen und Speichern einstellen</summary>
     <div class="field-grid" style="margin-block-start:var(--sp-3)">
       <div v-if="view.profileMode" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
@@ -190,14 +189,14 @@ const ASR_TEMPLATE = `
           <option v-for="o in view.sources" :key="o.value" :value="o.value">{{ o.value === 'recorder' ? 'Aufnahmegerät' : o.label }}</option>
         </select>
       </div>
-      <div class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
+      <div v-if="!adminLayout || view.supportsSaveRule" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
         <label for="res-asr-save-rule">{{ view.labels.saveRule }}</label>
         <select id="res-asr-save-rule" :disabled="!view.ready || view.busy" :value="view.saveRule" @change="controller.setSaveRule($event.target.value)">
           <option v-for="o in view.saveRules" :key="o.value" :value="o.value">{{ o.label }}</option>
         </select>
       </div>
     </div>
-    <p v-if="view.profileMode" class="hint">Getrennte Quellen verwenden dasselbe Erkennungsmodell. Getrennte Akustikprofile werden nicht unterstützt.</p>
+    <p v-if="adminLayout && view.profileMode" class="hint">Getrennte Quellen verwenden dasselbe Erkennungsmodell. Getrennte Akustikprofile werden nicht unterstützt.</p>
   </component>
   <div class="field-grid">
     <div v-if="!view.profileMode && (!adminLayout || view.profile || view.live.length)" class="field" style="border:0;padding:0;box-shadow:none;background:transparent">
@@ -235,6 +234,7 @@ const ASR_TEMPLATE = `
       </table>
     </div>
     <p v-else class="hint">Keine Fähigkeiten konfiguriert. Es liegt kein Wirkungsnachweis vor.</p>
+    <p v-if="view.profileMode" class="hint">Getrennte Quellen verwenden dasselbe Erkennungsmodell. Getrennte Akustikprofile werden nicht unterstützt.</p>
     <p class="note">${ASR_TRAINING_NOTE}</p>
   </template>
   <div>
@@ -258,6 +258,7 @@ const ASR_TEMPLATE = `
     <p v-if="!view.profile" class="hint">Bei einem Ausfall der Spracherkennung können Sie den Text von Hand schreiben.</p>
     <details>
       <summary>Technische Details</summary>
+      <p v-if="view.profileMode" class="hint">Getrennte Quellen verwenden dasselbe Erkennungsmodell. Getrennte Akustikprofile werden nicht unterstützt.</p>
       <dl class="keyvalues">
         ${ASR_TECHNICAL_ROWS}
         <div><dt>Modellhash</dt><dd>Nicht gemeldet</dd></div>

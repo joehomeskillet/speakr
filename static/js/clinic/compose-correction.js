@@ -32,6 +32,7 @@
 import { useCorrectionPlayerPosition } from './correction-player-position.js';
 import { formatDictationReference } from './worklist-ui.js';
 import { createClinicApiClient } from './api-client.js';
+import { SessionTransportNotice } from './compose-settings.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { CorrectionAudioPanel, DictationSummary, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
@@ -1475,6 +1476,7 @@ export const CorrectionBody = {
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
             onQuery, onReplacement, onCase, onSelectionCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
+            SessionTransportNotice,
             documentMode, doc, setRunRoot, currentRun, selectedNodeIndex, canSeekRun, currentLink, historyState, historyAction,
             FORMATS, formatName, runLabel, insertParagraph, insertManualRun, moveParagraph, documentFeedback, replaceMatches, onRunSelection, onRunInput, onRunPaste, activatePassage,
             text: e.text, canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId,
@@ -1514,6 +1516,7 @@ export const CorrectionBody = {
       </slot>
     </div>
   </div>
+  <component :is="SessionTransportNotice" :client="c.client" :vue="vue" />
   <p v-if="closeMessage" role="alert" class="note" :style="box('error')">{{ closeMessage }}</p>
   <p class="sr-only" id="ccv-keys">{{ TEXT.keys }}</p>
 
