@@ -52,7 +52,7 @@ def _select(page, start, end=None):
 
 
 def _ready(page):
-    page.locator("[data-action=acquire]").click()
+    expect(page.get_by_test_id("text")).to_be_editable()
     page.get_by_test_id("audio-edit-open").click()
     expect(page.get_by_label("Start (s)", exact=True)).to_be_enabled()
 
@@ -66,7 +66,10 @@ def test_cut_trim_undo_redo_and_reopen_with_real_player(audio_server):
         try:
             page = mount._login(browser, base, "author213@local.test")
             _open(page)
+            expect(page.get_by_test_id("text")).to_be_editable()
+            page.locator("[data-action=release]").click()
             expect(page.get_by_test_id("audio-edit-open")).to_have_count(0)
+            page.locator("[data-action=acquire]").click()
             _ready(page)
             _duration(page, 4)
             listener = mount._login(browser, base, "admin213@local.test")
@@ -99,7 +102,7 @@ def test_cut_trim_undo_redo_and_reopen_with_real_player(audio_server):
             page.get_by_test_id("close").click()
             _open(page)
             _duration(page, 1.5)
-            page.locator("[data-action=acquire]").click()
+            expect(page.get_by_test_id("text")).to_be_editable()
             page.get_by_test_id("repeat-open").click()
             with page.expect_response(lambda r: r.url.endswith("/reprocess_transcription")) as queued:
                 page.get_by_test_id("repeat-confirm").click()
