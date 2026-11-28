@@ -45,11 +45,19 @@ it.each([
     expect(status.props.role).toBe('status');
     expect(notice.text).toContain(text);
     expect(notice.props.class.includes('warning')).toBe(blocked);
-    expect(client.request.mock.calls).toEqual([['/preferences/session-transport']]);
+    expect(client.request.mock.calls).toEqual([['/preferences/workstations']]);
     app.unmount();
 });
 
-it.each([SettingsView, RecordingView, CorrectionBody])('mounts the shared status in $name', (view) => {
+it.each([SettingsView, RecordingView])('mounts the shared status in $name', (view) => {
     expect(view.components.SessionTransportNotice).toBe(SessionTransportNotice);
     expect(view.template).toContain('<SessionTransportNotice ');
+});
+
+it('mounts the shared status in the correction body through its setup binding', () => {
+    const source = readFileSync(new URL('../../../static/js/clinic/compose-correction.js', import.meta.url), 'utf8');
+    expect([...source.matchAll(/from '\.\/compose-settings\.js'/g)]).toHaveLength(1);
+    const setup = CorrectionBody.setup({ vue: Vue, currentUser: { id: 7 }, dictationId: 'd1' }, {});
+    expect(setup.SessionTransportNotice).toBe(SessionTransportNotice);
+    expect(CorrectionBody.template).toContain('<component :is="SessionTransportNotice" ');
 });

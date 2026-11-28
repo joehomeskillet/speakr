@@ -40,7 +40,7 @@ export const SessionTransportNotice = {
         const blocked = V.ref(false);
         V.onMounted(async () => {
             if (!props.client) return;
-            const response = await props.client.request('/preferences/session-transport');
+            const response = await props.client.request('/preferences/workstations');
             const policy = response?.outcome === 'ok' ? response.data : null;
             const mode = policy?.transport_mode;
             if (mode === 'local') {
