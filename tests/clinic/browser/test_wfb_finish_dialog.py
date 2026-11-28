@@ -74,10 +74,15 @@ def _open(page: Page, base: str, mount: str) -> str:
     expect(row).to_have_count(1)
     did = row.get_attribute("data-id")
     assert did
-    row.click()
-    if mount != "correction":
+    path = base + f"/api/clinic/v1/dictations/{did}"
+    if mount == "correction":
+        with page.expect_response(lambda r: r.url == path + "/leases" and r.request.method == "POST") as lease:
+            row.click()
+        assert lease.value.ok, lease.value.text()
+    else:
+        row.click()
         page.get_by_test_id(f"clinic-dictation-link-{mount}").click()
-    return base + f"/api/clinic/v1/dictations/{did}"
+    return path
 
 
 def _open_dialog(page: Page, mount: str, path: str) -> Locator:
@@ -85,12 +90,13 @@ def _open_dialog(page: Page, mount: str, path: str) -> Locator:
     if mount == "review":
         expect(view.get_by_test_id("review-text")).to_contain_text(TEXT)
         acquire = view.get_by_test_id("begin-review")
+        with page.expect_response(lambda r: r.url == path + "/leases" and r.request.method == "POST") as lease:
+            acquire.click()
+        assert lease.value.ok, lease.value.text()
     else:
-        expect(view.get_by_test_id("text")).to_have_value(TEXT)
-        acquire = view.get_by_test_id("lease-bar").locator('[data-action="acquire"]')
-    with page.expect_response(lambda r: r.url == path + "/leases" and r.request.method == "POST") as lease:
-        acquire.click()
-    assert lease.value.ok, lease.value.text()
+        editor = view.get_by_test_id("text")
+        expect(editor).to_have_value(TEXT)
+        expect(editor).to_be_editable()
     start = view.get_by_role("button", name=TITLE, exact=True)
     expect(start).to_be_enabled()
     start.click()
@@ -210,9 +216,11 @@ def test_finish_dialog(browser: Browser, staging: str, mount: str, output: bool)
         expect(docx).to_contain_text(DOCX)
         if output:
             expect(txt.get_by_role("status")).to_have_text(READY)
-            expect(txt.get_by_role("link", name="Herunterladen")).to_be_visible()
+            download = txt.get_by_role("link", name="Laden", exact=True)
+            expect(download).to_be_visible()
+            expect(download).to_have_attribute("download", "")
             expect(docx.get_by_role("status")).to_have_text(FAILED)
-            expect(docx.get_by_role("link", name="Herunterladen")).to_have_count(0)
+            expect(docx.locator("a[download]")).to_have_count(0)
         else:
             expect(txt.get_by_role("status")).to_have_count(0)
             expect(docx.get_by_role("status")).to_have_count(0)
