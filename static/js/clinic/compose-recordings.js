@@ -275,8 +275,14 @@ export const RecordingsView = {
                    data-testid="recording-next-step" :data-action-needed="r.needsAction ? 'true' : 'false'"><span>{{ r.nextStep }}</span></span>
             <span class="record-source" hidden></span>
             <span class="record-duration">{{ r.duration }}</span>
-            <span class="record-chevron" aria-hidden="true">›</span>
           </button>
+          <div v-if="r.dictationId" class="record-actions">
+            <button v-if="r.canCorrect" type="button" class="btn btn--primary" @click="c.open(r, 'correction')">{{ t.checkText }}</button>
+            <button type="button" class="btn btn--quiet btn--icon record-chevron" :aria-label="t.openDetails"
+                    @click="c.open(r, 'details')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+          </div>
           <details v-if="r.dictationId" class="cl-id-disclosure" @keydown.esc.stop.prevent="$event.currentTarget.open = false; $event.currentTarget.querySelector('summary').focus()">
             <summary :aria-label="'Kennung anzeigen: ' + r.heading + ' ' + r.reference"><i class="fa-solid fa-circle-info" aria-hidden="true"></i></summary>
             <label class="cl-id-value">Vollständige Diktatkennung

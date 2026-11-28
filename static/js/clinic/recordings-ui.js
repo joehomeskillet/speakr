@@ -47,6 +47,8 @@ export const TEXT = Object.freeze({
     typeLabel: 'Art',
     typeAll: 'Alle',
     privateRecording: 'Nur für Sie',
+    checkText: 'Text prüfen',
+    openDetails: 'Details öffnen',
     sortLabel: 'Aufnahmedatum',
     sortNewest: 'Neueste zuerst',
     sortSelect: 'Aufnahmen chronologisch sortieren',
@@ -295,6 +297,7 @@ export function toViewRow(item, userId) {
     return {
         key: String(item.dictation_id),
         dictationId: item.dictation_id == null ? '' : String(item.dictation_id),
+        canCorrect: item.viewer_can_correct === true,
         reference,
         day: item.day || null,
         time,
@@ -645,11 +648,12 @@ export function createRecordingsController(options) {
     }
 
     /** Reports the row to the page with the same payload the worklist uses. */
-    function open(row) {
+    function open(row, mode) {
         if (disposed || !row || !row.dictationId) return false;
+        if (mode === 'correction' && !row.canCorrect) return false;
         persist();
         if (typeof options.onOpen === 'function') {
-            options.onOpen({ dictationId: row.dictationId, mode: getOpenMode({ status: row.workflowStatus }, user.role) });
+            options.onOpen({ dictationId: row.dictationId, mode: mode ?? getOpenMode({ status: row.workflowStatus }, user.role) });
         }
         return true;
     }

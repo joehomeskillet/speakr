@@ -224,6 +224,10 @@ def list_recordings(
     contexts = worklist_entries.case_displays([item[2].id for item in page])
     archive_times = dict(db.session.query(ClinicArchiveEntry.dictation_id, ClinicArchiveEntry.archived_at)
                          .filter(ClinicArchiveEntry.dictation_id.in_([item[2].id for item in page]))) if page else {}
+    in_progress = [item[2].id for item in page if item[3].row['status'] == workflow.IN_PROGRESS]
+    flow = workflow.ClinicWorkflowDictation
+    resuming_correction = {did for (did,) in db.session.query(flow.id).filter(
+        flow.id.in_(in_progress), flow.resume_status == workflow.TO_CORRECT)} if in_progress else set()
     items = []
     for (_, moment, dictation_id), source, dictation, entry, attention in page:
         recording = entry.recording
@@ -258,6 +262,10 @@ def list_recordings(
             items[-1]["assignee"] = assignees[dictation_id]
         if outcomes[dictation_id] == "completed":
             items[-1]["text_created"] = True
+        if ((entry.row['status'] == workflow.TO_CORRECT or dictation_id in resuming_correction)
+                and pool_policy.decide(subject, 'view', dictation).allowed
+                and pool_policy.decide(subject, 'edit', dictation).allowed):
+            items[-1]['viewer_can_correct'] = True
         if _viewer_review_turn(subject, dictation, entry.row['status'], assignees[dictation_id],
                                roles[dictation_id]['lease_holder']):
             items[-1]['viewer_review_turn'] = True
