@@ -114,6 +114,8 @@ def test_author_normal_entry_repeat_uses_established_generation_and_rejection_is
             page.get_by_test_id('open-link').first.click()
             expect(page.get_by_test_id('clinic-correction-view')).to_be_visible()
             page.locator('[data-context-toggle=options]').click()
+            expect(page.get_by_test_id('text')).to_be_editable()
+            page.locator('[data-action=release]').click()
             expect(page.get_by_test_id('repeat-open')).to_be_disabled()
             # Establish two real generations through the existing edit controls.
             page.locator('[data-action=acquire]').click()
@@ -150,7 +152,6 @@ def test_author_normal_entry_repeat_uses_established_generation_and_rejection_is
             page.get_by_test_id('drawer-close').click()
             page.get_by_test_id('clinic-correction-back').click()
             page.get_by_test_id('open-link').first.click()
-            page.locator('[data-action=acquire]').click()
             expect(page.get_by_test_id('text')).to_be_editable()
             page.locator('[data-context-toggle=options]').click()
             page.get_by_test_id('repeat-open').click()

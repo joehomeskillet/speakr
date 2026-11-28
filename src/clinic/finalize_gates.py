@@ -5,7 +5,7 @@ from sqlalchemy.orm import aliased
 
 from src.database import db
 
-from . import caution_words, revisions
+from . import caution_rules, caution_words, revisions
 from .kis import PRODUCTION_PROFILE, KisAdapter, _profile
 from .models import ClinicContextRevision, ClinicDictation, ClinicTranscriptRevision
 from .context_grants import ClinicContextGrantUse
@@ -16,7 +16,8 @@ def open_review_flags(dictation: ClinicDictation, head: ClinicTranscriptRevision
 
     An ASR flag closes once a human revision takes it into the head's parent chain.
     """
-    return len(caution_words.open_review_hits(dictation, head)) + sum(
+    rules = caution_rules.effective_rule_set(dictation.pool_id)
+    return len(caution_words.open_review_hits(dictation, head, rules)) + sum(
         1 for row in revisions.history(dictation)
         if row.id != head.id and revisions.is_flagged(dictation, row)
     )
