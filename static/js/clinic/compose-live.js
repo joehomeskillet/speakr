@@ -344,6 +344,12 @@ export function createLiveViewController(options) {
             return adoptSession();
         },
 
+        async adoptDraftBinding() {
+            if (!draftSession?.position || draftSession.uncertain || disposed || recovering || busy) return state();
+            setPhase('recovering');
+            return adoptSession();
+        },
+
         async start() {
             if (draftSession && ['idle', 'stopped', 'error', 'stale'].includes(phase)) {
                 setPhase('starting');
@@ -532,10 +538,12 @@ export function createLiveViewController(options) {
 
         saveUnsaved,
 
-        async prepareRelease() {
+        async prepareRelease({ allowUnconfirmed = false } = {}) {
             if (recovering) await recovering;
             if (disposed || busy || phase === 'starting' || phase === 'stopping') return false;
-            if (phase === 'reconnecting' && !draftSession?.uncertain) return false;
+            if (phase === 'reconnecting' && !draftSession?.uncertain) {
+                if (!allowUnconfirmed || capture) return false;
+            }
             if (phase !== 'live') return true;
             await controller.pause();
             return phase === 'paused';
@@ -611,6 +619,14 @@ const LiveBody = {
         });
         const confirmed = V.computed(() => state.value.session.phrases.filter((p) => p.state === 'server_saved'));
         const local = V.computed(() => state.value.session.phrases.filter((p) => p.state !== 'server_saved'));
+        const controlsPinned = V.ref(false);
+        async function toggleControlsPin(event) {
+            const button = event.currentTarget;
+            controlsPinned.value = !controlsPinned.value;
+            if (controlsPinned.value) return;
+            await V.nextTick();
+            if (button === button.ownerDocument.activeElement) button.scrollIntoView({ block: 'nearest' });
+        }
         const actions = V.computed(() => {
             const { actions, phase } = state.value;
             if (!props.draftSession) return actions;
@@ -620,7 +636,7 @@ const LiveBody = {
             }
             return actions;
         });
-        return { c, state, actions, confirmed, local, pending, FOCUS, DISABLED, box, TEXT, ICON_PATHS };
+        return { c, state, actions, confirmed, local, pending, controlsPinned, toggleControlsPin, FOCUS, DISABLED, box, TEXT, ICON_PATHS };
     },
     template: `
 <section class="clinic-live-view v8-page" data-testid="clinic-live-view" aria-labelledby="clv-title" :data-phase="state.phase" style="width: 100%; max-width: 1440px; margin-inline: auto">
@@ -646,7 +662,9 @@ const LiveBody = {
       <span class="tag neutral dot">{{ TEXT.count(confirmed.length) }} · {{ TEXT.saved }}</span>
     </div>
     <slot name="binding" :phase="state.phase" :busy="state.busy" />
-    <div class="recorder compact-recorder" :class="{ recording: state.phase === 'live' && !state.busy }">
+    <div class="recorder compact-recorder" data-testid="live-recorder"
+         :class="{ recording: state.phase === 'live' && !state.busy }"
+         :style="draftSession && controlsPinned ? { position: 'sticky', top: 0, zIndex: 2 } : null">
       <div class="recorder-controls" style="flex-wrap: wrap; gap: 8px" role="group" :aria-label="TEXT.controls" data-testid="live-controls">
         <template v-for="a in actions" :key="a.id">
           <button type="button" class="button" style="min-width: 48px; min-height: 48px"
@@ -657,6 +675,11 @@ const LiveBody = {
             {{ a.label }}
           </button>
         </template>
+        <button v-if="draftSession" type="button" class="button" data-testid="live-pin-controls"
+                style="min-width: 48px; min-height: 48px" :style="FOCUS"
+                :aria-pressed="controlsPinned" @click="toggleControlsPin">
+          Bedienung anheften <span class="tag neutral" aria-hidden="true">{{ controlsPinned ? 'An' : 'Aus' }}</span>
+        </button>
       </div>
       <div class="recorder-caption">
         <strong v-if="!state.announcement" data-testid="live-caption">{{ TEXT.ready }}</strong>

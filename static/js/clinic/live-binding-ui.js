@@ -25,3 +25,22 @@ export const LiveBindingStatus = {
               :disabled="busy" @click="$emit('release')">Bindung lösen</button>
     </div>`,
 };
+
+export const LiveBindingRule = {
+    props: { draftTitle: String, ruleTitle: String, busy: Boolean, claiming: Boolean, uncertain: Boolean, stopping: Boolean },
+    emits: ['change'],
+    template: `
+    <section class="panel" aria-label="Automatisch verbinden" style="display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: var(--ui-space-4)">
+        <p role="status" style="margin: 0; min-width: 0; overflow-wrap: anywhere; flex: 1 1 220px">
+            <strong>Automatisch verbinden: {{ stopping ? 'Wird ausgeschaltet …' : ruleTitle ? 'An' : 'Aus' }}</strong><br>
+            <span v-if="ruleTitle">Nur für «{{ ruleTitle }}» in dieser Ansicht. Die Aufnahme startet nicht von selbst.</span>
+            <span v-else-if="draftTitle && !stopping">Nur für «{{ draftTitle }}» einschalten. Die Aufnahme startet nicht von selbst.</span>
+        </p>
+        <button type="button" class="button" data-testid="live-automatic-binding"
+                style="min-height: 48px; min-width: 48px; font-size: 14px; max-width: 100%; white-space: normal"
+                :aria-pressed="!!ruleTitle" :aria-disabled="stopping || (busy && !claiming) || (!ruleTitle && uncertain)"
+                @click="!(stopping || (busy && !claiming) || (!ruleTitle && uncertain)) && $emit('change', !ruleTitle)">
+            {{ ruleTitle ? 'Automatik ausschalten' : 'Automatik einschalten' }}
+        </button>
+    </section>`,
+};

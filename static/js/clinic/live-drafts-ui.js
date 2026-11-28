@@ -1,5 +1,5 @@
 import { createDictationChoices } from './dictation-choices.js';
-import { liveDraftFence, LiveBindingStatus } from './live-binding-ui.js';
+import { liveDraftFence, LiveBindingRule, LiveBindingStatus } from './live-binding-ui.js';
 import { releaseLiveHolder } from './live-capture-ui.js';
 
 const DRAFTS = '/api/clinic/v1/live/drafts';
@@ -13,7 +13,7 @@ function draftError(result, fallback) {
 }
 
 const LiveDraftPicker = {
-    components: { LiveBindingStatus },
+    components: { LiveBindingRule, LiveBindingStatus },
     props: { client: { type: Object, required: true }, authorId: { type: String, required: true }, speakerName: String },
     setup(props, { expose }) {
         const { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, shallowRef } = globalThis.Vue;
@@ -38,18 +38,26 @@ const LiveDraftPicker = {
         const tabId = restored?.tabId || crypto.randomUUID();
         const holder = shallowRef(restored?.holder || null);
         const bindingUncertain = ref(!!restored?.uncertain);
+        const automaticRule = shallowRef(null);
+        const automaticStopping = ref(false);
+        // Once configured, draft navigation follows the visible rule until this view closes.
+        const automaticManaged = ref(false);
+        const automaticClaiming = ref(false);
+        let automaticClaim = null;
         let controller = null;
         let destination = null;
         let trigger = null;
         let disposed = false;
         let hidden = false;
+        let pageVisit = 0;
 
         function remember(draftId) {
             // Same-document history carries only the selection and API correlation fields for reload.
             const state = { ...history.state };
             delete state.liveDraft;
             if (draftId) state.liveDraft = {
-                authorId: props.authorId, draftId, tabId, holder: holder.value, uncertain: bindingUncertain.value,
+                authorId: props.authorId, draftId, tabId, holder: automaticManaged.value ? null : holder.value,
+                uncertain: automaticManaged.value ? false : bindingUncertain.value,
             };
             const url = new URL(location.href);
             url.searchParams.delete('dictation');
@@ -85,15 +93,60 @@ const LiveDraftPicker = {
             rows.value = [{ draft_id, title }, ...rows.value.filter(row => row.draft_id !== draft_id)];
         }
 
+        function bindOnFocus(event) {
+            if (event && !event.relatedTarget) return;
+            const id = active.value?.draft_id;
+            if (!id || id !== automaticRule.value?.draft_id || !controller || holder.value || bindingUncertain.value
+                    || busy.value || mode.value || automaticStopping.value || disposed || hidden) return;
+            automaticClaiming.value = true;
+            automaticClaim = run(async () => {
+                if (await claim(id) && automaticRule.value?.draft_id === id) await controller.adoptDraftBinding();
+            }).finally(() => { automaticClaiming.value = false; });
+        }
+
+        async function setAutomatic(enabled) {
+            if (enabled) {
+                if (!active.value || busy.value || automaticStopping.value || bindingUncertain.value) return;
+                automaticManaged.value = true;
+                automaticRule.value = { draft_id: active.value.draft_id, title: active.value.title };
+                remember(active.value.draft_id);
+                bindOnFocus();
+                return;
+            }
+            if (automaticStopping.value) return;
+            automaticRule.value = null;
+            automaticStopping.value = true;
+            try {
+                await automaticClaim;
+                if (disposed || hidden) return;
+                if (holder.value) {
+                    await run(async () => await readyToLeave({ allowUnconfirmed: true }) && release());
+                } else if (bindingUncertain.value) {
+                    error.value = 'Die Automatik ist aus. Ob die Verbindung gelöst ist, konnte nicht geprüft werden.';
+                } else {
+                    error.value = '';
+                    message.value = 'Automatik ausgeschaltet.';
+                }
+            } finally {
+                automaticClaim = null;
+                automaticStopping.value = false;
+            }
+        }
+
         async function claim(id) {
             const path = '/' + encodeURIComponent(id) + '/switch';
             const body = { tab_id: tabId };
+            const visit = pageVisit;
             const previous = holder.value;
             let result = await request(path, 'POST', previous ? { ...body, acknowledged_holder: previous } : body);
             // An expired or stopped holder cannot be acknowledged. The API still refuses another tab's active holder.
             const oldFenceRefused = previous && result.code === 'POLICY_DENIED';
-            if (oldFenceRefused) result = await request(path, 'POST', body);
+            if (oldFenceRefused && !disposed && !hidden && visit === pageVisit) result = await request(path, 'POST', body);
             const fence = liveDraftFence(result.data, id, tabId);
+            if (disposed || hidden || visit !== pageVisit) {
+                if (fence) releaseOnExit(fence);
+                return false;
+            }
             if (!fence) {
                 if (oldFenceRefused || ['network', 'UNKNOWN', 'cancelled', 'ok'].includes(result.outcome)) {
                     bindingUncertain.value = true;
@@ -102,10 +155,6 @@ const LiveDraftPicker = {
                 error.value = result.outcome === 'conflict'
                     ? 'Der Entwurf konnte nicht verbunden werden. Prüfen Sie, ob Sie in einem anderen Browserfenster diktieren.'
                     : 'Der Entwurf konnte nicht zum Diktieren verbunden werden.';
-                return false;
-            }
-            if (disposed || hidden) {
-                releaseOnExit(fence);
                 return false;
             }
             holder.value = fence;
@@ -122,6 +171,7 @@ const LiveDraftPicker = {
             release: releaseFromEditor,
             ended(sessionId) {
                 if (holder.value?.session_id !== sessionId) return;
+                automaticRule.value = null;
                 holder.value = null;
                 bindingUncertain.value = false;
                 remember(active.value.draft_id);
@@ -129,9 +179,15 @@ const LiveDraftPicker = {
         };
 
         async function open(id, bind = true) {
+            const visit = pageVisit;
             const result = await request('/' + encodeURIComponent(id));
+            if (disposed || hidden || visit !== pageVisit) return false;
             if (result.outcome !== 'ok' || result.data.discarded_at) return report(result, 'Der Entwurf konnte nicht geladen werden.');
-            if (bind && !await claim(id)) return false;
+            if (bind) {
+                if (automaticManaged.value) {
+                    if (!await release()) return false;
+                } else if (!await claim(id)) return false;
+            }
             active.value = result.data;
             text.value = result.data.text;
             remember(id);
@@ -139,14 +195,15 @@ const LiveDraftPicker = {
             return true;
         }
 
-        async function readyToLeave() {
-            if (!controller || await controller.prepareRelease()) return true;
+        async function readyToLeave(options) {
+            if (!controller || await controller.prepareRelease(options)) return true;
             error.value = 'Die Aufnahme konnte noch nicht angehalten werden. Bitte versuchen Sie es erneut.';
             return false;
         }
 
         async function releaseFromEditor() {
-            if (await run(async () => await readyToLeave() && release())) {
+            automaticRule.value = null;
+            if (await run(async () => await readyToLeave({ allowUnconfirmed: automaticManaged.value }) && release())) {
                 await nextTick(() => document.getElementById('clv-title')?.focus());
             }
         }
@@ -180,11 +237,14 @@ const LiveDraftPicker = {
 
         function pageHide(event) {
             hidden = true;
+            pageVisit += 1;
             // A paused draft can keep its fence through reload. An active capture must let it go.
-            if (!holder.value || (!event.persisted && controller?.getState().phase !== 'live')) return;
+            automaticRule.value = null;
+            if (!holder.value || (!automaticManaged.value && !event.persisted && controller?.getState().phase !== 'live')) return;
             releaseOnExit(holder.value);
             if (event.persisted) {
-                bindingUncertain.value = true;
+                if (automaticManaged.value) holder.value = null;
+                bindingUncertain.value = !automaticManaged.value;
                 remember(active.value?.draft_id);
             }
         }
@@ -220,6 +280,7 @@ const LiveDraftPicker = {
             });
             if (result.outcome !== 'ok') return report(result, 'Der Entwurf konnte nicht verworfen werden.');
             rows.value = rows.value.filter(row => row.draft_id !== draft.draft_id);
+            if (automaticRule.value?.draft_id === draft.draft_id) automaticRule.value = null;
             holder.value = null;
             bindingUncertain.value = false;
             clearEditor();
@@ -276,11 +337,14 @@ const LiveDraftPicker = {
             });
             if (!moved) return;
             if (action.after) action.after();
-            else await nextTick(() => (active.value ? document.getElementById('clv-title') : heading.value)?.focus());
+            else await nextTick(() => {
+                (active.value ? document.getElementById('clv-title') : heading.value)?.focus();
+                bindOnFocus();
+            });
         }
 
         function choose(action) {
-            if (busy.value || mode.value || (action.id && action.id === active.value?.draft_id)) return;
+            if (busy.value || automaticStopping.value || mode.value || (action.id && action.id === active.value?.draft_id)) return;
             if (isDirty()) ask(action, 'dirty');
             else void finish(action);
         }
@@ -324,13 +388,16 @@ const LiveDraftPicker = {
         });
         onBeforeUnmount(() => {
             disposed = true;
+            if (automaticManaged.value && holder.value && !hidden) releaseOnExit(holder.value);
             choices.clear();
             globalThis.removeEventListener('pagehide', pageHide);
             globalThis.removeEventListener('pageshow', pageShow);
         });
         expose({ isDirty, needsLeave: () => !!active.value || busy.value, leave: after => choose({ after }) });
         return { rows, active, text, title, dictation, busy, loaded, message, error, heading, dialog, cancelButton, mode, choices,
-            available, readyToCreate, draftSession, minTarget: MIN_TARGET, dangerTarget: DANGER, choose, create, load, ask,
+            available, readyToCreate, draftSession, automaticRule, automaticStopping, automaticClaiming, setAutomatic, bindOnFocus,
+            showSwitchHint: computed(() => !!holder.value && rows.value.length > 1 && !automaticManaged.value),
+            minTarget: MIN_TARGET, dangerTarget: DANGER, choose, create, load, ask,
             closeDialog, saveNow: () => run(save), saveAndLeave: () => finish(destination, { saveFirst: true }),
             discardAndLeave: () => finish(destination, { discard: true }), setController: value => { controller = value; } };
     },
@@ -353,7 +420,7 @@ const LiveDraftPicker = {
                             @click="choose({ id: row.draft_id })">{{ row.title }}</button>
                 </li>
             </ul>
-            <p v-if="draftSession.position && rows.length > 1" style="margin: 0">
+            <p v-if="showSwitchHint" style="margin: 0">
                 Wählen Sie einen anderen Entwurf, um das Diktatziel zu wechseln.
             </p>
             <form v-if="loaded && !active" class="actions" style="align-items: end" @submit.prevent="create">
@@ -377,6 +444,9 @@ const LiveDraftPicker = {
             <p role="status" style="margin: 0" :style="message ? 'margin-top: 12px' : null">{{ message }}</p>
             <p v-if="error && !mode" role="alert" style="margin: 12px 0 0; color: var(--text-danger-strong)">{{ error }}</p>
         </section>
+        <LiveBindingRule v-if="active || automaticRule || automaticStopping" :draft-title="active?.title"
+                         :rule-title="automaticRule?.title" :busy="busy" :claiming="automaticClaiming"
+                         :uncertain="draftSession.uncertain" :stopping="automaticStopping" @change="setAutomatic" />
         <clinic-live-view v-if="active" :key="active.draft_id" :client="client" :dictation-id="active.draft_id"
                           :draft-title="active.title" :draft-session="draftSession" :draft-busy="busy" :on-ready="setController">
             <template #binding="{ phase, busy: recordingBusy }">
@@ -391,7 +461,7 @@ const LiveDraftPicker = {
             </template>
             <template #draft-text>
                 <label for="clinic-live-draft-text" style="display: block; margin: 12px 16px 4px; font-weight: 650">Entwurfstext</label>
-                <textarea id="clinic-live-draft-text" v-model="text" data-testid="live-draft-text" :readonly="busy" rows="6"
+                <textarea id="clinic-live-draft-text" v-model="text" data-testid="live-draft-text" :readonly="busy" rows="6" @focus="bindOnFocus"
                           style="display: block; width: calc(100% - 32px); margin: 0 16px 12px; font-size: 16px; border-color: var(--v8-text-2)"></textarea>
             </template>
         </clinic-live-view>
