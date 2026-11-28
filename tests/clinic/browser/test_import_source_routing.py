@@ -1,5 +1,6 @@
 """Use P18, reload it and reread the committed import-source version from the real server."""
 import os
+import re
 import sqlite3
 from pathlib import Path
 from uuid import uuid4
@@ -25,7 +26,9 @@ def _save_dom(page, path):
             }
         }
         for (const input of root.querySelectorAll('[data-testid="import-source-routing"] input')) {
-            input.setAttribute('value', document.getElementById(input.id).value);
+            const live = document.getElementById(input.id);
+            input.setAttribute('value', live.value);
+            if (input.type === 'checkbox') input.toggleAttribute('checked', live.checked);
         }
         for (const option of root.querySelectorAll('[data-testid="import-source-routing"] option')) {
             const live = document.getElementById(option.closest('select').id);
@@ -57,7 +60,8 @@ def _capture(browser, state, base, label, open_state=None):
                 section.evaluate("node => node.scrollIntoView({block: 'start'})")
                 bad_targets = section.locator("button:visible, input:visible, select:visible").evaluate_all("""controls =>
                     controls.filter(control => {
-                        const rect = control.getBoundingClientRect();
+                        const target = control.type === 'checkbox' ? control.labels[0] : control;
+                        const rect = target.getBoundingClientRect();
                         return rect.width < 48 || rect.height < 48 || rect.left < 0 || rect.right > innerWidth;
                     }).map(control => control.id || control.textContent.trim())""")
                 assert bad_targets == [], (label, size, theme, bad_targets)
@@ -261,10 +265,13 @@ def test_dropfolder_create_edit_remove_lifecycle(browser, tmp_path, monkeypatch)
         edit_form.get_by_label("Priorität").select_option("0")
         edit_form.get_by_label("Sprache", exact=True).select_option("1031")
         edit_form.get_by_label("Spracherkennungsprofil (optional)").fill("")
+        edit_form.get_by_role("checkbox", name="Nur beendete Diktate (EOL)").uncheck()
         with page.expect_response(lambda r: r.url == api + "/" + created["id"] and r.request.method == "PUT") as put:
             edit_form.get_by_role("button", name="Speichern", exact=True).click()
         assert put.value.status == 200
         assert put.value.json()["policy_version"] == 2
+        assert put.value.json()["eol_filter_enabled"] is False
+        assert put.value.json()["autosend_enabled"] is False
         expect(routing.get_by_test_id("source-routing-notice")).to_contain_text("Ordnerkonfiguration gespeichert")
 
         page.reload()
@@ -279,6 +286,7 @@ def test_dropfolder_create_edit_remove_lifecycle(browser, tmp_path, monkeypatch)
 
         # Stale PUT refreshes the row and shows a conflict notice.
         routing.get_by_role("button", name="Ordner labor-eingang bearbeiten").click()
+        expect(routing.get_by_role("checkbox", name="Nur beendete Diktate (EOL)")).not_to_be_checked()
         csrf = admin.request.get(base + "/api/csrf-token").json()["csrf_token"]
         assert admin.request.put(
             api + "/" + created["id"],
@@ -313,3 +321,126 @@ def test_dropfolder_create_edit_remove_lifecycle(browser, tmp_path, monkeypatch)
         expect(page.get_by_test_id("import-source-routing").get_by_test_id("source-routing-empty")).to_be_visible()
         assert admin.request.get(api).json()["items"] == []
         admin.close()
+
+
+def test_change_import_options_independently(browser, tmp_path, monkeypatch):
+    monkeypatch.setenv("CLINIC_IMPORT_ROOT_ALLOWLIST", "/approved/synthetic")
+    server = support.SERVER.replace("    db.session.commit()\nserver =", SOURCE + "\n    db.session.commit()\nserver =")
+    with support.serve_app(tmp_path, server) as base:
+        api = base + "/api/clinic/v1/imports/sources"
+        with browser.new_context(storage_state=support.login(browser, base, support.ROLES["admin"])) as admin:
+            page = admin.new_page()
+            original, = admin.request.get(api).json()["items"]
+            endpoint = api + "/" + original["id"]
+            support._open_shell_view(page, base, "#/import")
+            edit = page.get_by_role("button", name="Gerät test-recorder zuordnen")
+            save = page.get_by_role("button", name="Speichern", exact=True)
+            auto = page.get_by_role("checkbox", name="Automatisch versenden")
+            eol = page.get_by_role("checkbox", name="Nur beendete Diktate (EOL)")
+            edit.click()
+            expect(auto).not_to_be_checked()
+            expect(eol).to_be_checked()
+            eol.uncheck()
+            page.get_by_role("button", name="Abbrechen", exact=True).click()
+            edit.click()
+            expect(eol).to_be_checked()
+            save.click()
+            expect(page.get_by_role("status").filter(has_text="Keine Änderungen zum Speichern")).to_be_visible()
+
+            version = original["policy_version"]
+            for checkbox, key, checked in ((eol, "eol_filter_enabled", False), (auto, "autosend_enabled", True)):
+                checkbox.set_checked(checked)
+                with page.expect_response(lambda r: r.url == endpoint and r.request.method == "PUT") as put:
+                    save.click()
+                assert put.value.status == 200
+                assert put.value.request.post_data_json == {"expected_version": version, key: checked}
+                version += 1
+                updated = put.value.json()
+                assert updated["policy_version"] == version
+                for routing_key in ("target_author_user_id", "target_pool_id"):
+                    assert updated[routing_key] == original[routing_key]
+                expect(page.get_by_role("status").filter(has_text="Importzuordnung gespeichert")).to_be_visible()
+                page.reload()
+                edit.click()
+                expect(eol).not_to_be_checked()
+                expect(auto).to_be_checked(checked=key == "autosend_enabled")
+
+            headers = {k: v for k, v in put.value.request.all_headers().items() if k == "x-csrf-token"}
+            headers["idempotency-key"] = str(uuid4())
+            assert admin.request.put(endpoint, headers=headers, data={
+                "expected_version": version, "autosend_enabled": False}).status == 200
+            eol.check()
+            with page.expect_response(lambda r: r.url == endpoint and r.request.method == "PUT") as stale:
+                save.click()
+            assert stale.value.status == 409
+            alert = page.get_by_role("alert").filter(has_text="inzwischen geändert")
+            expect(alert).to_be_visible()
+            expect(alert).to_be_focused()
+            edit.click()
+            expect(auto).not_to_be_checked()
+            expect(eol).not_to_be_checked()
+
+        with browser.new_context(storage_state=support.login(browser, base, support.ROLES["author"])) as member:
+            page = member.new_page()
+            with page.expect_response(lambda r: r.url == api) as denied:
+                support._open_shell_view(page, base, "#/import")
+            assert denied.value.status == 403
+            expect(page.get_by_role("heading", name="Importzuordnung")).to_have_count(0)
+
+
+def test_import_inventory_badges_and_visual_matrix(browser, tmp_path, monkeypatch):
+    monkeypatch.setenv("CLINIC_IMPORT_ROOT_ALLOWLIST", "/approved/synthetic")
+    source = support.SERVER.replace("    db.session.commit()\nserver =", SOURCE + "\n    db.session.commit()\nserver =")
+    labels = {"philips_eol": "EOL", "file_stability": "EOL nicht belegt", "unknown": "EOL unbekannt"}
+    rows = [{"source_id": "test-recorder", "relative_path": f"Diktat-{i}.dss", "size": 1024,
+             "snapshot_version": f"s{i}", "mtime_utc": "2026-11-20T07:00:00Z", "completion_source": provenance}
+            for i, provenance in enumerate(labels, start=1)]
+    output = os.environ.get("P217_ARTIFACTS")
+    sizes = support.VIEWPORTS if output else {"390x844": support.VIEWPORTS["390x844"]}
+    with support.serve_app(tmp_path, source) as base:
+        state = support.login(browser, base, support.ROLES["admin"])
+        for size, (width, height) in sizes.items():
+            for theme in support.THEMES if output else ("light",):
+                with browser.new_context(storage_state=state, viewport={"width": width, "height": height},
+                                         **support.theme_context_options(theme)) as context:
+                    context.add_init_script(support.theme_init_script(theme))
+                    context.route("**/api/clinic/v1/imports/inventory*", lambda route: route.fulfill(json={"items": rows}))
+                    page = context.new_page()
+                    support._open_shell_view(page, base, "#/import")
+                    expect(page.locator("html")).to_have_class(
+                        re.compile(r"\bdark\b" if theme == "dark" else r"^(?!.*\bdark\b)"))
+                    table = page.get_by_test_id("inventory-list")
+                    for item in rows:
+                        row = table.get_by_role("row").filter(has_text=item["relative_path"])
+                        badge = row.get_by_text(labels[item["completion_source"]], exact=True)
+                        expect(badge).to_be_visible()
+                        box = badge.bounding_box()
+                        assert box["x"] + box["width"] <= width
+                    assert table.evaluate("el => el.scrollWidth <= el.parentElement.clientWidth + 1")
+                    page.get_by_role("button", name="Gerät test-recorder zuordnen").click()
+                    for label in ("Automatisch versenden", "Nur beendete Diktate (EOL)"):
+                        control = page.get_by_text(label, exact=True)
+                        assert control.bounding_box()["height"] >= 48
+                    _capture_inventory(page, output, f"import-{size}-{theme}-rows")
+                    context.unroute("**/api/clinic/v1/imports/inventory*")
+                    context.route("**/api/clinic/v1/imports/sources", lambda route: route.fulfill(
+                        json={"items": [], "authors": [], "pools": []}))
+                    page.reload()
+                    expect(page.get_by_test_id("inventory-empty")).to_be_visible()
+                    empty = page.get_by_test_id("source-routing-empty")
+                    expect(empty).to_be_visible()
+                    expect(empty).to_have_text("Keine Geräte oder Ordner eingerichtet.")
+                    expect(page.get_by_test_id("add-dropfolder")).to_be_visible()
+                    _capture_inventory(page, output, f"import-{size}-{theme}-empty")
+
+
+def _capture_inventory(page, output, stem):
+    assert not support.horizontal_overflow(page)["document"]
+    if output:
+        path = Path(output)
+        support._wait_loading_overlay_gone(page)
+        _save_dom(page, path / f"{stem}.html")
+        pane = page.get_by_test_id("clinic-menu-view")
+        page.add_style_tag(content='html, body, #app { height: auto !important; overflow: visible !important; }')
+        pane.evaluate("el => { el.style.overflow = 'visible' }")
+        page.screenshot(path=path / f"{stem}.png", full_page=True, animations="disabled", caret="hide")

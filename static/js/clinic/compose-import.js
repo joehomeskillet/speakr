@@ -111,10 +111,19 @@ const RETRYABLE = new Set(['FAILED', 'EXPIRED']);
 export function statusView(status) {
     const known = STATUS[String(status || '').toUpperCase()];
     const entry = known || { label: status ? String(status) : '–', surface: 'normal' };
-    const s = surfaceFor(entry.surface);
+    return tagView(entry.label, entry.surface);
+}
+
+export function completionView(source) {
+    if (source === 'philips_eol') return tagView('EOL', 'success');
+    return tagView(source === 'file_stability' ? 'EOL nicht belegt' : 'EOL unbekannt', 'normal');
+}
+
+function tagView(label, surface) {
+    const s = surfaceFor(surface);
     return {
-        label: entry.label,
-        tag: TAG_CLASS[entry.surface] ?? 'neutral',
+        label,
+        tag: TAG_CLASS[surface] ?? 'neutral',
         style: { background: s.background, color: s.color, border: '1px solid ' + s.border },
     };
 }
@@ -292,7 +301,7 @@ export function createImportController(deps) {
         askAssign, loadCandidates, cancelAssign, confirmAssign, retry, dispose,
         isBusy: (action, id) => Boolean(state.busy[action + ':' + id]),
         retryable: (row) => RETRYABLE.has(String(row && row.status).toUpperCase()),
-        statusView, text: TEXT, size: formatSize, when: formatWhen,
+        statusView, completionView, text: TEXT, size: formatSize, when: formatWhen,
     };
 }
 
@@ -342,13 +351,18 @@ export const IMPORT_TEMPLATE = `
       <p class="hint">{{ c.text.inventoryNote }}</p>
       <p v-if="c.state.inventoryError" class="note warning" role="alert" data-testid="inventory-error">{{ c.state.inventoryError }}</p>
       <p v-else-if="!c.state.inventory.length" class="empty" data-testid="inventory-empty">{{ c.text.inventoryEmpty }}</p>
-      <div v-else class="table-wrap">
-        <table aria-label="Geräteinventar" data-testid="inventory-list">
-          <thead><tr><th scope="col">Quelle</th><th scope="col">Datei</th><th scope="col">Grösse</th><th scope="col">Aufnahmedatum</th><th scope="col">Stand</th></tr></thead>
+      <div v-else class="table-wrap" role="region" aria-labelledby="civ-inv" tabindex="0">
+        <table class="${ACTION_TABLE} max-md:table-fixed" aria-label="Geräteinventar" data-testid="inventory-list">
+          <thead><tr><th scope="col" class="max-md:w-1/4">Quelle</th><th scope="col">Datei</th><th scope="col" class="max-md:w-1/3">EOL</th><th scope="col" class="max-md:hidden">Grösse</th><th scope="col" class="max-md:hidden">Aufnahmedatum</th><th scope="col" class="max-md:hidden">Stand</th></tr></thead>
           <tbody>
             <tr v-for="(item, i) in c.state.inventory" :key="item.source_id + '|' + item.snapshot_version + '|' + i">
-              <td>{{ item.source_id }}</td><td><strong>{{ item.relative_path }}</strong></td><td :title="item.size">{{ c.size(item.size) }}</td>
-              <td>{{ c.when(item.mtime_utc) }}</td><td>{{ item.snapshot_version }}</td>
+              <td>{{ item.source_id }}</td>
+              <td class="max-md:[overflow-wrap:anywhere]">
+                <strong>{{ item.relative_path }}</strong>
+                <span class="md:hidden">{{ c.size(item.size) }}<br>{{ c.when(item.mtime_utc) }}<br>Stand {{ item.snapshot_version }}</span>
+              </td>
+              <td><span class="tag dot" :class="c.completionView(item.completion_source).tag" :style="c.completionView(item.completion_source).style">{{ c.completionView(item.completion_source).label }}</span></td>
+              <td class="max-md:hidden" :title="item.size">{{ c.size(item.size) }}</td><td class="max-md:hidden">{{ c.when(item.mtime_utc) }}</td><td class="max-md:hidden">{{ item.snapshot_version }}</td>
             </tr>
           </tbody>
         </table>

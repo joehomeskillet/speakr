@@ -81,7 +81,12 @@ export const ImportSourceRouting = {
             error.value = '';
             retry = null;
             trigger = button;
-            resetForm(item && { ...item, asr_profile_id: item.asr_profile_id ?? '' });
+            resetForm(item && {
+                ...item,
+                asr_profile_id: item.asr_profile_id ?? '',
+                autosend_enabled: item.autosend_enabled === true,
+                eol_filter_enabled: item.eol_filter_enabled !== false,
+            });
             if (button) nextTick(() => formElement.value?.querySelector('input, select')?.focus());
         }
 
@@ -160,34 +165,50 @@ export const ImportSourceRouting = {
                 showError('Geben Sie einen Kurznamen ohne Leerzeichen ein. Erlaubt sind A–Z, a–z, Zahlen und . _ - : @');
                 return;
             }
-            if (isFolder && !root) {
-                showError('Bitte geben Sie einen Ordnerpfad an.');
-                return;
-            }
-            if (draft.target_author_user_id == null) {
-                showError('Bitte wählen Sie eine Person aus.');
-                return;
-            }
-            if (isFolder && profileId && !PROFILE_PATTERN.test(profileId)) {
-                showError('Die Profilkennung darf höchstens 36 Zeichen (Buchstaben, Zahlen, . _ - : @) enthalten.');
-                return;
-            }
-
-            const body = {
+            const body = {};
+            const routing = {
                 target_author_user_id: draft.target_author_user_id,
                 target_pool_id: draft.target_pool_id,
             };
+            if (isCreate || Object.entries(routing).some(([field, value]) => value !== item[field])) {
+                if (draft.target_author_user_id == null) {
+                    showError('Bitte wählen Sie eine Person aus.');
+                    return;
+                }
+                Object.assign(body, routing);
+            }
             if (isFolder) {
-                Object.assign(body, {
+                const folder = {
                     approved_root: root, file_pattern: draft.file_pattern.trim() || '*',
                     priority: draft.priority, language_id: draft.language_id, asr_profile_id: profileId || null,
-                });
+                };
+                if (isCreate || Object.entries(folder).some(([field, value]) => value !== (item[field] ?? null))) {
+                    if (!root) {
+                        showError('Bitte geben Sie einen Ordnerpfad an.');
+                        return;
+                    }
+                    if (profileId && !PROFILE_PATTERN.test(profileId)) {
+                        showError('Die Profilkennung darf höchstens 36 Zeichen (Buchstaben, Zahlen, . _ - : @) enthalten.');
+                        return;
+                    }
+                    Object.assign(body, folder);
+                }
             }
             let url = SOURCES_URL;
             const options = { method: isCreate ? 'POST' : 'PUT', body };
             if (isCreate) {
                 Object.assign(body, { source_kind: 'folder', source_ref: name });
             } else {
+                if (draft.autosend_enabled !== (item.autosend_enabled === true)) {
+                    body.autosend_enabled = draft.autosend_enabled;
+                }
+                if (draft.eol_filter_enabled !== (item.eol_filter_enabled !== false)) {
+                    body.eol_filter_enabled = draft.eol_filter_enabled;
+                }
+                if (Object.keys(body).length === 0) {
+                    notice.value = 'Keine Änderungen zum Speichern.';
+                    return;
+                }
                 url += '/' + encodeURIComponent(item.id);
                 body.expected_version = item.policy_version;
                 const signature = JSON.stringify(body);
@@ -323,6 +344,16 @@ export const ImportSourceRouting = {
                      maxlength="36" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="isr-profile-hint">
               <small id="isr-profile-hint">Leer lassen für die Standardeinstellung oder Profilkennung eingeben.</small>
             </div>
+          </template>
+          <template v-if="choice">
+            <label class="inline-label" :class="controlStyle">
+              <input id="isr-autosend" type="checkbox" v-model="form.autosend_enabled" :disabled="busy"
+                     class="shrink-0 focus-visible:!outline-ui-text"> Automatisch versenden
+            </label>
+            <label class="inline-label" :class="controlStyle">
+              <input id="isr-eol-filter" type="checkbox" v-model="form.eol_filter_enabled" :disabled="busy"
+                     class="shrink-0 focus-visible:!outline-ui-text"> Nur beendete Diktate (EOL)
+            </label>
           </template>
         </div>
         <div class="actions">
