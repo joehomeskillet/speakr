@@ -26,6 +26,7 @@
  * dictation_id); it is supplied by the mount package together with the recorder.
  */
 
+import { SessionTransportNotice } from './compose-settings.js';
 import { createRecorderPhases, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
 import { createPedalController } from './pedal-ui.js';
 import { CATEGORIES, RequiredCategories } from './categories-ui.js';
@@ -819,6 +820,7 @@ export const RECORDING_TEMPLATE = `
          style="display: grid; place-items: center; min-height: min(56dvh, 30rem); padding: var(--ui-space-6) var(--ui-space-4); color: var(--ui-text)">
   <h1 id="crv-title" class="sr-only">{{ c.text.title }}</h1>
   <div style="width: 100%; max-width: 28rem; text-align: center">
+    <component :is="SessionTransportNotice" :client="client" :vue="vue" class="mb-3" />
     <p v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
        :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}</p>
     <template v-if="!m.routing || m.created">
@@ -1061,6 +1063,7 @@ export const RecordingView = {
             return c.dispose();
         });
         return {
+            SessionTransportNotice,
             c,
             m,
             root,
