@@ -138,14 +138,14 @@
                         {{ form.hidden_tag() }}
                         <div class="flex flex-col gap-1.5 mb-4 [&_label]:text-xs [&_label]:font-bold">
                             {{ form.email.label(text="Benutzername oder E-Mail") }}
-                            {{ form.email(autocomplete="username", maxlength=120, class="!min-h-12 focus-visible:!outline-ui-text-muted " ~ ("!border-[color:var(--danger)]" if form.email.errors else "!border-ui-text-muted")) }}
+                            {{ form.email(autocomplete="username", maxlength=120, class="!min-h-12 focus-visible:!outline-ui-text-muted" ~ (" !border-[color:var(--danger)]" if form.email.errors else "")) }}
                             <p id="clinic-login-hint" class="hint" role="status" hidden></p>
                             {% for error in form.email.errors %}<span class="text-status error">{{ error }}</span>{% endfor %}
                         </div>
                         <div class="flex flex-col gap-1.5 mb-4 [&_label]:text-xs [&_label]:font-bold">
                             {{ form.password.label(text=t('account.password')) }}
                             <div class="relative">
-                                {{ form.password(autocomplete="current-password", class="!min-h-12 !pr-12 max-[760px]:!pr-14 focus-visible:!outline-ui-text-muted " ~ ("!border-[color:var(--danger)]" if form.password.errors else "!border-ui-text-muted")) }}
+                                {{ form.password(autocomplete="current-password", class="!min-h-12 !pr-12 max-[760px]:!pr-14 focus-visible:!outline-ui-text-muted" ~ (" !border-[color:var(--danger)]" if form.password.errors else "")) }}
                                 <button type="button" data-password-toggle="password" aria-pressed="false" aria-controls="password" aria-label="Passwort anzeigen" class="absolute inset-y-0 right-0 px-3 flex justify-center items-center !min-h-12 min-w-12 !border-0 !bg-transparent text-[var(--v8-muted)] hover:!bg-transparent hover:text-[var(--v8-text)] focus-visible:!outline-ui-text-muted rounded-lg"><i class="fas fa-eye" aria-hidden="true"></i></button>
                             </div>
                             {% for error in form.password.errors %}<span class="text-status error">{{ error }}</span>{% endfor %}

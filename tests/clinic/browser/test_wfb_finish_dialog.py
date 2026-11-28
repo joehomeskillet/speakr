@@ -89,14 +89,13 @@ def _open_dialog(page: Page, mount: str, path: str) -> Locator:
     view = page.get_by_test_id(f"clinic-{mount}-view")
     if mount == "review":
         expect(view.get_by_test_id("review-text")).to_contain_text(TEXT)
-        acquire = view.get_by_test_id("begin-review")
         with page.expect_response(lambda r: r.url == path + "/leases" and r.request.method == "POST") as lease:
-            acquire.click()
+            view.get_by_test_id("begin-review").click()
         assert lease.value.ok, lease.value.text()
     else:
-        editor = view.get_by_test_id("text")
-        expect(editor).to_have_value(TEXT)
-        expect(editor).to_be_editable()
+        text = view.get_by_test_id("text")
+        expect(text).to_have_value(TEXT)
+        expect(text).to_be_editable()
     start = view.get_by_role("button", name=TITLE, exact=True)
     expect(start).to_be_enabled()
     start.click()

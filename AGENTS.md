@@ -35,6 +35,7 @@ python3 scripts/persona_panel/persona_panel.py walkthrough "Flow name" /path/to/
 python3 scripts/persona_panel/persona_panel.py brainstorm "Question about the flow"
 ```
 
+Use `walkthrough --own-view <flow> <hash-route>...` only on staging and only with synthetic accounts.
 Use synthetic personas and staging screenshots with synthetic data only. Never include patient data or private fixtures. Findings are suggestions for the owner. Fix blocker findings or explain them in the work-package report.
 
 ## Gate
