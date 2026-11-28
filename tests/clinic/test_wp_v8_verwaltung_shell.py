@@ -249,11 +249,10 @@ def test_asr_settings_persist_and_render_in_both_views(live_server, browser, tmp
     def open_view(view):
         if view == "admin":
             admin.goto(route)
-            _wait_page(admin, "clinic-admin-asr")
-        else:
-            admin.goto(base + "/#/ressourcen")
-            _mounted(admin)
-            admin.get_by_role("tab", name="ASR-Profile").click()
+            return _wait_page(admin, "clinic-admin-asr").get_by_role("region", name="Profilkonfiguration")
+        admin.goto(base + "/#/ressourcen")
+        _mounted(admin)
+        admin.get_by_role("tab", name="ASR-Profile").click()
         return admin.get_by_role("form", name="Spracherkennung")
 
     def capture(view, state):
@@ -268,7 +267,12 @@ def test_asr_settings_persist_and_render_in_both_views(live_server, browser, tmp
                     if control.is_visible():
                         box = control.bounding_box()
                         assert box["x"] >= 0 and box["x"] + box["width"] <= width
-                assert panel.get_by_role("row").count() == (3 if state == "rows" else 0)
+                if view == "admin":
+                    evidence = admin.get_by_role("table", name="Fähigkeiten und Nachweise", exact=True)
+                    expect(evidence.get_by_role("row")).to_have_count(4 if state == "rows" else 2)
+                    expect(evidence.get_by_role("cell", name="Aussprachetraining", exact=True)).to_be_visible()
+                else:
+                    expect(panel.get_by_role("row")).to_have_count(3 if state == "rows" else 0)
                 admin.screenshot(path=proofs / f"{view}-{state}-{theme}-{width}x{height}.png", animations="disabled", full_page=True)
         admin.set_viewport_size({"width": 1440, "height": 900})
 
@@ -277,15 +281,18 @@ def test_asr_settings_persist_and_render_in_both_views(live_server, browser, tmp
     panel = open_view("admin")
     panel.get_by_role("radio", name="Aufnahmegerät").click()
     panel.get_by_label("Speicherregel").select_option("ask")
-    panel.get_by_role("button", name="Übernehmen").click()
-    expect(panel.get_by_text("Gespeichert.", exact=True)).to_be_visible()
+    panel.get_by_role("button", name="Profilvorgabe übernehmen", exact=True).click()
+    expect(panel.get_by_text("Profilvorgabe gespeichert.", exact=True)).to_be_visible()
 
     second, second_errors = _login(browser, base, ADMIN_EMAIL)
     second.goto(route)
     _wait_page(second, "clinic-admin-asr")
     expect(second.get_by_role("radio", name="Aufnahmegerät")).to_have_attribute("aria-checked", "true")
     expect(second.get_by_label("Speicherregel")).to_have_value("ask")
-    expect(second.get_by_text("Getrennte Akustikprofile werden nicht unterstützt.", exact=False)).to_be_visible()
+    acoustic_limit = second.get_by_text("Getrennte Akustikprofile werden nicht unterstützt.", exact=False)
+    expect(acoustic_limit).to_be_hidden()
+    second.get_by_text("Technische Details", exact=True).click()
+    expect(acoustic_limit).to_be_visible()
 
     author, author_errors = _login(browser, base, "w226other@local.test")
     denied = author.goto(_canonical(base, "#/verwaltung/sprachprofile"))
@@ -301,8 +308,8 @@ def test_asr_settings_persist_and_render_in_both_views(live_server, browser, tmp
 
     panel.get_by_label("Quellenzuordnung").select_option("separate")
     panel.get_by_label("Quelle für Hintergrund-Erkennung").select_option("headset")
-    panel.get_by_role("button", name="Übernehmen").click()
-    expect(panel.get_by_text("Gespeichert.", exact=True)).to_be_visible()
+    panel.get_by_role("button", name="Profilvorgabe übernehmen", exact=True).click()
+    expect(panel.get_by_text("Profilvorgabe gespeichert.", exact=True)).to_be_visible()
     second.reload()
     expect(second.get_by_label("Quellenzuordnung")).to_have_value("separate")
     expect(second.get_by_label("Quelle für Hintergrund-Erkennung")).to_have_value("headset")
