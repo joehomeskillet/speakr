@@ -39,6 +39,7 @@ export async function fetchFreshCsrfToken() {
     const response = await doFetch('/api/csrf-token', {
         method: 'GET',
         credentials: 'same-origin',
+        signal: AbortSignal.timeout(10_000),
         headers: { 'Accept': 'application/json' }
     });
     if (!response.ok) {

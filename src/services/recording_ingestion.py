@@ -738,14 +738,15 @@ class StoredRecording(NamedTuple):
 def store_recording(*, owner, storage, filepath, now, recorded_in_app, original_filename,
                     user_title, final_file_size, meeting_date, mime_type, audio_duration_seconds,
                     notes, selected_folder, selected_tags, processing_source, file_hash,
-                    prompt_variables, effective_audio_only, prepare):
+                    prompt_variables, effective_audio_only, prepare, finalize=None):
     """Create the recording, store the staged file and commit both.
 
     Unless the upload was recorded in this browser, the owner's quota is
     reserved first; a refusal rolls back, removes the staging copy and is
     returned in error_response. The recording is flushed, then prepare runs,
     then the file moves to storage (the staging copy is gone after that) and
-    the tags and folder are added before the one commit. An
+    the tags and folder are added before the one commit. The optional
+    finalize hook runs in that transaction after the file has moved. An
     IntegrityError from the commit propagates to the caller's handler
     (:func:`handle_unique_conflict`).
     """
@@ -818,6 +819,8 @@ def store_recording(*, owner, storage, filepath, now, recorded_in_app, original_
             )
             db.session.add(new_association)
 
+        if finalize is not None:
+            finalize(recording)
         db.session.commit()
     except Exception:
         # The caller rolls the recording back, so the stored file would
@@ -861,11 +864,13 @@ def handle_unique_conflict(error, *, filepath, on_conflict):
 
 
 def build_ingestion_response(recording, *, owner, duplicate_warning, reuse_duplicate,
-                             success_status, dictation_id=None, use_speech_recognition=None):
+                             success_status, dictation_id=None, use_speech_recognition=None,
+                             recording_type=None):
     """The success answer for a stored recording: its dict, the duplicate warning, the replay flag."""
     response_data = recording.to_dict(viewer_user=owner)
     if dictation_id is not None:
         response_data['dictation_id'] = dictation_id
+        response_data['recording_type'] = recording_type
         # Visible on the upload receipt, which the Einreichen step already holds.
         # None means the caller did not choose; the owner default is on.
         response_data['use_speech_recognition'] = (
@@ -976,9 +981,22 @@ def ingest(
     from src.api.recordings import (
         USE_ASR_ENDPOINT, _ingest_join_part, chunking_service, get_storage_service,
     )
+    from src.clinic import web_ingest
+    from src.clinic.config import clinic_mode_enabled
 
     filepath = None
     try:
+        clinic_mode = clinic_mode_enabled()
+        requested_type = None
+        if clinic_mode:
+            from src.clinic import recording_type
+
+            if processing_source == web_ingest.WEB_SOURCE and 'recording_type' in form:
+                requested_type = form.get('recording_type')
+                if (not isinstance(requested_type, str) or requested_type not in recording_type.SPEAKER_RANGES
+                        or (hasattr(form, 'getlist') and len(form.getlist('recording_type')) != 1)):
+                    return jsonify(error='Ungültige Aufnahmeart.', code='invalid_recording_type'), 400
+
         from src.services.recording_source import coerce_source
         file = coerce_source(uploaded_file=uploaded_file, source=source)
         if file is None:
@@ -995,6 +1013,9 @@ def ingest(
             join = parse_join_fields(form)
         except JoinError as e:
             return jsonify({'error': str(e)}), 400
+        if join and requested_type is not None:
+            return jsonify(error='Zusammengefügte Aufnahmen unterstützen keine Aufnahmeart.',
+                           code='recording_type_not_supported'), 400
         if join:
             already = joined_recording(owner.id, join[0])
             if already is not None:
@@ -1033,6 +1054,9 @@ def ingest(
         from src.utils.token_auth import current_api_token
         recorded_in_app = (str(form.get('from_recorder', '')).lower() == 'true'
                            and current_api_token() is None)
+        take_id = None
+        if not join and recorded_in_app and processing_source == web_ingest.WEB_SOURCE and clinic_mode:
+            take_id = web_ingest.take_id_from(form)
         if not recorded_in_app:
             try:
                 check_room(owner, original_file_size)
@@ -1405,6 +1429,29 @@ def ingest(
                 duplicate_warning=duplicate_warning, success_status=success_status,
             )
 
+        recognize_take = False
+        if take_id:
+            if not file_hash:
+                raise web_ingest.TakeUploadError('clinic_ingest_failed', 500)
+            web_ingest.lock_take(owner.id, take_id)
+            existing = web_ingest.find_take(owner.id, take_id)
+            if existing is not None:
+                _discard_staging(filepath)
+                return jsonify(web_ingest.take_receipt(existing, take_id, file_hash=file_hash,
+                                                      requested_type=requested_type)), 200
+            kind = requested_type or recording_type.REPORT
+            recognize_take = web_ingest.speech_recognition_requested(form, kind)
+            if recognize_take:
+                resolved_params.update(recording_type.transcription_params(kind))
+
+        def finalize_take(recording):
+            web_ingest.register_upload(owner=owner, recording=recording, storage=storage, form=form,
+                                       now=now, meeting_date=meeting_date, processing_source=processing_source,
+                                       take_id=take_id, requested_type=requested_type)
+            if recognize_take:
+                web_ingest.queue_take(recording, resolved_params, conversion_deferred=conversion_deferred,
+                                      extracted_audio_limit_mb=extracted_audio_limit_mb)
+
         stored = store_recording(
             owner=owner,
             storage=storage,
@@ -1425,10 +1472,18 @@ def ingest(
             prompt_variables=prompt_variables,
             effective_audio_only=effective_audio_only,
             prepare=prepare,
+            finalize=finalize_take if take_id else None,
         )
         if stored.error_response is not None:
             return stored.error_response
         recording = stored.recording
+
+        if take_id:
+            from src.services.webhook_dispatch import emit_recording_created
+            if recognize_take:
+                job_queue.start()
+            emit_recording_created(recording)
+            return jsonify(web_ingest.take_receipt(web_ingest.find_take(owner.id, take_id), take_id)), success_status
 
         # A cancel that arrived while the file was converted and stored: the
         # recording goes before a job is queued or a webhook is sent.
@@ -1437,18 +1492,20 @@ def ingest(
             discard_unannounced_recording(recording, storage)
             return jsonify(api_error('upload_canceled')), 409
 
-        from src.clinic.config import clinic_mode_enabled
         dictation_id = None
+        stored_type = None
         use_speech_recognition = None
-        if clinic_mode_enabled():
-            from src.clinic import web_ingest
-            dictation_id = web_ingest.register_upload(
+        if clinic_mode:
+            registered = web_ingest.register_upload(
                 owner=owner, recording=recording, storage=storage, form=form, now=now,
-                meeting_date=meeting_date, processing_source=processing_source)
-            if isinstance(dictation_id, tuple):
-                return dictation_id
-            if isinstance(dictation_id, str):
-                use_speech_recognition = web_ingest.speech_recognition_requested(form)
+                meeting_date=meeting_date, processing_source=processing_source, requested_type=requested_type)
+            if isinstance(registered, tuple):
+                return registered
+            if registered is not None:
+                dictation_id, stored_type = registered.id, registered.recording_type
+                use_speech_recognition = web_ingest.speech_recognition_requested(form, stored_type)
+                if registered.configured_recording_type is not None:
+                    resolved_params.update(recording_type.transcription_params(stored_type))
 
         enqueue_ingestion_jobs(
             recording,
@@ -1467,8 +1524,13 @@ def ingest(
             success_status=success_status,
             dictation_id=dictation_id,
             use_speech_recognition=use_speech_recognition,
+            recording_type=stored_type,
         )
 
+    except web_ingest.TakeUploadError as error:
+        db.session.rollback()
+        _discard_staging(filepath)
+        return jsonify({'error': error.message, 'code': error.code}), error.status
     except RequestEntityTooLarge:
         _discard_staging(filepath)
         # Report the effective limit that fired (regular vs audio-only)

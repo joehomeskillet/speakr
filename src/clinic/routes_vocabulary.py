@@ -31,6 +31,7 @@ from sqlalchemy.exc import IntegrityError
 from wtforms.validators import ValidationError
 
 from src.clinic import caution_rules, caution_words, pool_policy, vocabulary
+from src.clinic.app_wiring import choose_author_pool
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.pools import ClinicAuthorPool
@@ -215,8 +216,8 @@ class VocabularyApi:
 
     def _export(self):
         if request.args.get("scope") == "effective":
-            pools = sorted(pool_policy.author_pool_ids(current_user.id))
-            text = vocabulary.export_effective_vocabulary_text(current_user.id, pools)
+            pool_id = choose_author_pool(current_user.id)
+            text = vocabulary.export_effective_vocabulary_text(current_user.id, [pool_id] if pool_id is not None else [])
         else:
             kwargs = self._scope(request.args.get("scope"), request.args.get("pool_id"), write=False)
             text = vocabulary.export_vocabulary_text(**kwargs)

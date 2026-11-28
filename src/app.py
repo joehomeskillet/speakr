@@ -1380,7 +1380,8 @@ def register_clinic_identity(flask_app):
     to be present (one dispatcher, mounted once). Identity providers stay disabled (default
     EntraConfig, IWA off): their routes answer the inert 422 and the exchange never runs.
     Directory comparison is disabled unless an approved provider is configured.
-    The last selection is durable (clinic user-preset row per user); workstation preferences are process-local.
+    The last selection persists in a clinic user-preset row per user. Workstation
+    preferences, central locks and workflow presets use the shared clinic database.
     """
     from src.clinic import directory_provider
     from src.clinic import (app_wiring, entra, pool_policy, routes_admin_dictations, routes_directory, routes_grants,
@@ -1393,11 +1394,6 @@ def register_clinic_identity(flask_app):
 
     def disabled_exchange(_pending, _code):
         raise entra.EntraDisabled()
-
-    def author_pool_for(user_id):
-        # One author pool per user is the clinic rule; a user in none has no author recipient default.
-        # The model has no active-pool flag: first pool by name, then id (app_wiring.choose_author_pool).
-        return app_wiring.choose_author_pool(user_id)
 
     def allowed_for(user_id):
         # Current roles only: author = member of an author pool; typist = member of a staff pool linked
@@ -1430,7 +1426,7 @@ def register_clinic_identity(flask_app):
     flask_app.register_blueprint(routes_grants.GrantsApi().blueprint)
     flask_app.register_blueprint(create_metadata_fields_blueprint())
     flask_app.register_blueprint(routes_preferences.PreferenceRoutes(
-        allowed_for=allowed_for, author_pool_for=author_pool_for,
+        allowed_for=allowed_for, author_pool_for=app_wiring.choose_author_pool,
         selections=SelectionStore(preferences=PresetUserPreferences()), workstations=WorkstationPreferences()).blueprint)
 
 

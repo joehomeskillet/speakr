@@ -139,17 +139,14 @@ def clinic_notify_handler(can_see):
         if not transition_id:
             raise ClinicJobRefused(f"[{correlation_id}] notify job has no transition_id")
         try:
-            acceptor_ids = params.get('acceptor_ids') or ()
-            if params['event'] == 'acceptance_requested' and _notify_transition_id(params):
-                from src.clinic.notify_enqueue import acceptors
-                acceptor_ids = set(acceptor_ids).intersection(acceptors(params['dictation_id']))
             result = workflow_notifications.emit(
                 params['event'], params['dictation_id'],
                 transition_id=transition_id,
                 actor_user_id=params['actor_user_id'],
                 expected_version=params['expected_version'],
-                acceptor_ids=acceptor_ids,
-                can_see=can_see, context=params.get('context'))
+                acceptor_ids=params.get('acceptor_ids') or (),
+                can_see=can_see, context=params.get('context'),
+                require_receipt=bool(_notify_transition_id(params)))
         except workflow.WorkflowError as error:
             raise ClinicJobRefused(f"[{correlation_id}] {error}") from error
         if result.failed:
@@ -922,6 +919,7 @@ class FairJobQueue:
                 language=params.get('language'),
                 min_speakers=params.get('min_speakers'),
                 max_speakers=params.get('max_speakers'),
+                diarize=params.get('diarize'),
                 tag_id=params.get('tag_id'),
                 hotwords=params.get('hotwords'),
                 initial_prompt=params.get('initial_prompt'),
@@ -1214,6 +1212,14 @@ class FairJobQueue:
                 if existing:
                     logger.warning(f"Job of type {job_type} already exists for recording {recording_id}: {existing.id}")
                     return existing.id
+
+                if (job_type in ('transcribe', 'reprocess_transcription') and clinic_mode_enabled()
+                        and (params or {}).get('diarize') is None):
+                    from src.clinic import recording_type, web_ingest
+
+                    dictation = web_ingest.dictation_for_recording(recording_id)
+                    if dictation is not None and dictation.configured_recording_type is not None:
+                        params = {**(params or {}), **recording_type.transcription_params(dictation.recording_type)}
 
                 # Create new job
                 job = ProcessingJob(
