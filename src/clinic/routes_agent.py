@@ -24,14 +24,16 @@ import json
 import logging
 import re
 import uuid
+from functools import partial
 from typing import BinaryIO
 
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.clinic import agent_channel, agent_channel_ingest, import_centre
+from src.clinic import agent_channel, agent_channel_ingest, autosend_evaluator, import_centre
 from src.clinic.agent_channel import AgentChannelError, ChannelPolicy
 from src.clinic.author_resolution import AuthorResolutionError
+from src.clinic.config import clinic_mode_enabled
 from src.clinic.ingest import IngestError, IngestService
 from src.database import db
 
@@ -201,6 +203,9 @@ def create_agent_blueprint(
         items = body.get('items', [])
         if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
             raise _Refusal(400, 'invalid')
+        if clinic_mode_enabled() and author_lookup is not None:
+            evaluate = partial(autosend_evaluator.evaluate_inventory, author_lookup=author_lookup)
+            return _ok(agent_channel.report_inventory(g.clinic_agent, policy, body, evaluate=evaluate))
         return _ok(agent_channel.report_inventory(g.clinic_agent, policy, body))
 
     @bp.get('/intents')
