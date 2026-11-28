@@ -4,6 +4,7 @@ import {
     ACTIONS, STORAGE_KEY, TEXT, createKeyCapture, createPedalController, isMappableKey, loadSettings, normalizeSettings,
 } from '../../../static/js/clinic/pedal-ui.js';
 import { createCorrectionViewController } from '../../../static/js/clinic/compose-correction.js';
+import { createRecordingViewController } from '../../../static/js/clinic/compose-recording.js';
 import { usePlaybackTempo } from '../../../static/js/clinic/playback-tempo-ui.js';
 
 // Vitest runs in the node environment (no DOM): plain events carry the fields the pedal reads.
@@ -157,6 +158,15 @@ describe('pedal commands', () => {
         expect(e.defaultPrevented).toBe(true);
         expect(touched).not.toHaveBeenCalled();
     });
+
+    it('leaves recording-only mappings unhandled in correction', () => {
+        const { target, pedal } = setup({ mapping: { F8: 'recordToggle', F10: 'stop' } });
+        pedal.attach();
+        expect(fire(target, key('keydown', 'F8')).defaultPrevented).toBe(false);
+        expect(fire(target, key('keydown', 'F10')).defaultPrevented).toBe(false);
+        expect(pedal.active.value).toBe(false);
+        pedal.detach();
+    });
 });
 
 describe('key capture', () => {
@@ -180,6 +190,122 @@ describe('key capture', () => {
         cap.start();
         fire(target, key('keydown', 'Escape'));
         expect(cap.capturing.value).toBe(false);
+    });
+});
+
+describe('recording view wiring', () => {
+    function make(options = {}) {
+        const target = new EventTarget();
+        const recorder = {
+            startRecording: vi.fn(async () => true), pauseRecording: vi.fn(), resumeRecording: vi.fn(),
+            stopRecording: vi.fn(), discardRecording: vi.fn(),
+        };
+        const player = { currentTime: 12, duration: 20, paused: true };
+        player.play = vi.fn(async () => { player.paused = false; });
+        player.pause = vi.fn(() => { player.paused = true; });
+        const settings = { mapping: { F9: 'hold', F8: 'recordToggle', F10: 'stop', F7: 'playPause', F6: 'rewind' }, rewindSeconds: 4 };
+        const view = createRecordingViewController({
+            currentUser: { id: 1 }, recorder, player, uploadFile: vi.fn(),
+            pedalOptions: { storage: memoryStorage({ [STORAGE_KEY]: JSON.stringify(settings) }) }, ...options,
+        });
+        view.attachPedal(target);
+        return { view, recorder, player, press: (code) => fire(target, key('keydown', code)),
+            release: (code) => fire(target, key('keyup', code)) };
+    }
+
+    const settleCapture = async () => { await Promise.resolve(); await Promise.resolve(); };
+
+    it('uses the recording phase, title and authorization gates, then controls review playback', async () => {
+        let authorized = true;
+        const { view, recorder, player, press, release } = make({ authorized: () => authorized });
+        press('F8');
+        press('F9');
+        release('F9');
+        expect(recorder.startRecording).not.toHaveBeenCalled();
+        view.setTitle('Synthetic title');
+        view.setMode('file');
+        press('F8');
+        expect(recorder.startRecording).not.toHaveBeenCalled();
+        view.setMode('record');
+        authorized = false;
+        press('F8');
+        expect(recorder.startRecording).not.toHaveBeenCalled();
+        authorized = true;
+        press('F8');
+        await settleCapture();
+        expect(view.model().phase).toBe('recording');
+        press('F8');
+        expect(view.model().phase).toBe('paused');
+        press('F8');
+        expect(view.model().phase).toBe('recording');
+        press('F10');
+        await settleCapture();
+        expect(view.model().phase).toBe('review');
+        press('F7');
+        expect(player.paused).toBe(false);
+        press('F6');
+        expect(player.currentTime).toBe(8);
+        press('F10');
+        expect(player.paused).toBe(true);
+        await view.dispose();
+        expect(press('F8').defaultPrevented).toBe(false);
+    });
+
+    it('keeps the one-button recorder gated by the routing preflight', async () => {
+        const { view, recorder, press } = make({
+            oneButton: true, fetchPreflight: vi.fn(async () => ({ ok: true, json: async () => ({ routable: false }) })),
+        });
+        press('F9');
+        await view.checkRouting();
+        press('F8');
+        expect(view.model().routing).toBe('routingMissing');
+        expect(recorder.startRecording).not.toHaveBeenCalled();
+        await view.dispose();
+    });
+
+    it('pauses capture on release, including release before asynchronous microphone startup completes', async () => {
+        const { view, recorder, press, release } = make();
+        let grantMicrophone;
+        recorder.startRecording.mockImplementationOnce(() => new Promise(resolve => { grantMicrophone = resolve; }));
+        view.setTitle('Synthetic title');
+        press('F9');
+        release('F9');
+        grantMicrophone(true);
+        await settleCapture();
+        expect(view.model().phase).toBe('paused');
+        expect(recorder.pauseRecording).toHaveBeenCalledTimes(1);
+        press('F9');
+        expect(view.model().phase).toBe('recording');
+        release('F9');
+        expect(view.model().phase).toBe('paused');
+        expect(recorder.pauseRecording).toHaveBeenCalledTimes(2);
+        await view.dispose();
+    });
+
+    it('pauses pedal capture and playback on blur even if authorization has been lost', async () => {
+        let authorized = true;
+        const window = new EventTarget();
+        vi.stubGlobal('window', window);
+        try {
+            const { view, player, press } = make({ authorized: () => authorized });
+            view.setTitle('Synthetic title');
+            press('F8');
+            await settleCapture();
+            authorized = false;
+            fire(window, new Event('blur'));
+            expect(view.model().phase).toBe('paused');
+            authorized = true;
+            press('F10');
+            await settleCapture();
+            press('F7');
+            expect(player.paused).toBe(false);
+            authorized = false;
+            fire(window, new Event('blur'));
+            expect(player.paused).toBe(true);
+            await view.dispose();
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });
 
