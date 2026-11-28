@@ -7,8 +7,8 @@
  *
  * Rules applied:
  *   - The author is the logged-in user. A server check confirms a route before capture.
- *   - Audio and title stay in memory. This module never touches IndexedDB,
- *     localStorage or sessionStorage; a failed upload says so explicitly.
+ *   - Audio and title stay in memory. The recorder reports if a managed
+ *     staging browser retained an encrypted copy after a failed upload.
  *   - A dictation counts as created only when the upload resolves with a server
  *     receipt (an object carrying an id). The microphone receipt displays the
  *     generated timestamp title and duration. It does not display patient data.
@@ -28,11 +28,13 @@
 
 import { DictationProtectionComponent } from './dictation-protection-ui.js';
 import { createRecorderPhases, formatRecordingDuration, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
+import { createRecordLevelController, RECORD_LEVEL_TEMPLATE } from './record-level-ui.js';
 import { createPedalController } from './pedal-ui.js';
 import { CATEGORIES, RequiredCategories } from './categories-ui.js';
 import { PRIORITY_OPTIONS } from './dictation-properties-ui.js';
 import { surfaceFor } from './tokens.js';
 import { CorrectionView } from './compose-correction.js';
+import { SessionTransportNotice } from './compose-settings.js';
 
 function microphoneChoices(microphone) {
     return (microphone?.inputs || []).filter(({ deviceId }) => deviceId && deviceId !== 'default')
@@ -65,6 +67,7 @@ export const TEXT = Object.freeze({
     routingMissing: 'Ihr Konto ist noch nicht für Diktate freigeschaltet. Bitte wenden Sie sich an die Verwaltung.',
     routingError: 'Die Berechtigung konnte nicht geprüft werden. Bitte laden Sie die Seite neu.',
     recordFailed: 'Senden fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Aufnahme wird nicht lokal gespeichert.',
+    recordRetained: 'Die Aufnahme liegt verschlüsselt unter „Offline und Wiederherstellung“. Der Server hat den Entwurf nicht bestätigt.',
     fileFailed: 'Hochladen fehlgeschlagen. Der Entwurf wurde nicht gesendet. Die Audiodatei wird nicht lokal gespeichert.',
     sent: 'Gespeichert. Noch nicht an den Schreibdienst gesendet.',
     submit: 'Einreichen',
@@ -654,7 +657,10 @@ export function createRecordingViewController(options) {
             return state.fileError === 'invalid_file' ? TEXT.fileInvalid : '';
         }
         if (s.phase === 'sent' && editableDraftId()) return TEXT.sent;
-        if (s.phase === 'failed') return opts.oneButton || s.title.trim() ? TEXT.recordFailed : LABELS.titleHint;
+        if (s.phase === 'failed') {
+            if (s.error === 'offline_retained') return TEXT.recordRetained;
+            return opts.oneButton || s.title.trim() ? TEXT.recordFailed : LABELS.titleHint;
+        }
         if (s.error === 'microphone_unavailable' && attemptedMicrophone) {
             return `„${attemptedMicrophone}“ ist nicht verfügbar. Schliessen Sie es erneut an oder wählen Sie ein anderes Mikrofon.`;
         }
@@ -806,7 +812,7 @@ export function createRecordingViewController(options) {
             try {
                 await machine.cancel();
             } catch (e) {
-                // Nothing is persisted locally, so a failed discard leaves nothing behind.
+                // The managed offline view owns any encrypted copy.
             }
         }
     }
@@ -891,6 +897,7 @@ export const RECORDING_TEMPLATE = `
          style="display: grid; place-items: center; min-height: min(56dvh, 30rem); padding: var(--ui-space-6) var(--ui-space-4); color: var(--ui-text)">
   <h1 id="crv-title" class="sr-only">{{ c.text.title }}</h1>
   <div style="width: 100%; max-width: 28rem; text-align: center">
+    <component :is="SessionTransportNotice" :client="client" :vue="vue" class="mb-3" />
     <button v-if="m.canChangeSpeechRecognition" type="button" role="switch" data-testid="recognition-switch"
             class="button quiet focus-visible:outline focus-visible:outline-2 focus-visible:outline-ui-text"
             :aria-checked="m.useSpeechRecognition" @click="c.toggleSpeechRecognition()"
@@ -945,11 +952,7 @@ export const RECORDING_TEMPLATE = `
         <div v-else-if="m.phase === 'recording' || m.phase === 'paused'" style="display: grid; justify-items: center; gap: var(--ui-space-4)">
           <p role="status" data-testid="capture-status" style="margin: 0">{{ captureCaption[m.phase] }}</p>
           <output aria-label="Aufnahmedauer" aria-live="off" data-testid="elapsed" style="font-size: 2.75rem; font-variant-numeric: tabular-nums">{{ elapsed }}</output>
-          <div role="meter" :aria-valuenow="Math.round(level * 100)" aria-valuemin="0" aria-valuemax="100" aria-label="Mikrofonpegel"
-               style="width: min(100%, 18rem); height: .5rem; border-radius: var(--ui-radius-sm); background: var(--ui-border); overflow: hidden">
-            <span style="display: block; height: 100%; background: var(--brand-accent); transform-origin: left"
-                  :style="{ transform: 'scaleX(' + level + ')' }"></span>
-          </div>
+          ${RECORD_LEVEL_TEMPLATE}
           <div class="actions" style="justify-content: center">
             <button v-if="m.phase === 'recording'" type="button" class="button" style="${TOUCH}" data-testid="rec-pause" :aria-keyshortcuts="shortcuts.pause" @click="c.pause()">Pause</button>
             <button v-else type="button" class="button" style="${TOUCH}" data-testid="rec-resume" :aria-keyshortcuts="shortcuts.resume" @click="c.resume()">Fortsetzen</button>
@@ -1067,8 +1070,16 @@ export const RecordingView = {
             onOpen: (payload) => emit('open', payload),
             onWorklist: () => emit('worklist'),
         });
+        const level = V.ref(0);
+        const recordLevel = createRecordLevelController({
+            level,
+            readLevel: () => props.recorder.readLevel?.() ?? 0,
+        });
         const tick = V.ref(0);
-        const off = c.subscribe(() => { tick.value += 1; });
+        const off = c.subscribe(() => {
+            tick.value += 1;
+            recordLevel.sync(c.machine.getState().phase);
+        });
         const m = V.computed(() => (tick.value, c.model()));
         const root = V.ref(null);
         const protection = V.ref(null);
@@ -1168,22 +1179,8 @@ export const RecordingView = {
             if (!event.repeat) return action();
         }
         const enabled = (id) => m.value.controls.some((control) => control.id === id && !control.disabled);
-        const level = V.ref(0);
         const elapsed = V.computed(() => formatRecordingDuration(props.recorder.elapsedSeconds || 0));
         const previewUrl = V.computed(() => props.recorder.previewUrl);
-        V.watchEffect?.((cleanup) => {
-            if (m.value.phase !== 'recording') {
-                level.value = 0;
-                return;
-            }
-            let frame;
-            const sample = () => {
-                level.value = props.recorder.readLevel?.() || 0;
-                frame = requestAnimationFrame(sample);
-            };
-            sample();
-            cleanup(() => cancelAnimationFrame(frame));
-        });
         const space = (event) => {
             if (event.code !== 'Space' || event.repeat || event.defaultPrevented
                 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
@@ -1208,12 +1205,14 @@ export const RecordingView = {
             if (m.value.created) void c.loadDraft();
         });
         V.onBeforeUnmount?.(() => {
+            off();
+            recordLevel.stop();
             doc?.removeEventListener('keydown', onKeydown);
             globalThis.window?.removeEventListener('keydown', space);
-            off();
             return c.dispose();
         });
         return {
+            SessionTransportNotice,
             c,
             m,
             root,

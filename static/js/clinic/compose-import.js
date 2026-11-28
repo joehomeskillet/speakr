@@ -52,6 +52,7 @@ export const V8_PAGE = 'v8-page text-sm [&_.stack]:grid-cols-[minmax(0,1fr)] [&_
 export const ENDPOINTS = Object.freeze({
     intents: '/imports/intents',
     inventory: '/imports/inventory',
+    deviceSend: '/imports/device-send',
     unassigned: '/imports/unassigned',
     candidates: (id) => '/imports/unassigned/' + encodeURIComponent(id) + '/candidates',
     assign: (id) => '/imports/unassigned/' + encodeURIComponent(id) + '/assign',
@@ -79,7 +80,9 @@ export const TEXT = Object.freeze({
     inventory: 'Geräteinventar',
     inventoryEmpty: 'Es liegt keine Meldung eines Importagenten vor. Es wird keine Geräteerkennung angezeigt.',
     inventoryFailed: 'Das Geräteinventar konnte nicht geladen werden.',
-    inventoryNote: 'Nur Ansicht. Konfiguration und Firmware-Schreiben sind nicht verfügbar.',
+    inventoryNote: 'Markieren Sie die Dateien, die Sie senden möchten.',
+    sendQueued: 'Zur Übernahme vorgemerkt.',
+    sendFailed: 'Vormerkung nicht bestätigt. Sie können es erneut versuchen.',
     clarification: 'Klärliste',
     clarificationEmpty: 'Keine Dateien in Klärung.',
     clarificationFailed: 'Die Klärliste konnte nicht geladen werden.',
@@ -137,6 +140,14 @@ function defaultKey(prefix) {
 
 const plain = (o) => o;
 const rows = (res) => (res && res.data && Array.isArray(res.data.items) ? res.data.items : []);
+const deviceForm = () => ({ title: '', priority: '', recipient: '', asr: 'keep' });
+const canSendDevice = (item) => Boolean(item.agent_id && item.snapshot_id && Array.isArray(item.device_recipient_ids));
+const keepOrSet = (value) => value === '' ? { op: 'keep' } : { op: 'set', value };
+const DEVICE_ERRORS = new Map([
+    ['CONFLICT', 'Datei wurde bereits angefordert.'],
+    ['NOT_FOUND', 'Datei nicht mehr verfügbar.'],
+    ['FORBIDDEN', 'Datei darf so nicht gesendet werden.'],
+]);
 
 /**
  * Framework-free controller.
@@ -154,6 +165,8 @@ export function createImportController(deps) {
         loading: false,
         intents: [], intentsError: null,
         inventory: [], inventoryError: null, inventoryLoaded: false,
+        recipients: [], selectedSnapshots: [], deviceForm: deviceForm(), deviceResults: {},
+        sending: false, deviceNotice: '',
         unassigned: [], unassignedError: null, clarificationDenied: false,
         canClarify: mayClarify(user), candidates: null, target: null,
         pending: null, // delivery id awaiting confirmation
@@ -170,6 +183,28 @@ export function createImportController(deps) {
         return keys.get(k);
     };
 
+    const selectedDevices = () => state.inventory.filter((item) => canSendDevice(item) &&
+        state.selectedSnapshots.includes(item.snapshot_id));
+    const sharedRecipients = () => {
+        const selected = selectedDevices();
+        return selected.length ? state.recipients.filter((person) =>
+            selected.every((item) => item.device_recipient_ids.includes(person.id))) : [];
+    };
+    function reconcileRecipient() {
+        if (!sharedRecipients().some((person) => person.id === state.deviceForm.recipient)) {
+            state.deviceForm.recipient = '';
+        }
+    }
+
+    function selectDevice(item, checked) {
+        if (state.sending || !canSendDevice(item) || state.deviceResults[item.snapshot_id] === TEXT.sendQueued) return;
+        const id = item.snapshot_id;
+        state.selectedSnapshots = state.selectedSnapshots.filter((snapshotId) => snapshotId !== id);
+        if (checked) state.selectedSnapshots.push(id);
+        state.deviceNotice = '';
+        reconcileRecipient();
+    }
+
     async function loadIntents() {
         const res = await client.request(ENDPOINTS.intents);
         if (disposed) return res;
@@ -183,6 +218,9 @@ export function createImportController(deps) {
         if (disposed) return res;
         if (res.outcome === 'ok') {
             state.inventory = rows(res); state.inventoryError = null; state.inventoryLoaded = true;
+            state.recipients = Array.isArray(res.data?.recipients) ? res.data.recipients : [];
+            state.selectedSnapshots = selectedDevices().map((item) => item.snapshot_id);
+            reconcileRecipient();
             state.canClarify = res.data?.can_clarify ?? mayClarify(user);
         }
         else state.inventoryError = res.outcome === 'permission' ? TEXT.denied : TEXT.inventoryFailed;
@@ -242,6 +280,54 @@ export function createImportController(deps) {
         }
     }
 
+    async function sendSelected() {
+        if (disposed || state.sending || state.loading || state.inventoryError) return;
+        const selected = selectedDevices();
+        if (!selected.length) return;
+        reconcileRecipient();
+        const { title, priority, recipient, asr } = state.deviceForm;
+        const overrides = { title: keepOrSet(title.trim()), priority: keepOrSet(priority),
+            recipient_user_id: keepOrSet(recipient), asr };
+        const batches = new Map();
+        for (const { agent_id, snapshot_id } of selected) {
+            if (!batches.has(agent_id)) batches.set(agent_id, []);
+            batches.get(agent_id).push(snapshot_id);
+        }
+        const queued = new Set();
+        state.sending = true;
+        state.deviceNotice = '';
+        try {
+            for (const [agent_id, ids] of batches) {
+                for (let offset = 0; offset < ids.length; offset += 1000) {
+                    const source_snapshot_ids = ids.slice(offset, offset + 1000);
+                    const body = { agent_id, source_snapshot_ids, overrides };
+                    // A retry after a lost response must match the original receipt's body and key.
+                    const res = await write('device-send', JSON.stringify(body), ENDPOINTS.deviceSend, body);
+                    if (disposed) return;
+                    const results = new Map(rows(res).map((row) => [row.snapshot_id, row]));
+                    for (const id of source_snapshot_ids) {
+                        const result = results.get(id);
+                        if (res?.outcome === 'ok' && result?.status === 'OPEN') {
+                            queued.add(id);
+                            state.deviceResults[id] = TEXT.sendQueued;
+                        } else {
+                            state.deviceResults[id] = DEVICE_ERRORS.get(result?.code) || TEXT.sendFailed;
+                        }
+                    }
+                }
+            }
+            state.selectedSnapshots = state.selectedSnapshots.filter((id) => !queued.has(id));
+            if (queued.size === selected.length) state.deviceForm = deviceForm();
+            else reconcileRecipient();
+            state.deviceNotice = queued.size
+                ? queued.size + ' von ' + selected.length + ' zur Übernahme vorgemerkt.'
+                : 'Keine Vormerkung bestätigt. Prüfen Sie die Meldungen bei den Dateien.';
+            if (queued.size) await loadIntents();
+        } finally {
+            if (!disposed) state.sending = false;
+        }
+    }
+
     /** Assigns the confirmed delivery to a candidate or to an existing import intent. */
     async function confirmAssign(deliveryId, target, snapshotVersion) {
         const id = String(deliveryId);
@@ -284,12 +370,15 @@ export function createImportController(deps) {
         keys.clear();
         state.intents = []; state.inventory = []; state.unassigned = []; state.pending = null;
         state.candidates = null; state.target = null;
+        state.recipients = []; state.selectedSnapshots = []; state.deviceForm = deviceForm();
+        state.deviceResults = {}; state.deviceNotice = '';
         client.switchContext({ accountId: null, dictationId: null });
     }
 
     return {
         state, get canClarify() { return state.canClarify; }, load, loadIntents, loadInventory, loadUnassigned,
-        askAssign, loadCandidates, cancelAssign, confirmAssign, retry, dispose,
+        askAssign, loadCandidates, cancelAssign, confirmAssign, retry, dispose, canSendDevice, selectDevice, sendSelected,
+        get sharedRecipients() { return sharedRecipients(); },
         isBusy: (action, id) => Boolean(state.busy[action + ':' + id]),
         retryable: (row) => RETRYABLE.has(String(row && row.status).toUpperCase()),
         statusView, text: TEXT, size: formatSize, when: formatWhen,
@@ -307,7 +396,7 @@ export const IMPORT_TEMPLATE = `
       <p class="subline">{{ c.text.subline }}</p>
     </div>
     <div class="head-actions">
-      <button type="button" data-testid="reload" :disabled="c.state.loading" @click="c.load()">${ICON_REFRESH}<span>{{ c.text.refresh }}</span></button>
+      <button type="button" data-testid="reload" :disabled="c.state.loading || c.state.sending" @click="c.load()">${ICON_REFRESH}<span>{{ c.text.refresh }}</span></button>
     </div>
   </div>
   <p v-if="c.state.notice" class="note" role="status" aria-live="polite" data-testid="notice">{{ c.state.notice }}</p>
@@ -339,20 +428,69 @@ export const IMPORT_TEMPLATE = `
 
     <section class="panel" aria-labelledby="civ-inv">
       <h2 id="civ-inv">{{ c.text.inventory }}</h2>
-      <p class="hint">{{ c.text.inventoryNote }}</p>
       <p v-if="c.state.inventoryError" class="note warning" role="alert" data-testid="inventory-error">{{ c.state.inventoryError }}</p>
       <p v-else-if="!c.state.inventory.length" class="empty" data-testid="inventory-empty">{{ c.text.inventoryEmpty }}</p>
-      <div v-else class="table-wrap">
-        <table aria-label="Geräteinventar" data-testid="inventory-list">
-          <thead><tr><th scope="col">Quelle</th><th scope="col">Datei</th><th scope="col">Grösse</th><th scope="col">Aufnahmedatum</th><th scope="col">Stand</th></tr></thead>
+      <template v-else>
+      <p v-if="c.state.inventory.some(c.canSendDevice)" class="hint">{{ c.text.inventoryNote }}</p>
+      <div class="table-wrap">
+        <table class="max-md:table-fixed" aria-label="Geräteinventar" data-testid="inventory-list">
+          <thead><tr><th scope="col">Datei</th><th scope="col" class="max-md:hidden">Quelle</th><th scope="col" class="max-md:hidden">Grösse</th><th scope="col" class="max-md:hidden">Aufnahmedatum</th><th scope="col" class="max-md:hidden">Stand</th></tr></thead>
           <tbody>
-            <tr v-for="(item, i) in c.state.inventory" :key="item.source_id + '|' + item.snapshot_version + '|' + i">
-              <td>{{ item.source_id }}</td><td><strong>{{ item.relative_path }}</strong></td><td :title="item.size">{{ c.size(item.size) }}</td>
-              <td>{{ c.when(item.mtime_utc) }}</td><td>{{ item.snapshot_version }}</td>
+            <tr v-for="(item, i) in c.state.inventory" :key="item.snapshot_id || (item.source_id + '|' + item.snapshot_version + '|' + i)">
+              <td class="whitespace-normal break-words">
+                <label v-if="c.canSendDevice(item)" class="flex min-h-12 items-center gap-3">
+                  <input type="checkbox" class="shrink-0 focus-visible:outline-ui-text" :checked="c.state.selectedSnapshots.includes(item.snapshot_id)"
+                         :disabled="c.state.loading || c.state.sending || c.state.deviceResults[item.snapshot_id] === c.text.sendQueued"
+                         @change="c.selectDevice(item, $event.target.checked)">
+                  <strong class="min-w-0">{{ item.relative_path }}</strong>
+                </label>
+                <strong v-else>{{ item.relative_path }}</strong>
+                <div class="md:hidden">
+                  <small>{{ item.source_id }}</small>
+                  <small>{{ c.size(item.size) }}, {{ c.when(item.mtime_utc) }}, Stand {{ item.snapshot_version }}</small>
+                </div>
+                <div v-if="c.canSendDevice(item)" role="status" data-testid="device-result">{{ c.state.deviceResults[item.snapshot_id] }}</div>
+              </td>
+              <td class="max-md:hidden">{{ item.source_id }}</td><td class="max-md:hidden" :title="item.size">{{ c.size(item.size) }}</td>
+              <td class="max-md:hidden">{{ c.when(item.mtime_utc) }}</td><td class="max-md:hidden">{{ item.snapshot_version }}</td>
             </tr>
           </tbody>
         </table>
       </div>
+      <form v-if="c.state.inventory.some(c.canSendDevice)" class="mt-4" @submit.prevent="c.sendSelected()">
+        <fieldset :disabled="c.state.loading || c.state.sending || !c.state.selectedSnapshots.length">
+          <legend class="mb-3 font-semibold">Angaben für ausgewählte Dateien</legend>
+          <div class="grid gap-x-4 sm:grid-cols-2">
+            <label class="field"><span>Gemeinsamer Titel</span>
+              <input v-model="c.state.deviceForm.title" class="!min-h-12 !border-ui-text-muted placeholder:text-ui-text-muted focus-visible:outline-ui-text" maxlength="200" placeholder="Beibehalten">
+            </label>
+            <label class="field"><span>Priorität</span>
+              <select v-model="c.state.deviceForm.priority" class="!min-h-12 !border-ui-text-muted focus-visible:outline-ui-text">
+                <option value="">Beibehalten</option><option :value="0">Bei Gelegenheit</option>
+                <option :value="1">Normal</option><option :value="128">Dringend</option>
+              </select>
+            </label>
+            <label class="field"><span>Empfänger</span>
+              <select v-model="c.state.deviceForm.recipient" class="!min-h-12 !border-ui-text-muted focus-visible:outline-ui-text" :disabled="!c.sharedRecipients.length">
+                <option value="">Beibehalten</option>
+                <option v-for="person in c.sharedRecipients" :key="person.id" :value="person.id">{{ person.name }}</option>
+              </select>
+              <small v-if="c.state.selectedSnapshots.length && !c.sharedRecipients.length">Kein gemeinsamer Empfänger verfügbar.</small>
+            </label>
+            <label class="field"><span>Automatische Texterstellung</span>
+              <select v-model="c.state.deviceForm.asr" class="!min-h-12 !border-ui-text-muted focus-visible:outline-ui-text">
+                <option value="keep">Beibehalten</option><option value="enable">Benutzen</option>
+                <option value="disable">Nicht benutzen</option>
+              </select>
+            </label>
+          </div>
+          <button type="submit" class="primary !min-h-12 w-full focus-visible:outline-ui-text disabled:!bg-ui-surface disabled:!border-ui-border disabled:!text-ui-text-muted disabled:!opacity-100 sm:w-auto">Ausgewählte senden</button>
+        </fieldset>
+        <div class="mt-2" role="status">
+          {{ c.state.sending ? 'Dateien werden vorgemerkt …' : c.state.deviceNotice || c.state.selectedSnapshots.length + ' ausgewählt' }}
+        </div>
+      </form>
+      </template>
     </section>
 
     <import-source-routing :client="client"></import-source-routing>
