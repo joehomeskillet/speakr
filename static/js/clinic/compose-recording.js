@@ -600,12 +600,14 @@ export function createRecordingViewController(options) {
 
     async function start() {
         if (routing || created() || state.mode !== 'record' || state.disposed || noCaptureFormat()) return denied('invalid_phase');
-        localMessage = '';
-        usedLocalFile = false;
-        if (opts.microphone && machine.controls().some(({ id, disabled }) => id === 'start' && !disabled)) {
-            clearMicrophoneChoice();
-            microphoneNotice = '';
-            attemptedMicrophone = microphoneLabel(selectedMicrophone());
+        if (enabled('start')) {
+            localMessage = '';
+            usedLocalFile = false;
+            if (opts.microphone) {
+                clearMicrophoneChoice();
+                microphoneNotice = '';
+                attemptedMicrophone = microphoneLabel(selectedMicrophone());
+            }
         }
         const forTake = voxEnabled;
         const result = await machine.start({ voxEnabled: forTake });
