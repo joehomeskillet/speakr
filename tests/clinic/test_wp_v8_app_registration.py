@@ -19,7 +19,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
-BLUEPRINTS = ("clinic_recordings", "clinic_jobs", "clinic_statistics", "clinic_training", "clinic_agent")
+BLUEPRINTS = ("clinic_recordings", "clinic_jobs", "clinic_statistics", "clinic_training", "clinic_agent",
+              "clinic_agent_admin")
 
 EXPECTED = {
     "clinic_recordings.list_recordings": ("GET", "/api/clinic/v1/recordings"),
@@ -39,6 +40,11 @@ EXPECTED = {
     "clinic_agent.receipt": ("GET", "/api/clinic/v1/agent/ingests/00000000-0000-0000-0000-000000000000"),
     "clinic_agent.abort": ("POST", "/api/clinic/v1/agent/ingests/00000000-0000-0000-0000-000000000000/abort"),
     "clinic_agent.outcomes": ("POST", "/api/clinic/v1/agent/outcomes"),
+    "clinic_agent_admin.list_agents": ("GET", "/api/clinic/v1/admin/agents"),
+    "clinic_agent_admin.enroll": ("POST", "/api/clinic/v1/admin/agents"),
+    "clinic_agent_admin.set_enabled": ("PATCH", "/api/clinic/v1/admin/agents/00000000-0000-0000-0000-000000000000"),
+    "clinic_agent_admin.rotate_key": (
+        "POST", "/api/clinic/v1/admin/agents/00000000-0000-0000-0000-000000000000/rotate-key"),
 }
 
 CHILD = r'''
@@ -100,6 +106,7 @@ def test_every_endpoint_exists_with_its_method_in_clinic_mode(clinic_app):
 def test_every_endpoint_is_classified_in_the_route_policy(clinic_app):
     assert all(kind is not None for kind in clinic_app["classified"].values()), clinic_app["classified"]
     assert {clinic_app["classified"][name] for name in EXPECTED if name.startswith("clinic_training.")} == {"admin"}
+    assert {clinic_app["classified"][name] for name in EXPECTED if name.startswith("clinic_agent_admin.")} == {"admin"}
     assert {clinic_app["classified"][name] for name in EXPECTED if name.startswith("clinic_agent.")} == {"public"}
     assert {clinic_app["classified"][name] for name in EXPECTED
             if name.startswith(("clinic_recordings.", "clinic_jobs.", "clinic_statistics."))} == {"auth"}
