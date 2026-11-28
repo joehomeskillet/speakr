@@ -352,6 +352,26 @@ describe('compose-review blockers (W11)', () => {
         const { c } = await opened();
         expect(c.actions().find((a) => a.id === 'release').disabled).toBe(false);
     });
+
+    it('reads and confirms a W11 hit using the current revision and lease', async () => {
+        const id = '120cf73d-15d1-5d93-bb1c-f14cedde5699';
+        const path = '/dictations/d1/correction/review-markers';
+        let open = true;
+        const { c, client } = await opened(server(), {
+            ['GET ' + path]: () => ok({
+                text_revision_id: 'r1', review_markers: open ? [{ id, label: 'Hallo', anchor_offset: 0 }] : [],
+            }),
+            ['POST ' + path + '/' + id + '/confirm']: () => { open = false; return ok({ confirmed: true }); },
+        });
+        expect(c.actions().find((a) => a.id === 'release').why).toBe(TEXT.blockers);
+        expect(await c.confirmMarker(id)).toBe(false);
+        await c.editor.acquire();
+        expect(await c.confirmMarker(id)).toBe(true);
+        expect(client.calls.find((call) => call.path.endsWith('/' + id + '/confirm')).options).toMatchObject({
+            idempotencyKey: id, body: { expected_text_revision_id: 'r1', lease_generation: 1 },
+        });
+        expect(c.markers()).toEqual([]);
+    });
 });
 
 describe('compose-review newer revision (Wiedervorlage)', () => {

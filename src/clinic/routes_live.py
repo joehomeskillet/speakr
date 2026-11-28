@@ -23,17 +23,17 @@ from collections.abc import Callable, Set
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from flask import Blueprint, abort, jsonify, request, send_file, session, url_for
+from flask import Blueprint, abort, current_app, jsonify, request, send_file, session, url_for
 from flask_login import current_user
 from flask_wtf.csrf import validate_csrf
 from sqlalchemy import tuple_
 from sqlalchemy.orm import aliased
 from wtforms.validators import ValidationError
 
-from src.clinic import live_phrases, live_session
+from src.clinic import live_phrases, live_session, vocabulary
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.draft_registry import DraftError
-from src.clinic.draft_store import DraftStore
+from src.clinic.draft_store import ClinicDraft, DraftStore
 from src.clinic.ingest import IngestError, IngestService, storage_key_for
 from src.clinic.live_drafts import HolderFence, LiveDrafts, select_draft
 from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
@@ -67,6 +67,45 @@ _PHRASE_PROBLEMS = {
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _guard():
+    if not clinic_mode_enabled():
+        abort(404)
+    if not (current_user.is_authenticated and current_user.is_active
+            and session.get("_user_id") == current_user.get_id()):
+        return _problem("UNAUTHORIZED")
+    if request.method not in ("GET", "HEAD"):
+        try:
+            validate_csrf(request.headers.get("X-CSRF-Token"))
+        except ValidationError:
+            return _problem("FORBIDDEN")
+
+
+def _no_store(response):
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+def _body(required: Set[str], optional: Set[str] = frozenset()) -> dict | None:
+    from src.clinic.parity_dispatch import _unique_object
+
+    if not request.is_json or request.content_length is None or request.content_length > MAX_BODY_BYTES:
+        return None
+    try:
+        data = current_app.json.loads(request.get_data(), object_pairs_hook=_unique_object)
+    except (ValueError, RecursionError):
+        return None
+    if (not isinstance(data, dict) or data.keys() - required - optional
+            or required - data.keys()):
+        return None
+    return data
+
+
+def _require_undiscarded(dictation_id: str) -> None:
+    draft = db.session.get(ClinicDraft, dictation_id, populate_existing=True)
+    if draft is not None and draft.discarded_at is not None:
+        raise DraftError("discarded")
 
 
 def _code(error: Exception) -> str:
@@ -136,8 +175,28 @@ def _previous_session(row: live_session.ClinicLiveSession) -> str | None:
     return previous.id if previous else None
 
 
+def _capture_session_review(row: live_session.ClinicLiveSession, ended_at: datetime) -> None:
+    phrases = (live_phrases.ClinicLivePhrase.query.filter_by(session_id=row.id)
+               .order_by(live_phrases.ClinicLivePhrase.sequence).all())
+    before_text = after_text = ""
+    if phrases:
+        first = db.session.get(ClinicTranscriptRevision, phrases[0].transcript_revision_id)
+        last = db.session.get(ClinicTranscriptRevision, phrases[-1].transcript_revision_id)
+        baseline = (db.session.get(ClinicTranscriptRevision, first.parent_revision_id)
+                    if first is not None and first.parent_revision_id else None)
+        before_text = baseline.body if baseline is not None else ""
+        after_text = last.body if last is not None else ""
+    dictation = db.session.get(ClinicDictation, row.dictation_id)
+    vocabulary.capture_session_changes(
+        user_id=row.author_user_id, dictation_id=row.dictation_id,
+        started_at=row.started_at, ended_at=ended_at,
+        pool_id=dictation.pool_id if dictation is not None else None,
+        before_text=before_text, after_text=after_text,
+    )
+
+
 def _client_id(value: object) -> bool:
-    return isinstance(value, str) and 0 < len(value) <= 128 and value == value.strip()
+    return isinstance(value, str) and 0 < len(value) <= 128 and value == value.strip() and value.isprintable()
 
 
 def _valid_fence(data: dict) -> bool:
@@ -164,7 +223,8 @@ def register_live_commands(
     def execute_start(actor: int, target: str, envelope: dict) -> dict:
         try:
             row = live_session.start(target.split(":", 1)[1], actor, now())
-        except live_session.LiveSessionError as error:
+            _require_undiscarded(row.dictation_id)
+        except (live_session.LiveSessionError, DraftError) as error:
             raise CommandProblem(_code(error)) from error
         return result(envelope, row.ack_seq + 1)
 
@@ -190,8 +250,12 @@ def register_live_commands(
                     or ((position["sequence"] or row.holder_generation is not None)
                         and payload["generation"] != position["generation"])):
                 raise CommandProblem("REVISION_CONFLICT")
-            live_session.end(row.id, actor, now(), client_id=request.headers.get("X-Live-Client-Id"),
-                             generation=payload["generation"])
+            ended_at = now()
+            ended = live_session.end(
+                row.id, actor, ended_at, client_id=request.headers.get("X-Live-Client-Id"),
+                generation=payload["generation"],
+            )
+            _capture_session_review(ended, ended.ended_at or ended_at)
         except live_session.LiveSessionError as error:
             raise CommandProblem(_code(error)) from error
         return result(envelope, row.ack_seq + 1)
@@ -217,34 +281,8 @@ def create_blueprint(
     tab id and generation on subsequent live requests.
     """
     blueprint = Blueprint("clinic_live", __name__, url_prefix=PREFIX)
-
-    @blueprint.before_request
-    def guard():
-        if not clinic_mode_enabled():
-            abort(404)
-        if not (current_user.is_authenticated and current_user.is_active
-                and session.get("_user_id") == current_user.get_id()):
-            return _problem("UNAUTHORIZED")
-        if request.method in {"GET", "HEAD"}:
-            return None
-        try:
-            validate_csrf(request.headers.get("X-CSRF-Token"))
-        except ValidationError:
-            return _problem("FORBIDDEN")
-
-    @blueprint.after_request
-    def no_store(response):
-        response.headers["Cache-Control"] = "private, no-store"
-        return response
-
-    def body(required: Set[str], optional: Set[str] = frozenset()) -> dict | None:
-        if request.content_length is None or request.content_length > MAX_BODY_BYTES:
-            return None
-        data = request.get_json(silent=True)
-        if (not isinstance(data, dict) or data.keys() - required - optional
-                or required - data.keys()):
-            return None
-        return data
+    blueprint.before_request(_guard)
+    blueprint.after_request(_no_store)
 
     def owned(session_id: str):
         row = db.session.get(live_session.ClinicLiveSession, session_id)
@@ -260,8 +298,8 @@ def create_blueprint(
             return _problem(_code(error))
 
     def transition(session_id: str, method):
-        data = body(set(), {"client_id", "generation", "release"} if method is live_session.pause
-                    else {"client_id", "generation"})
+        data = _body(set(), {"client_id", "generation", "release"} if method is live_session.pause
+                     else {"client_id", "generation"})
         if data is None or ("release" in data and type(data["release"]) is not bool):
             return _problem("INVALID_PAYLOAD")
         release = data.pop("release", False)
@@ -289,7 +327,7 @@ def create_blueprint(
     def append_phrase(session_id):
         required = {"generation", "sequence", "event_id", "audio_start_ms", "audio_end_ms",
                     "audio_b64", "audio_revision_id", "transcript_revision_id", "text_hash"}
-        data = body(required, {"client_id"})
+        data = _body(required, {"client_id"})
         if data is None or not isinstance(data["audio_b64"], str):
             return _problem("INVALID_PAYLOAD")
         row = owned(session_id)
@@ -312,7 +350,7 @@ def create_blueprint(
 
     @blueprint.post("/dictations/<dictation_id>/resume")
     def resume(dictation_id):
-        data = body(set(), {"client_id", "generation", "after_sequence", "session_id", "cursor"})
+        data = _body(set(), {"client_id", "generation", "after_sequence", "session_id", "cursor"})
         if data is None:
             return _problem("INVALID_PAYLOAD")
         if "cursor" in data:
@@ -343,10 +381,6 @@ def create_blueprint(
                 record_read(dictation_id, "live_phrase_text")
             return jsonify(result)
 
-        if session_id is not None:
-            row = model.query.filter_by(id=session_id, dictation_id=dictation_id).first()
-            return page(row, True) if row is not None else _problem("POLICY_DENIED")
-
         def latest_ended():
             row = (_history(dictation_id)
                    .order_by(model.started_at.desc(), model.created_at.desc(), model.id.desc()).first())
@@ -359,13 +393,18 @@ def create_blueprint(
         def open_session():
             return model.query.filter_by(active_key=dictation_id).first()
 
-        active = open_session()
-        if active is None:
-            return latest_ended()
-        if not authorize_dictation(actor, dictation_id):
-            return page(active, True)
-
         def act():
+            _require_undiscarded(dictation_id)
+            if session_id is not None:
+                row = model.query.filter_by(id=session_id, dictation_id=dictation_id).first()
+                return page(row, True) if row is not None else _problem("POLICY_DENIED")
+
+            active = open_session()
+            if active is None:
+                return latest_ended()
+            if not authorize_dictation(actor, dictation_id):
+                return page(active, True)
+
             try:
                 row, _point = live_session.recover(
                     dictation_id, actor, now(), client_id=data.get("client_id"),
@@ -377,12 +416,14 @@ def create_blueprint(
                 db.session.rollback()
                 if not (authorize_view or authorize_dictation)(actor, dictation_id):
                     return _problem("POLICY_DENIED")
+                _require_undiscarded(dictation_id)
                 active = open_session()
                 if active is None:
                     return latest_ended()
                 if error.reason == live_session.NOT_HOLDER and "generation" in data:
                     return _problem("POLICY_DENIED")
                 return page(active, True)
+            _require_undiscarded(dictation_id)
             response = page(row, False)
             db.session.commit()
             return response
@@ -429,8 +470,8 @@ def create_blueprint(
     def switch_draft(draft_id):
         if drafts is None:
             return _problem("CAPABILITY_UNAVAILABLE")
-        data = body({"tab_id"}, {"acknowledged_holder"})
-        if data is None or not _client_id(data["tab_id"]):
+        data = _body({"tab_id"}, {"acknowledged_holder"})
+        if data is None or not _client_id(data["tab_id"]) or not _client_id(draft_id):
             return _problem("INVALID_PAYLOAD")
         ack = data.get("acknowledged_holder")
         if "acknowledged_holder" in data and (

@@ -27,6 +27,8 @@ EXPECTED = {
     "clinic_bundle.export", "clinic_bundle.import_session",
     "clinic_live.pause", "clinic_live.resume_recording", "clinic_live.append_phrase",
     "clinic_live.resume", "clinic_live.switch_draft", "clinic_live.phrase_audio",
+    "clinic_live_drafts.list_drafts", "clinic_live_drafts.create_draft", "clinic_live_drafts.get_draft",
+    "clinic_live_drafts.save_draft", "clinic_live_drafts.discard_draft",
     "clinic_correction.get_correction", "clinic_correction.save", "clinic_correction.add_marker",
     "clinic_correction.change_marker",
     "clinic_tts.capability", "clinic_tts.speak",
@@ -66,6 +68,7 @@ from src.clinic.ingest import IngestService
 from src.clinic.live_commit import commit_asr_phrase
 from src.clinic.lease import acquire
 from src.clinic.revisions import add_asr_revision
+from src.clinic.workflow import ClinicWorkflowDictation, DRAFT
 
 BODY = "Anamnese Husten seit drei Tagen."
 with app.app_context():
@@ -107,6 +110,8 @@ with app.app_context():
     db.session.add(orig2); db.session.flush()
     add_asr_revision(dic2, orig2, BODY, "model:test")
     init_audio_revision(dic2, orig2, ms)
+    db.session.add(ClinicWorkflowDictation(id=dic2.id, status=DRAFT, author_user_id=ids["a"],
+                                           pool_id=str(uuid.uuid4())))
     db.session.commit()
     rec_id, did, did2, head_id, asr_id, gen = rec.id, dic.id, dic2.id, head.id, asr.id, lease.generation
     live_recording = Recording(user_id=ids["a"], title="Synthetic live", status="PENDING")
@@ -244,6 +249,62 @@ out["txt"] = [txt.status_code, txt.mimetype, txt.get_data(as_text=True)]
 out["rtf"] = [rtf.status_code, rtf.mimetype, rtf.data.startswith(b"{\\rtf1"), BODY.encode("ascii") in rtf.data]
 out["sdict_foreign"] = cb.get(B2 + "/export?format=sdict").status_code
 
+# Reopen the same dictation after an import through the real app mount.
+from src.clinic import richtext_formats
+from src.clinic.richtext import CanonicalDocument, Node, Segment
+
+incoming_doc = CanonicalDocument((Node(id="heading", kind="heading", level=2, runs=(
+    Segment(id="run", text="Importierter Befund", bold=True, audio_anchor_id="foreign-anchor"),
+)),))
+buf = io.BytesIO()
+with wave.open(buf, "wb") as writer:
+    writer.setparams((1, 2, rate, 0, "NONE", "not compressed"))
+    writer.writeframes(b"\x03\x00" * (rate // 4))
+incoming_audio = buf.getvalue()
+incoming = richtext_formats.export_document(incoming_doc, expected_version=1,
+                                             allowed=True, audio=incoming_audio).bundle
+old_etag = sdict.headers["ETag"]
+good = {**ha, **key(), "If-Match": old_etag,
+        "X-Content-SHA256": hashlib.sha256(incoming).hexdigest()}
+real_url = B2 + "/import"
+out["persist_rejected"] = [
+    ca.post(real_url, data=incoming, headers={**good, "If-Match": '"0"'}).status_code,
+    ca.post(real_url, data=incoming, headers={**good, "X-Content-SHA256": "0" * 64}).status_code,
+]
+from unittest.mock import patch
+with patch("src.clinic.config.client_profile", return_value="byod_internal"):
+    out["persist_rejected"].append(ca.post(real_url, data=incoming, headers=good).status_code)
+unchanged = ca.get(B2 + "/export")
+out["persist_unchanged"] = all(unchanged.headers[name] == sdict.headers[name] for name in ("ETag", "X-Content-SHA256"))
+saved = ca.post(real_url, data=incoming, headers=good)
+out["persist_status"] = saved.status_code
+if saved.status_code == 200:
+    out["persist_response"] = saved.json
+    out["persist_replay"] = ca.post(real_url, data=incoming, headers=good).json
+    reopened = login(ids["a"])[0]
+    reexport = reopened.get(B2 + "/export")
+    from src.clinic.sdict_bundle import read_bundle
+    before_bundle, after_bundle = read_bundle(incoming), read_bundle(reexport.data)
+    out["persist_roundtrip"] = (after_bundle.files == before_bundle.files
+                                and after_bundle.manifest["anchors"] == before_bundle.manifest["anchors"])
+    D2 = f"/api/clinic/v1/dictations/{did2}"
+    correction = reopened.get(D2 + "/correction").json
+    played = reopened.get(D2 + "/audio/derived")
+    out["persist_reopen"] = [correction["text"], correction["audio_synced"], played.data == incoming_audio]
+    with app.app_context():
+        row = db.session.get(ClinicDictation, did2)
+        edl = get_revision_edl(row, db.session.get(type(rev), rev.id))
+        from src.clinic.audio_render import render_audio
+        out["persist_older_audio"] = render_audio(edl, make_source_loader(originals_root(app))(row, edl)).wav == expected_wav
+    plain = ca.post(real_url + "?format=txt", data=b"Neuer Text ohne Zeitbezug",
+                    headers={**ha, **key(), "If-Match": reexport.headers["ETag"]})
+    plain_reopened = reopened.get(D2 + "/correction").json
+    out["persist_txt"] = [plain.status_code, plain.json["audio_synced"],
+                          plain_reopened["text"], plain_reopened["audio_synced"],
+                          plain_reopened["audio_revision_id"] == played.headers["X-Audio-Revision"],
+                          reopened.get(D2 + "/audio/derived").data == played.data,
+                          reopened.get(B2 + "/export").headers["X-Audio-Synced"]]
+
 # live (+ parity commands on the one dispatcher)
 L = "/api/clinic/v1/live"
 cmd = lambda: {"command": "start_live_session", "request_id": str(uuid.uuid4()), "expected_revision": 0,
@@ -355,11 +416,23 @@ def test_mounted_sdict_contains_current_audio_and_text(on):
     assert on["sdict_foreign"] == 404
 
 
+def test_mounted_import_preserves_document_audio_and_previous_audio(on):
+    assert on["persist_rejected"] == [409, 400, 403]
+    assert on["persist_unchanged"]
+    assert on["persist_status"] == 200
+    assert on["persist_response"]["audio_synced"] is True
+    assert on["persist_replay"] == on["persist_response"]
+    assert on["persist_roundtrip"]
+    assert on["persist_reopen"] == ["Importierter Befund", True, True]
+    assert on["persist_older_audio"]
+    assert on["persist_txt"] == [200, False, "Neuer Text ohne Zeitbezug", False, True, True, "false"]
+
+
 def test_live_commands_use_the_shared_dispatcher_and_session_actor(on):
     assert on["live_cmd"] == [200, 403]
     assert on["live_no_csrf"] in (400, 403)
     assert on["live_resume"] == [200, 403]
-    assert on["live_draft"] == "CAPABILITY_UNAVAILABLE"
+    assert on["live_draft"] == "POLICY_DENIED"  # This dictation has no registered draft.
 
 
 def test_tts_answers_unavailable_without_engine_and_checks_csrf(on):
