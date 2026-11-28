@@ -12,6 +12,13 @@ A finished run is persisted once through ``record_training_run`` with the
 manifest hash, profile version and checkpoint hashes in ``result_ref``.
 The runner never edits the profile: the previously active model stays active on
 every non-success path (promotion belongs to checkpoint evaluation).
+
+``evaluate_provider`` is the lab check of that provider on reviewed synthetic
+pairs (PAR-ASR-004, owner Q-17). Text-only and acoustic stay separate. Acoustic
+pairs count only with confirmed alignment of that text to that audio. The only
+adaptation evidence is an independently evaluated model artifact; hotword lists
+and summaries never qualify. With no approved provider the capability stays
+open and the job is refused — the check never invents a pass.
 """
 
 from __future__ import annotations
@@ -20,6 +27,7 @@ import hashlib
 import json
 import re
 import threading
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from src.clinic.asr_capabilities import (
@@ -47,11 +55,50 @@ TIMED_OUT = "timed_out"
 LIMIT_EXCEEDED = "limit_exceeded"
 INSUFFICIENT_DATA = "insufficient_data"
 GATE = "G-ASR-PARITY"
+NOT_RUN = "not_run"
+REFUSED = "refused"
+OPEN = "open"
+
+# Hotword lists and summaries are decoder bias / post-processing, never a model.
+NON_ADAPTATION = frozenset({"hotword", "hotwords", "summary", "summaries"})
+KINDS = frozenset({"language_model", "acoustic"})
 
 MAX_ITEMS = 5000
 TIMEOUT_SECONDS = 4 * 3600
 _RESULT_REF_MAX = 500
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True)
+class ReviewedPair:
+    """One reviewed synthetic pair. ``alignment`` is confirmed only when True.
+
+    ``matched`` is whether the reviewed text belongs to this audio. Acoustic
+    training requires both; text-only training ignores audio.
+    """
+
+    pair_id: str
+    kind: str  # language_model (text-only) or acoustic (text+audio)
+    text: str
+    reviewed: bool
+    audio_ref: str | None = None
+    matched: bool = False
+    alignment: bool | None = None  # True = confirmed; anything else is not
+    artifact_kind: str = "model"  # model | hotword | summary
+    holdout: bool = False  # held out of training; the independent evaluation set
+
+
+@dataclass(frozen=True)
+class AdaptationArtifact:
+    """A local model artifact. Its version is what the lab inspects.
+
+    It counts as adaptation only when ``evaluate_provider`` scores it on
+    held-out reviewed pairs (``holdout=True``). The provider does not grade
+    itself, and hotword or summary stand-ins never count.
+    """
+
+    version: str
+    kind: str  # language_model | acoustic
 
 
 def run_training(
@@ -172,6 +219,138 @@ def _recorded(user_id, base):
         ):
             return row
     return None
+
+
+def _approved(provider, registry: AsrCapabilityRegistry, target: AsrTarget) -> bool:
+    """The registry proved this exact local target and the provider is that target."""
+    if getattr(provider, "target", None) != target:
+        return False
+    training = registry.check(AsrCapability.TRAINING.value, target)
+    adaptation = registry.check(AsrCapability.ADAPTATION.value, target)
+    return training != CAPABILITY_UNAVAILABLE and adaptation != CAPABILITY_UNAVAILABLE
+
+
+def _pair_decision(pair: ReviewedPair) -> str | None:
+    """None when the pair may train; otherwise the refusal reason."""
+    if pair.kind not in KINDS:
+        return "kind_invalid"
+    if pair.artifact_kind in NON_ADAPTATION:
+        return "not_adaptation"
+    if pair.artifact_kind != "model":
+        return "not_model_artifact"
+    if not pair.reviewed or not isinstance(pair.text, str) or not pair.text.strip():
+        return "not_reviewed"
+    if pair.kind == "acoustic":
+        if not pair.audio_ref or not pair.matched or pair.alignment is not True:
+            return "alignment_unconfirmed"
+    return None
+
+
+def _score(provider, pair: ReviewedPair, artifact: AdaptationArtifact):
+    """The provider's own score of one held-out pair. None when it cannot score."""
+    score = getattr(provider, "score", None)
+    if not callable(score):
+        return None
+    try:
+        value = score(pair, artifact)
+    except Exception:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if value != value or value in (float("inf"), float("-inf")) or value < 0:
+        return None
+    return float(value)
+
+
+def _evaluation(provider, pairs, decisions, artifact: AdaptationArtifact | None) -> dict | None:
+    """Inspect the artifact version. It counts only when held-out pairs were scored."""
+    if artifact is None:
+        return None
+    base = {
+        "version": artifact.version, "kind": artifact.kind,
+        "evaluation_ref": None, "counts_as_adaptation": False,
+    }
+    if (
+        artifact.kind not in KINDS
+        or not isinstance(artifact.version, str)
+        or not artifact.version.strip()
+    ):
+        return {**base, "reason": "not_independently_evaluated"}
+    holdout = [
+        pair for pair, reason in zip(pairs, decisions)
+        if reason is None and pair.holdout and pair.kind == artifact.kind
+    ]
+    scores = [(pair.pair_id, _score(provider, pair, artifact)) for pair in holdout]
+    measured = [item for item in scores if item[1] is not None]
+    if not measured:
+        return {**base, "reason": "not_independently_evaluated"}
+    joined = "\n".join(f"{pair_id}:{score:.6f}" for pair_id, score in measured)
+    return {
+        **base,
+        "evaluation_ref": hashlib.sha256(joined.encode("utf-8")).hexdigest(),
+        "evaluated_pairs": len(measured),
+        "counts_as_adaptation": True,
+    }
+
+
+def evaluate_provider(
+    provider,
+    pairs: list[ReviewedPair],
+    *,
+    registry: AsrCapabilityRegistry,
+    target: AsrTarget,
+    artifact: AdaptationArtifact | None = None,
+) -> dict:
+    """Lab evaluation of one local provider on reviewed synthetic pairs.
+
+    No approved provider (registry proof for this exact target, both kinds)
+    leaves the capability ``open``: every case is ``not_run`` and the job is
+    ``refused``. An artifact counts only after this check scores it on held-out
+    reviewed pairs. Nothing here records a training run or promotes a model.
+    """
+    if not clinic_mode_enabled():
+        raise TrainingScheduleError("clinic_mode_required")
+    if not _approved(provider, registry, target):
+        return {
+            "capability": OPEN,
+            "job": REFUSED,
+            "gate": GATE,
+            "gate_status": "blocked",
+            "cases": [
+                {"pair_id": pair.pair_id, "kind": pair.kind, "status": NOT_RUN}
+                for pair in pairs
+            ],
+            "artifact": None,
+        }
+
+    decisions = [_pair_decision(pair) for pair in pairs]
+    cases = []
+    for pair, reason in zip(pairs, decisions):
+        if reason is None and not pair.holdout:
+            cases.append({
+                "pair_id": pair.pair_id, "kind": pair.kind, "status": "accepted",
+            })
+        elif reason is None:
+            cases.append({
+                "pair_id": pair.pair_id, "kind": pair.kind, "status": "evaluated",
+            })
+        else:
+            cases.append({
+                "pair_id": pair.pair_id, "kind": pair.kind,
+                "status": REFUSED, "reason": reason,
+            })
+
+    shown = _evaluation(provider, pairs, decisions, artifact)
+    trainable = any(case["status"] == "accepted" for case in cases)
+    counts = shown is not None and shown["counts_as_adaptation"]
+    return {
+        "capability": "available",
+        "job": "eligible" if trainable and counts else REFUSED,
+        "gate": GATE,
+        "gate_status": "blocked",  # a lab check is not the parity oracle
+        "cases": cases,
+        "artifact": shown,
+    }
 
 
 def _text_chars(items) -> int:
