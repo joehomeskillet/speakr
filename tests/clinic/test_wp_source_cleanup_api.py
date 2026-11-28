@@ -53,26 +53,31 @@ def test_manual_source_cleanup_is_a_bound_non_deleting_decision(env, monkeypatch
     monkeypatch.setitem(dev_defaults()["features"], "device_delete_runtime_enabled", False)
     monkeypatch.setitem(dev_defaults()["privacy"], "retention_policy_approved", False)
 
-    def approve_source(user, root):
+    def approve_source(user, root, *, source_kind="device"):
         return import_source_config.create_source_config(
-            actor_user_id=user.id, source_kind="device", source_ref=root, approved_root="/synthetic-imports",
+            actor_user_id=user.id, source_kind=source_kind, source_ref=root, approved_root="/synthetic-imports",
             target_author_user_id=user.id, backup_root="/synthetic-backups", backup_enabled=True,
             backup_retention_days=30,
         )
 
     config = approve_source(admin, "usb-1")
-    delegated = approve_source(operator, "usb-2")
+    delegated = approve_source(operator, "dropfolder", source_kind="folder")
     ordinary = approve_source(outsider, "usb-3")
     admin_client, operator_client, outsider_client = (_client(user) for user in (admin, operator, outsider))
 
-    def enable(client, source):
-        return _call(client, "PUT", f"sources/{source['id']}", {"expected_version": 1, "allow_source_delete": True})
+    def enable(client, source, **changes):
+        return _call(client, "PUT", f"sources/{source['id']}",
+                     {"expected_version": 1, "allow_source_delete": True, **changes})
 
     assert config["allow_source_delete"] is False
     assert enable(admin_client, config).status_code == 403
     monkeypatch.setitem(dev_defaults()["features"], "device_delete_runtime_enabled", True)
     assert enable(outsider_client, ordinary).status_code == 403
-    assert enable(operator_client, delegated).json["allow_source_delete"] is True
+    updated = enable(operator_client, delegated, file_pattern="*.wav", backup_retention_days=45)
+    assert updated.status_code == 200, updated.json
+    assert updated.json["allow_source_delete"] is True
+    assert updated.json["file_pattern"] == "*.wav"
+    assert updated.json["backup_retention_days"] == 45
 
     data = _data("stored")
     _intent(env, actor_user_id=admin.id)
