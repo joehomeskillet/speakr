@@ -341,6 +341,32 @@ def horizontal_overflow(page) -> dict:
         " scrollWidth: document.documentElement.scrollWidth, innerWidth: innerWidth})")
 
 
+def save_rendered_dom(page, path: Path) -> None:
+    # Preserve the rendered styles when Hallmark opens the snapshot without the app server.
+    html = page.evaluate(r"""repo => {
+        const root = document.documentElement.cloneNode(true);
+        for (const node of root.querySelectorAll('script, link[rel=stylesheet], style, meta[name=csrf-token], input[name=csrf_token]')) node.remove();
+        for (const link of root.querySelectorAll('link[href^="/static/"]')) {
+            link.setAttribute('href', repo + link.getAttribute('href'));
+        }
+        const style = document.createElement('style');
+        style.textContent = Array.from(document.styleSheets).map(sheet => {
+            try {
+                const css = Array.from(sheet.cssRules).map(rule => rule.cssText).join('\n');
+                return css.replaceAll(/url\("([^"]+)"\)/g, (match, src) => {
+                    const url = new URL(src, sheet.href || document.baseURI);
+                    return url.origin === location.origin && url.pathname.startsWith('/static/')
+                        ? 'url("' + repo + url.pathname + '")' : match;
+                });
+            }
+            catch { return ''; }
+        }).join('\n');
+        root.querySelector('head').append(style);
+        return '<!doctype html>\n' + root.outerHTML;
+    }""", os.path.relpath(ROOT, path.parent))
+    path.write_text(html, encoding="utf-8")
+
+
 def write_result(stem: str, payload: dict) -> Path:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     path = OUT_DIR / f"{stem}.json"
