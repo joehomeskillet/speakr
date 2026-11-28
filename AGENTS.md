@@ -28,6 +28,7 @@ Web-only clinic dictation fork of Speakr v0.11.1, pinned to upstream commit `48d
 ## Persona panel
 
 Klinik Südhang is an addiction clinic. Most users have limited technical experience. Run the panel once per new or changed author, typist or team lead flow before the owner makes UX decisions. One run covers the flow change across its commits. Budget about 120,000 tokens per run on the subscription.
+The outpatient centres are far from the main clinic and have no on-site IT. Their dictations are typed centrally in Bern.
 
 ```
 python3 scripts/persona_panel/persona_panel.py walkthrough "Flow name" /path/to/staging.png

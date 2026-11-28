@@ -58,6 +58,10 @@ function fakeClient(handler) {
     };
 }
 
+const POLICY_PATH = '/statistics/collection';
+const uncollected = { coverage: 'uncollected', count: null, zero_activity: false };
+const policy = () => ({ usage: { enabled: false, retention_days: null }, history: { enabled: true, retention_days: 90 } });
+
 const source = () => readFileSync(new URL('../../../static/js/clinic/compose-activity.js', import.meta.url), 'utf8');
 
 describe('activity view composition', () => {
@@ -203,6 +207,113 @@ describe('statistics rendering from the real aggregate shape', () => {
         pending[0](ok(AGGREGATE));
         await a;
         expect(ctrl.state.status).toBe('empty');
+    });
+});
+
+describe('statistics collection', () => {
+    it('mounts the saved switches and persists each switch and retention across a reload', async () => {
+        const saved = policy();
+        const client = fakeClient((path, opts) => {
+            if (path !== POLICY_PATH) return ok(uncollected);
+            if (!opts) return ok(saved);
+            const { kind, enabled, retention_days } = opts.body;
+            saved[kind] = { enabled, retention_days };
+            return ok(opts.body);
+        });
+        const mount = () => ActivityView.setup({ client, currentUser: { id: 7, is_admin: true }, vue: fakeVue() });
+        const view = mount();
+        await view.loadPolicy();
+        expect(view.state.policy.usage).toMatchObject({ enabled: false, retention_days: null });
+        Object.assign(view.state.policy.usage, { enabled: true, retention_days: 30 });
+        await view.savePolicy('usage');
+        expect(client.request).toHaveBeenCalledWith(POLICY_PATH, {
+            method: 'PUT', body: { kind: 'usage', enabled: true, retention_days: 30 },
+        });
+        expect(view.state.policy.usage.message).toBe('Gespeichert.');
+        expect(saved.history).toEqual({ enabled: true, retention_days: 90 });
+        Object.assign(view.state.policy.history, { enabled: false, retention_days: 45 });
+        await view.savePolicy('history');
+        const reopened = mount();
+        await reopened.loadPolicy();
+        expect(reopened.state.policy.usage).toMatchObject({ enabled: true, retention_days: 30 });
+        expect(reopened.state.policy.history).toMatchObject({ enabled: false, retention_days: 45 });
+        expect(reopened.state.periods[0].status.label).toBe('Nicht erhoben');
+    });
+
+    it('queries coverage for the submitted bounds and distinguishes no data from an observed zero', async () => {
+        let usage = uncollected;
+        let history = { coverage: 'collected', count: 0, zero_activity: true };
+        const client = fakeClient((path) => {
+            if (path === POLICY_PATH) return ok(policy());
+            if (path.startsWith(STATISTICS_PATH)) return ok(AGGREGATE);
+            return ok(path.startsWith('/statistics/usage?') ? usage : history);
+        });
+        const ctrl = createActivityController({ client, currentUser: { id: 7 } });
+        await ctrl.loadPolicy();
+        Object.assign(ctrl.state.form, { from: '2026-11-01', to: '2026-11-02', timeBasis: 'completed' });
+        await ctrl.load();
+        expect(client.request).toHaveBeenCalledWith('/statistics/usage?from=2026-11-01&to=2026-11-02');
+        expect(ctrl.state.periods.map(({ status }) => status)).toEqual([
+            { label: 'Nicht erhoben', warning: true },
+            { label: 'Erhoben', warning: false, count: 0, limited: false },
+        ]);
+        expect(ACTIVITY_TEMPLATE).toContain('{{ period.status.label }}');
+        expect(ACTIVITY_TEMPLATE).toContain('v-if="period.status.count != null"');
+        usage = { coverage: 'partial', count: 0, zero_activity: false, retention_limited: true };
+        history = {};
+        await ctrl.load();
+        expect(ctrl.state.periods.map(({ status }) => status)).toEqual([
+            { label: 'Teilweise erhoben', warning: true, count: null, limited: true },
+            { label: 'Nicht verfügbar' },
+        ]);
+    });
+
+    it.each([{ outcome: 'permission', status: 403 }, { outcome: 'error', status: 404 }])(
+        'does not claim that an unavailable policy was never collected ($status)', async (response) => {
+            const client = fakeClient(() => response);
+            const ctrl = createActivityController({ client, currentUser: { id: 7 } });
+            await ctrl.loadPolicy();
+            expect(ctrl.state.policy).toBeNull();
+            expect(ctrl.state.periods).toEqual([]);
+            expect(client.request).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it('does not save an invalid duration or report an unsuccessful save as confirmed', async () => {
+        const client = fakeClient((path, opts) => (opts ? { outcome: 'network' } : ok(path === POLICY_PATH ? policy() : uncollected)));
+        const ctrl = createActivityController({ client, currentUser: { id: 7 } });
+        await ctrl.loadPolicy();
+        client.request.mockClear();
+        await ctrl.savePolicy('usage');
+        expect(client.request).not.toHaveBeenCalled();
+        expect(ctrl.state.policy.usage.error).toBe(true);
+        ctrl.state.policy.usage.retention_days = 30;
+        await ctrl.savePolicy('usage');
+        expect(ctrl.state.policy.usage.message).toContain('Speichern nicht bestätigt');
+    });
+
+    it('does not restore a late policy response after switching accounts', async () => {
+        let resolve;
+        const client = fakeClient(() => new Promise((r) => { resolve = r; }));
+        const ctrl = createActivityController({ client, currentUser: { id: 7 } });
+        const pending = ctrl.loadPolicy();
+        ctrl.setUser({ id: 8 });
+        resolve(ok(policy()));
+        await pending;
+        expect(ctrl.state.policy).toBeNull();
+        expect(ctrl.state.periods).toEqual([]);
+        expect(client.request).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not request collection data in history-only mode or for non-admins', async () => {
+        const client = fakeClient();
+        for (const props of [{ dictationId: D, currentUser: { id: 7, is_admin: true } }, { currentUser: { id: 7 } }]) {
+            const vue = fakeVue();
+            const view = ActivityView.setup({ client, vue, ...props });
+            vue.hooks.mounted[0]();
+            await view.loadPolicy();
+        }
+        expect(client.request).not.toHaveBeenCalledWith(POLICY_PATH);
     });
 });
 
