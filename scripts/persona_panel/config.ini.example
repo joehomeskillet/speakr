@@ -1,0 +1,36 @@
+; Bundled TinyTroupe settings. The runner uses this template in each run directory.
+; Configure the runner with environment variables only. Defaults:
+; PERSONA_PANEL_BASE_URL = http://127.0.0.1:8317/v1
+; PERSONA_PANEL_ENV_FILE = ~/.local/share/tinytroupe/cliproxy.env
+; PERSONA_PANEL_MODEL = gpt-6.2-sol
+; PERSONA_PANEL_PYTHON = ~/.local/share/tinytroupe/venv/bin/python
+; PERSONA_PANEL_RUNS = ~/.local/share/tinytroupe/runs
+; The environment file supplies PROXY_API_KEY. Keep it outside the checkout.
+; Each run keeps its cache and reports in its own directory under PERSONA_PANEL_RUNS.
+
+[OpenAI]
+API_TYPE = openai
+MAX_COMPLETION_TOKENS = 8000
+TIMEOUT = 300
+MAX_ATTEMPTS = 4
+EXPONENTIAL_BACKOFF_FACTOR = 3
+MAX_CONCURRENT_MODEL_CALLS = 2
+REASONING_EFFORT = medium
+CACHE_API_CALLS = True
+CACHE_FILE_NAME = openai_api_cache.json
+
+[Simulation]
+PARALLEL_AGENT_GENERATION = False
+PARALLEL_AGENT_ACTIONS = False
+
+[Cognition]
+; A one-turn panel does not need separate, unmetered embedding calls.
+ENABLE_MEMORY_CONSOLIDATION = False
+ENABLE_CONTINUOUS_CONTEXTUAL_SEMANTIC_MEMORY_RETRIEVAL = False
+
+[ActionGenerator]
+ENABLE_REGENERATION = False
+
+[Logging]
+LOGLEVEL_CONSOLE = NONE
+LOGLEVEL_FILE = NONE

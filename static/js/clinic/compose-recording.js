@@ -22,7 +22,7 @@
  *   registerRecordingView(app)  app.component('clinic-recording-view', ...).
  *   createRecordingViewController(options)  the controller behind the view.
  *
- * Injected `uploadFile(file)` resolves with the server receipt (id or
+ * Injected `uploadFile(file, title, options)` resolves with the server receipt (id or
  * dictation_id); it is supplied by the mount package together with the recorder.
  */
 
@@ -72,6 +72,9 @@ export const TEXT = Object.freeze({
     submitting: 'Diktat wird eingereicht …',
     submitted: 'Eingereicht.',
     submitUnknown: 'Einreichung nicht bestätigt. Bitte erneut versuchen.',
+    recognition: 'Spracherkennung',
+    recognitionOn: 'ein',
+    recognitionOff: 'aus',
     categoriesLoading: 'Pflichtkategorien werden geladen …',
     categoriesFailed: 'Pflichtkategorien konnten nicht geladen werden. Bitte versuchen Sie es erneut.',
     categoriesChanged: 'Die Pflichtkategorien wurden geändert. Bitte prüfen Sie Ihre Auswahl.',
@@ -175,6 +178,8 @@ export function createRecordingViewController(options) {
     const listeners = new Set();
     const state = { mode: 'record', file: null, filePhase: 'idle', fileError: null, fileReceipt: null, disposed: false };
     let fileGeneration = 0;
+    let useSpeechRecognition = true;
+    let clientUploadId = null;
     let submission = null;
     let submitError = '';
     let pendingSend = null;
@@ -201,6 +206,29 @@ export function createRecordingViewController(options) {
 
     const denied = (code) => ({ ok: false, code: code });
     const recorderBusy = () => !['title', 'ready'].includes(machine.getState().phase);
+
+    function canChangeSpeechRecognition() {
+        return allowed() && !state.disposed && !routing && !created()
+            && ['title', 'ready', 'review', 'idle', 'selected'].includes(phase());
+    }
+
+    function toggleSpeechRecognition() {
+        if (!canChangeSpeechRecognition()) return denied('invalid_phase');
+        useSpeechRecognition = !useSpeechRecognition;
+        notify();
+        return { ok: true };
+    }
+
+    function uploadOptions() {
+        // The same draft keeps its identity on retry, even if another draft uses identical audio.
+        clientUploadId ||= globalThis.crypto.randomUUID();
+        return { useSpeechRecognition, clientUploadId };
+    }
+
+    function resetUploadChoice() {
+        useSpeechRecognition = true;
+        clientUploadId = null;
+    }
 
     async function checkRouting() {
         routing = 'routingPending';
@@ -239,6 +267,7 @@ export function createRecordingViewController(options) {
     function selectFile(file) {
         if (!allowed()) return denied('unauthorized');
         if (state.mode !== 'file' || !['idle', 'selected', 'failed'].includes(state.filePhase)) return denied('invalid_phase');
+        if (state.filePhase === 'failed') resetUploadChoice();
         if (!isAudioFile(file)) {
             Object.assign(state, { file: null, filePhase: 'idle', fileError: 'invalid_file' });
             notify();
@@ -257,7 +286,7 @@ export function createRecordingViewController(options) {
         notify();
         let receipt = null;
         try {
-            receipt = await opts.uploadFile(state.file);
+            receipt = await opts.uploadFile(state.file, undefined, uploadOptions());
         } catch (e) {
             receipt = null;
         }
@@ -277,6 +306,7 @@ export function createRecordingViewController(options) {
         if (!allowed()) return denied('unauthorized');
         if (state.mode !== 'file' || state.filePhase === 'sending' || state.filePhase === 'sent') return denied('invalid_phase');
         fileGeneration += 1;
+        resetUploadChoice();
         Object.assign(state, { file: null, filePhase: 'idle', fileError: null });
         notify();
         return { ok: true };
@@ -315,6 +345,7 @@ export function createRecordingViewController(options) {
                     return;
                 }
                 target.etag = current.etag;
+                target.useSpeechRecognition = current.use_speech_recognition;
                 target.fields = null;
                 target.editActions = Array.isArray(current.draft_edit_actions) ? current.draft_edit_actions : [];
                 target.canSend = current.allowed_actions?.includes('send') === true;
@@ -499,6 +530,10 @@ export function createRecordingViewController(options) {
         }
     }
 
+    function send() {
+        return machine.send(opts.oneButton || opts.draftMetadata || !useSpeechRecognition ? uploadOptions() : undefined);
+    }
+
     async function start() {
         if (routing || created() || state.mode !== 'record' || state.disposed) return denied('invalid_phase');
         rememberAttemptedMicrophone();
@@ -513,7 +548,7 @@ export function createRecordingViewController(options) {
 
     function saveRecording() {
         if (state.mode !== 'record' || routing || state.disposed) return denied('invalid_phase');
-        return machine.send();
+        return send();
     }
 
     async function sendRecording() {
@@ -528,6 +563,15 @@ export function createRecordingViewController(options) {
             return { ok: true };
         }
         return submit();
+    }
+
+    async function cancelRecording() {
+        const result = await machine.cancel();
+        if (result.ok) {
+            resetUploadChoice();
+            notify();
+        }
+        return result;
     }
 
     /** Opens the created dictation in the page; false when none was created. */
@@ -556,6 +600,7 @@ export function createRecordingViewController(options) {
         opts.onDraft?.(null);
         categoryValues = {};
         Object.assign(state, { file: null, filePhase: 'idle', fileError: null, fileReceipt: null });
+        resetUploadChoice();
         if (machine.getState().phase === 'sent') machine.reset();
         if (client && typeof client.switchContext === 'function') client.switchContext({});
         if (categoryLoad) void loadCategories();
@@ -666,6 +711,9 @@ export function createRecordingViewController(options) {
             uploadLabel: state.filePhase === 'failed' ? 'Erneut hochladen' : TEXT.upload,
             canCancelFile: allowed() && (state.filePhase === 'selected' || state.filePhase === 'failed'),
             canSwitchMode: allowed() && !recorderBusy() && !fileBusy,
+            canChangeSpeechRecognition: canChangeSpeechRecognition(),
+            useSpeechRecognition: draft?.useSpeechRecognition ?? receipt()?.use_speech_recognition
+                ?? (created() && !clientUploadId ? null : useSpeechRecognition),
             created: created(),
             editableDraftId: editableDraftId(),
             canSaveRecording: !opts.draftMetadata && !routing && state.mode === 'record' && !separateSubmit
@@ -755,7 +803,7 @@ export function createRecordingViewController(options) {
         pause: () => machine.pause(), resume: () => machine.resume(),
         stop: () => machine.stop(), rewind: () => machine.rewind(), play: () => machine.play(),
         beginning: machine.beginning, end: machine.end,
-        send: () => machine.send(), cancel: () => machine.cancel(),
+        send, cancel: cancelRecording, toggleSpeechRecognition,
         selectFile, sendFile, cancelFile, submit, sendRecording, checkRouting, loadCategories, selectCategory,
         loadDraft, setDraftField, saveDraft, openCreated, toWorklist, another, dispose,
         attachPedal,
@@ -782,19 +830,19 @@ const DraftSendFields = {
       <fieldset :disabled="!m.canEditDraft" style="min-width: 0">
         <legend class="sr-only">Versanddaten bearbeiten</legend>
         <label style="${DRAFT_FIELD}"><span>Titel</span>
-          <input required maxlength="200" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.title" @input="c.setDraftField('title', $event.target.value)" />
+          <input class="!border-ui-text-muted" required maxlength="200" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.title" @input="c.setDraftField('title', $event.target.value)" />
         </label>
         <label style="${DRAFT_FIELD}"><span>Anmerkung</span>
-          <textarea maxlength="4000" rows="2" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.notes" @input="c.setDraftField('notes', $event.target.value)"></textarea>
+          <textarea class="!border-ui-text-muted" maxlength="4000" rows="2" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.notes" @input="c.setDraftField('notes', $event.target.value)"></textarea>
         </label>
         <div class="field-grid">
           <label style="${DRAFT_FIELD}"><span>Priorität</span>
-            <select :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.priority" @change="c.setDraftField('priority', Number($event.target.value))">
+            <select class="!border-ui-text-muted" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.priority" @change="c.setDraftField('priority', Number($event.target.value))">
               <option v-for="p in priorities" :key="p.value" :value="p.value">{{ p.label }}</option>
             </select>
           </label>
           <label style="${DRAFT_FIELD}"><span>Frist</span>
-            <input type="date" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.deadline_date" @input="c.setDraftField('deadline_date', $event.target.value)" />
+            <input class="!border-ui-text-muted" type="date" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.deadline_date" @input="c.setDraftField('deadline_date', $event.target.value)" />
             <small>Tagesende (Europe/Zurich)</small>
           </label>
         </div>
@@ -820,6 +868,16 @@ export const RECORDING_TEMPLATE = `
          style="display: grid; place-items: center; min-height: min(56dvh, 30rem); padding: var(--ui-space-6) var(--ui-space-4); color: var(--ui-text)">
   <h1 id="crv-title" class="sr-only">{{ c.text.title }}</h1>
   <div style="width: 100%; max-width: 28rem; text-align: center">
+    <button v-if="m.canChangeSpeechRecognition" type="button" role="switch" data-testid="recognition-switch"
+            class="button quiet focus-visible:outline focus-visible:outline-2 focus-visible:outline-ui-text"
+            :aria-checked="m.useSpeechRecognition" @click="c.toggleSpeechRecognition()"
+            style="${TOUCH}; border-color: var(--ui-border); margin-bottom: var(--ui-space-3)">
+      {{ c.text.recognition }} <span aria-hidden="true">{{ m.useSpeechRecognition ? c.text.recognitionOn : c.text.recognitionOff }}</span>
+    </button>
+    <p v-else-if="m.useSpeechRecognition !== null && (m.created || (!m.routing && ['sending', 'failed'].includes(m.phase)))"
+       data-testid="recognition-status" style="margin: 0 0 var(--ui-space-3)">
+      {{ c.text.recognition }} {{ m.useSpeechRecognition ? c.text.recognitionOn : c.text.recognitionOff }}
+    </p>
     <p v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
        :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}</p>
     <template v-if="!m.routing || m.created">
@@ -834,7 +892,7 @@ export const RECORDING_TEMPLATE = `
         </div>
         <div v-if="m.phase === 'title' || m.phase === 'ready'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
           <button type="button" class="button accent" data-testid="rec-start" :aria-keyshortcuts="shortcuts.start" :disabled="!enabled('start')" @click="c.start()"
-                  style="width: 10rem; height: 10rem; border-radius: 50%; flex-direction: column; gap: var(--ui-space-2); font-size: 1rem; white-space: nowrap">
+                  style="width: 10rem; height: 10rem; border-radius: 50%; flex-direction: column; gap: var(--ui-space-2); padding-inline: var(--ui-space-2); font-size: 1rem; white-space: nowrap">
             <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true"><path :d="icons.start"></path></svg>
             Aufnahme starten
           </button>
@@ -875,6 +933,17 @@ export const RECORDING_TEMPLATE = `
                  @loadedmetadata="loadReview" @durationchange="c.machine.syncPlayback()" @seeked="finishDurationProbe"
                  @play="c.machine.syncPlayback()" @pause="c.machine.syncPlayback()" @ended="c.machine.syncPlayback()"
                  @error="c.machine.playbackFailed()" style="width: 100%; min-height: 3rem"></audio>
+          <div v-if="!m.created && previewUrl" style="display: grid; gap: var(--ui-space-1); width: 100%; text-align: left; font-size: .875rem">
+            <span id="crv-output-label">Wiedergabegerät</span>
+            <div role="group" aria-labelledby="crv-output-label" data-testid="rec-output" style="display: grid; gap: var(--ui-space-1)">
+              <button type="button" class="button" :class="{ accent: outputSupported && outputId === '' }" :aria-pressed="outputId === ''"
+                      :disabled="!outputSupported" data-testid="rec-output-default" @click="chooseOutput('')" style="${TOUCH}; justify-content: flex-start">Systemstandard</button>
+              <button v-for="(d, i) in outputs" :key="d.deviceId" type="button" class="button" :class="{ accent: outputId === d.deviceId }"
+                      :aria-pressed="outputId === d.deviceId" :disabled="!outputSupported" data-testid="rec-output-device" @click="chooseOutput(d.deviceId)"
+                      style="${TOUCH}; justify-content: flex-start; min-width: 0; overflow-wrap: anywhere">{{ d.label || ('Ausgabegerät ' + (i + 1)) }}</button>
+            </div>
+            <p v-if="!outputSupported" data-testid="rec-output-note" style="margin: 0; color: var(--ui-text-muted, var(--ui-text))">Dieser Browser verwendet für die Wiedergabe immer den Systemausgang.</p>
+          </div>
           <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.sendRecording()">
             {{ m.recordActionLabel }}
           </button>
@@ -977,8 +1046,47 @@ export const RecordingView = {
         }
         const reviewSource = () => props.player ? null : props.recorder.reviewSource?.();
         let probingDuration = false;
+        const outputSupported = V.ref(false);
+        const outputs = V.ref([]);
+        const outputId = V.ref('');
+        let reviewMedia = null;
+        let switchingMedia = null;
+        async function chooseOutput(deviceId) {
+            const media = reviewMedia;
+            if (!outputSupported.value || switchingMedia === media) return;
+            switchingMedia = media;
+            try {
+                await media.setSinkId(deviceId);
+                if (reviewMedia === media) outputId.value = deviceId;
+            } catch {
+                if (reviewMedia !== media) return;
+                if (media.sinkId && deviceId) {
+                    try { await media.setSinkId(''); } catch { /* Keep the actual sink if fallback fails. */ }
+                }
+                if (reviewMedia === media) outputId.value = media.sinkId || '';
+            } finally {
+                if (switchingMedia === media) switchingMedia = null;
+            }
+        }
+        async function listOutputs(media) {
+            try {
+                const all = await globalThis.navigator?.mediaDevices?.enumerateDevices?.();
+                if (reviewMedia === media) {
+                    outputs.value = (all || []).filter((d) => d.kind === 'audiooutput' && d.deviceId && d.deviceId !== 'default');
+                }
+            } catch {
+                // The system output stays available when the browser cannot list devices.
+            }
+        }
         function bindReview(media) {
-            if (!media) {
+            if (reviewMedia === media) return;
+            reviewMedia = media;
+            outputs.value = [];
+            outputSupported.value = !!media && typeof media.setSinkId === 'function';
+            if (outputSupported.value) {
+                void listOutputs(media);
+                if (outputId.value) void chooseOutput(outputId.value);
+            } else if (!media) {
                 probingDuration = false;
                 c.machine.setPlayer(null);
             }
@@ -1077,6 +1185,7 @@ export const RecordingView = {
             editingDraft, audioEditButton, openAudioEdits, closeAudioEdits,
             reviewSource,
             bindReview,
+            outputSupported, outputs, outputId, chooseOutput,
             loadReview,
             finishDurationProbe,
             shortcuts,
