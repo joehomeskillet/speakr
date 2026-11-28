@@ -75,7 +75,7 @@ export function groupPreview(preview) {
     const actions = (preview && preview.actions) || [];
     return {
         additions: actions.filter((a) => a.kind === 'create_pending_user'),
-        modifications: actions.filter((a) => a.kind === 'update_display_name'),
+        modifications: actions.filter((a) => a.kind === 'update_display_name' || a.kind === 'update_email'),
         disabled: actions.filter((a) => a.kind === 'deactivate'),
         memberships: (preview && preview.membership_changes) || [],
     };
@@ -129,7 +129,9 @@ export function createDirectoryReview(options) {
         state.message = '';
         state.selected = {};
         const groups = groupPreview(row.data);
-        for (const a of [...groups.modifications, ...groups.disabled]) state.selected[actionKey(a)] = true;
+        for (const a of [...groups.modifications, ...groups.disabled]) {
+            if (a.kind !== 'update_email') state.selected[actionKey(a)] = true;
+        }
         for (const m of groups.memberships) state.selected[memberKey(m)] = true;
         setStatus('success');
         return { ok: true };
