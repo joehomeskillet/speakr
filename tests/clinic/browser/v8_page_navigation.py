@@ -138,6 +138,7 @@ def show_vocabulary(page, base):
     support._show_resources(page, base)
     support._open_shell_view(page, base, "#/verwaltung/wortschatz")
     view = page.get_by_test_id("clinic-vocabulary-view")
+    view.wait_for(state="visible", timeout=support.SHOW_TIMEOUT_MS)
     expect(view.get_by_role("heading", name="Wortschatz", exact=True)).to_be_visible()
     expect(view.get_by_role("tabpanel").get_by_test_id("empty")).to_be_visible()
 

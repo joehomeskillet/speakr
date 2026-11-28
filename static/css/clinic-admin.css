@@ -769,6 +769,11 @@
     .v8-ui .asr-admin-layout .asr-wait input { max-width: none; }
     .v8-ui .asr-admin-layout .asr-save-actions .primary { width: 100%; }
 }
+@media (max-width: 530px) {
+    .v8-ui .asr-admin-layout [aria-labelledby="asr-config-title"] { gap: var(--sp-2); }
+    .v8-ui .asr-admin-layout .field-grid { row-gap: var(--sp-1); }
+    .v8-ui .asr-admin-layout .asr-save-actions { margin-top: var(--sp-1); }
+}
 
 .cadm .clinic-vocabulary-view .vocabulary-ui > .filterbar { margin-block: 0; }
 .cadm .clinic-vocabulary-view .vocabulary-ui .filterbar label { margin: 0; }

@@ -115,6 +115,7 @@ def test_header_new_recording_is_hidden_only_on_recorder(live_server, width: int
             new = page.get_by_role("link", name="Neue Aufnahme", exact=True).and_(page.get_by_test_id("nav-clinic-new"))
             expect(new).to_be_visible()
             new.click()
+            page.get_by_test_id("clinic-recording-view").wait_for(state="visible", timeout=30000)
             expect(page.get_by_role("button", name="Aufnahme starten", exact=True)).to_be_visible()
             expect(new).to_have_count(0)
             page.reload()

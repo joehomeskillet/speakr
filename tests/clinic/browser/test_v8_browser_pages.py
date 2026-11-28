@@ -257,7 +257,7 @@ def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
         for region in (config, current, evidence):
             expect(region).to_be_visible()
         left, right, table = [region.bounding_box() for region in (config, current, evidence)]
-        if width == 390:
+        if width <= 390:
             assert left["x"] == right["x"] == table["x"]
             assert left["width"] == right["width"] == table["width"]
             assert left["y"] + left["height"] <= right["y"]
@@ -279,8 +279,9 @@ def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
         expect(primary).to_be_visible()
         expect(view.locator(".primary:visible")).to_have_count(1)
         assert primary.bounding_box()["height"] >= 48
-        if width == 390:
+        if width <= 390:
             assert primary.bounding_box()["width"] == config.locator(".asr-save-actions").bounding_box()["width"]
+        if width == 390:
             expect(primary).to_be_in_viewport(ratio=1)
         expect(view.get_by_text("Ihr Gerät sendet Aufnahmen an Speakr.", exact=False)).to_be_visible()
         if state == "empty":
