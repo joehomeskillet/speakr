@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+    CorrectionBody,
     CorrectionView,
     STEP_SECONDS,
     TEXT,
@@ -104,6 +105,39 @@ async function openForEdit(client, extra = {}) {
 }
 
 describe('compose-correction contract', () => {
+    it('opens a local editable draft for the selection hotkey and writes only on dialog submit', async () => {
+        const client = fakeClient(base());
+        const vue = {
+            ref: (value) => ({ value }), shallowRef: (value) => ({ value }),
+            computed: (fn) => ({ get value() { return fn(); } }), nextTick: async () => {},
+        };
+        const ui = CorrectionBody.setup({ client, vue, dictationId: 'd1', currentUser: { id: 9 } });
+        await ui.c.start();
+        await ui.c.editor.acquire();
+        ui.c.editor.setText('Hallo   Welt heute');
+        const area = { selectionStart: 0, selectionEnd: 0, focus: vi.fn() };
+        ui.setTextEl(area);
+        const press = (extra = {}) => ui.onTextKeydown({ ctrlKey: true, altKey: true, key: 'p', preventDefault: vi.fn(), ...extra });
+        press();
+        expect(ui.entryDraft.value).toBeNull();
+        area.selectionEnd = 12;
+        press({ repeat: true });
+        press({ isComposing: true });
+        expect(ui.entryDraft.value).toBeNull();
+        press({ ctrlKey: false, metaKey: true, key: 'π', code: 'KeyP' });
+        expect(ui.entryDraft.value).toMatchObject({ entry: null, written: 'Hallo Welt', spoken: '' });
+        expect(client.calls.some(({ path }) => path === '/vocabulary/additions')).toBe(false);
+        ui.entryDraft.value.written = 'Hallo Erde';
+        ui.entryDraft.value.spoken = 'hallo er de';
+        await ui.saveEntry();
+        expect(client.calls.find(({ path }) => path === '/vocabulary/additions').options.body).toEqual({
+            scope: 'user', create_only: true, written: 'Hallo Erde', spoken: 'hallo er de',
+        });
+        expect(ui.c.editor.text.value).toBe('Hallo   Welt heute');
+        expect(area.focus).toHaveBeenCalledOnce();
+        await ui.c.dispose();
+    });
+
     it('exports the view and registers it as clinic-correction-view', () => {
         const app = { component: vi.fn() };
         expect(registerCorrectionView(app)).toBe(app);
@@ -121,7 +155,8 @@ describe('compose-correction contract', () => {
         expect(source).toContain("from './api-client.js'");
         const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
         expect(imports).toHaveLength(new Set(imports).size);
-        expect(imports).toHaveLength(11);
+        expect(imports).toContain('./vocabulary-ui.js');
+        expect(imports).toHaveLength(12);
     });
 
     it('uses German labels, tokens only, keyboard-operable native controls and no browser storage', () => {

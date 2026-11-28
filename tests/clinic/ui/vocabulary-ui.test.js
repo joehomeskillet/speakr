@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
-    canonicalSelection, createVocabularyStore, handleKey, label, statusSurface, VOCABULARY_TEMPLATE,
+    canonicalSelection, createVocabularyComponent, createVocabularyStore, handleKey, label, statusSurface, VOCABULARY_TEMPLATE,
 } from '../../../static/js/clinic/vocabulary-ui.js';
 
 const ok = (data) => ({ outcome: 'ok', data });
@@ -37,6 +37,69 @@ describe('vocabulary ui', () => {
         await store.setScope('pool', 'p1');
         expect(reads()[0][0]).toContain('scope=pool&pool_id=p1');
         expect(await store.setScope('pool', '')).toBeNull();
+    });
+
+    it('combines the spoken and both-form searches with the existing filters', async () => {
+        const { store, reads } = setup([]);
+        await store.setScope('pool', 'p1');
+        for (const field of ['spoken', 'all']) {
+            await store.search({ q: 'met', mode: 'suffix', filter: 'all', field });
+            expect(Object.fromEntries(new URL(reads().at(-1)[0], 'https://example.test').searchParams)).toEqual({
+                q: 'met', mode: 'suffix', status: 'all', field, scope: 'pool', pool_id: 'p1',
+            });
+        }
+        await store.search({ q: '', mode: 'exact', field: 'spoken' });
+        expect(new URL(reads().at(-1)[0], 'https://example.test').searchParams.get('field')).toBeNull();
+        expect(new URL(reads().at(-1)[0], 'https://example.test').searchParams.get('mode')).toBe('contains');
+        expect(store.state.entries).toEqual([ENTRY('v1')]);
+    });
+
+    it('requires confirmation and submits the shown versions only once', async () => {
+        const second = { ...ENTRY('v2'), id: 'e2', written: 'Zweites Wort' };
+        const client = { request: vi.fn(async (path, options) => options
+            ? ok({ deleted: 2 }) : ok({ entries: [ENTRY('v1'), second] })) };
+        const Vue = {
+            ref: (value) => ({ value }), shallowRef: (value) => ({ value }), reactive: (value) => value,
+            computed: (fn) => ({ get value() { return fn(); } }), nextTick: async () => {}, onMounted: () => {},
+        };
+        const ui = createVocabularyComponent(Vue, client).setup();
+        ui.deleteDialog.value = { showModal: vi.fn(), close: vi.fn() };
+        await ui.store.search();
+        ui.selectedIds.value = ['e1', 'e2'];
+        await ui.openDelete();
+        expect(ui.deleteDialog.value.showModal).toHaveBeenCalledOnce();
+        expect(ui.deleteDraft.value.map(({ written }) => written)).toEqual(['Metformin', 'Zweites Wort']);
+        ui.closeDelete();
+        await ui.confirmDelete();
+        expect(client.request.mock.calls.every(([, options]) => !options)).toBe(true);
+        await ui.openDelete();
+        await Promise.all([ui.confirmDelete(), ui.confirmDelete()]);
+        expect(client.request.mock.calls.filter(([, options]) => options)).toEqual([[
+            '/vocabulary/entries/bulk', {
+                method: 'POST', idempotencyKey: expect.any(String),
+                body: { action: 'delete', confirm: true, entries: [{ id: 'e1', expected_version: 'v1' }, { id: 'e2', expected_version: 'v2' }] },
+            },
+        ]]);
+        expect(ui.selectedIds.value).toEqual([]);
+        expect(ui.deleteNotice.value).toBe('2 Einträge gelöscht.');
+    });
+
+    it.each(['conflict', 'network'])('reloads after a bulk %s without queuing a blind retry', async (outcome) => {
+        const { store, writes, reads } = setup([bad(outcome)], [ok({ entries: [ENTRY('v1')] }), ok({ entries: [ENTRY('v2')] })]);
+        await store.search();
+        expect((await store.deleteEntries(store.state.entries)).outcome).toBe(outcome);
+        expect(store.state.entries).toEqual([ENTRY('v2')]);
+        expect(reads()).toHaveLength(2);
+        expect(await store.retry()).toBeNull();
+        expect(writes()).toHaveLength(1);
+    });
+
+    it('does not delete when access to the selected list is withdrawn', async () => {
+        const { store, writes } = setup([], [ok({ entries: [ENTRY('v1')] }), bad('permission')]);
+        await store.setScope('pool', 'p1');
+        expect(await store.deleteEntries(store.state.entries)).toBeNull();
+        expect(store.state.status).toBe('denied');
+        expect(writes()).toHaveLength(0);
     });
 
     it('keeps the selected pool entries when the previous personal search completes late', async () => {

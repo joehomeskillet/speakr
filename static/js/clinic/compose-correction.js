@@ -40,6 +40,7 @@ import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
 import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
+import { createVocabularyStore, useVocabularyEntryDialog, VOCABULARY_ENTRY_DIALOG } from './vocabulary-ui.js';
 
 export const COMPOSE_CORRECTION_VERSION = 1;
 
@@ -834,6 +835,16 @@ export const CorrectionBody = {
                 el.setSelectionRange(start, end);
             },
         };
+        const vocabulary = createVocabularyStore(c.client);
+        const canAddPhrase = V.computed(() => e.canEdit.value && props.openMode !== 'player');
+        const entryModal = useVocabularyEntryDialog(V, (draft) => canAddPhrase.value
+            ? vocabulary.saveEntry(draft)
+            : { message: 'Zum Hinzufügen muss das Diktat bearbeitbar sein.' }, 'ccv-voc', () => textEl.value?.focus());
+        const addSelectedPhrase = () => {
+            if (!canAddPhrase.value) return;
+            const { text, start, end } = editorPort.read();
+            return entryModal.openSelectedEntry(text.slice(start, end));
+        };
         const tb = createCorrectionToolbar({
             editor: editorPort,
             canEdit: () => Boolean(e.canEdit.value),
@@ -871,6 +882,13 @@ export const CorrectionBody = {
         const setTextEl = (node) => { textEl.value = node && typeof node === 'object' ? node : null; };
         const onTextInput = (event) => { c.onInput(event); tb.notifyChange(); };
         const onTextKeydown = (event) => {
+            if (canAddPhrase.value && !event.defaultPrevented && !event.isComposing && !event.shiftKey && event.altKey
+                && (event.ctrlKey || event.metaKey) && !event.getModifierState?.('AltGraph')
+                && (event.key?.toLowerCase() === 'p' || (event.metaKey && event.code === 'KeyP'))) {
+                event.preventDefault();
+                if (!event.repeat) addSelectedPhrase();
+                return;
+            }
             c.onKeydown(event);
             if (tb.shortcut(event) && typeof event.preventDefault === 'function') event.preventDefault();
         };
@@ -888,6 +906,7 @@ export const CorrectionBody = {
         const SHORTCUTS = Object.freeze([
             ['Speichern', 'Strg/Cmd+S'], [TEXT.undo, 'Strg/Cmd+Z'], [TEXT.redo, 'Strg/Cmd+Umschalt+Z'],
             [TEXT.paragraph, 'Strg/Cmd+Enter'], [TEXT.marker, 'Strg/Cmd+Umschalt+M'], [TEXT.find, 'Strg/Cmd+F'],
+            ['Markierten Text hinzufügen', 'Strg/Cmd+Alt+P'],
             ['Vollbild', 'Strg/Cmd+Umschalt+F'], [TEXT.shortcuts, 'F1'],
         ]);
         const WORKER = { held: TEXT.workerHeld, foreign: TEXT.workerForeign, lost: TEXT.workerLost };
@@ -915,6 +934,7 @@ export const CorrectionBody = {
             formatDictationReference,
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
+            ...entryModal, entryListName: 'Eigene Liste', addSelectedPhrase, canAddPhrase,
             onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId, loading: e.loading, error: e.error, manual: e.manual,
@@ -1119,6 +1139,11 @@ export const CorrectionBody = {
                     @scroll.passive="editorScroll = $event.target.scrollTop" @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="followOn = false; c.onSelect($event)"
                     @keyup="c.onSelect($event)" @mouseup="c.onSelect($event)"></textarea>
         </div>
+        <div v-if="canAddPhrase" class="actions" style="padding-inline:var(--sp-3)">
+          <button type="button" class="small" style="min-height:48px" :style="FOCUS" aria-haspopup="dialog"
+            aria-keyshortcuts="Control+Alt+P Meta+Alt+P" @click="addSelectedPhrase()">Markierten Text hinzufügen</button>
+          <span role="status">{{ entryNotice }}</span>
+        </div>
         <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly }}</p>
         <section class="panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
           <div class="panel-header">
@@ -1241,6 +1266,7 @@ export const CorrectionBody = {
     </div>
   </div>
   <div role="status" aria-live="polite" class="sr-only">{{ editorAnnouncement }}</div>
+  ${VOCABULARY_ENTRY_DIALOG}
 </section>`,
 };
 
