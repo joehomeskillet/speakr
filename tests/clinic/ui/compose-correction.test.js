@@ -106,17 +106,20 @@ async function openForEdit(client, extra = {}) {
 
 describe('compose-correction contract', () => {
     it('opens a local editable draft for the selection hotkey and writes only on dialog submit', async () => {
-        const client = fakeClient(base());
+        const client = fakeClient(base({ 'GET /dictations/d1/correction': ok(correction({ links: [] })) }));
         const vue = {
             ref: (value) => ({ value }), shallowRef: (value) => ({ value }),
             computed: (fn) => ({ get value() { return fn(); } }), nextTick: async () => {},
         };
-        const ui = CorrectionBody.setup({ client, vue, dictationId: 'd1', currentUser: { id: 9 } });
+        const ui = CorrectionBody.setup({ client, vue, dictationId: 'd1', currentUser: { id: 9 }, openMode: 'correction' });
         await ui.c.start();
         await ui.c.editor.acquire();
-        ui.c.editor.setText('Hallo   Welt heute');
+        const [node] = ui.doc.doc.value.nodes;
+        const [run] = node.runs;
+        ui.doc.editRun(node.id, run.id, 'Hallo   Welt heute');
         const area = { selectionStart: 0, selectionEnd: 0, focus: vi.fn() };
-        ui.setTextEl(area);
+        ui.setRunRoot({ querySelector: (selector) => selector === `[data-run-id="${run.id}"]` ? area : null });
+        ui.onRunSelection({ type: 'focus' }, node.id, run.id);
         const press = (extra = {}) => ui.onTextKeydown({ ctrlKey: true, altKey: true, key: 'p', preventDefault: vi.fn(), ...extra });
         press();
         expect(ui.entryDraft.value).toBeNull();
@@ -147,20 +150,16 @@ describe('compose-correction contract', () => {
     });
 
     it('composes the editor and finish building blocks and reuses tokens and api-client', () => {
-        for (const mod of [
+        const expected = [
             'correction-editor-ui', 'correction-alignment-ui', 'correction-waveform-ui', 'playback-tempo-ui',
             'correction-modes-ui', 'correction-save-ui', 'audio-markers-ui', 'playback-gain-ui',
-            'finish-options-ui', 'workflow-actions-ui',
-        ]) expect(source).toContain(`./${mod}.js`);
-        expect(source).toContain("from './tokens.js'");
-        expect(source).toContain("from './api-client.js'");
-        const allImports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
-        const additions = ['./compose-settings.js', './handmic-webhid.js', './correction-player-position.js'];
-        for (const path of additions) expect(allImports.filter((entry) => entry === path)).toHaveLength(1);
-        const imports = allImports.filter((path) => !additions.includes(path));
+            'correction-toolbar-ui', 'richtext-editor-ui', 'finish-options-ui', 'workflow-actions-ui',
+            'correction-player-position', 'worklist-ui', 'tokens', 'api-client',
+            'compose-settings', 'handmic-webhid', 'vocabulary-ui',
+        ].map((mod) => `./${mod}.js`).sort();
+        const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
         expect(imports).toHaveLength(new Set(imports).size);
-        expect(imports).toContain('./vocabulary-ui.js');
-        expect(imports).toHaveLength(14);
+        expect(imports.sort()).toEqual(expected);
     });
 
     it('uses German labels, tokens only, keyboard-operable native controls and no browser storage', () => {
