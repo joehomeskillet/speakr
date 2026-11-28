@@ -417,27 +417,18 @@ def _clean_item(policy, raw):
     )
 
 
-def _lock_intent_updates(agent_id):
-    # An UPDATE takes the write lock on both PostgreSQL and SQLite, even for a new snapshot.
-    locked = ClinicAgent.query.filter_by(id=agent_id, enabled=True).update(
-        {ClinicAgent.enabled: ClinicAgent.enabled}, synchronize_session=False,
-    )
-    if locked != 1:
-        raise AgentChannelError("forbidden", "agent disabled")
-
-
 @transactional
 def report_inventory(principal, policy, body, *, now=None, evaluate=None):
     """Store the reported snapshot inventory. ``body['agent_id']`` is ignored on purpose.
+
+    An optional server-side evaluator stages policy-authorized imports in the
+    same transaction as the accepted inventory.
 
     Every item is checked before anything is stored; one item outside the
     registered sources refuses the whole report. No author, patient or
     dictation right is derived from an inventory. Optional hint fields are
     stored as claims: a missing or unknown mark stays unknown, and file
     stability is not recorded as Philips EOL.
-
-    An optional server-side evaluator stages policy-authorized imports in the
-    same transaction as the accepted inventory.
     """
     agent = agent_of(principal)
     now = aware(now) or utcnow()
@@ -445,26 +436,26 @@ def report_inventory(principal, policy, body, *, now=None, evaluate=None):
     raw_items = (body or {}).get("items", [])
     items = [_clean_item(policy, raw) for raw in raw_items]
     outside = sorted({i["root_id"] for i in items} - allowed)
-    if outside:
-        raise AgentChannelError("forbidden", "source root not registered for this agent: " + outside[0])
-    entries = zip(raw_items, items)
-    if evaluate is not None and items:
+    accepted = len(items)
+    if evaluate is not None and items and not outside:
         _lock_intent_updates(agent.id)
         unique = {}
-        for raw, item in entries:
+        for raw, item in zip(raw_items, items):
             key = (item["source_id"], item["snapshot_version"])
             if key in unique and unique[key][1] != item:
                 raise AgentChannelError("conflict", "different files share a snapshot version")
             unique[key] = (raw, item)
-        entries = unique.values()
-    evaluated_rows = []
-    for raw, item in entries:
+        raw_items, items = zip(*unique.values())
+    inventory_rows = []
+    if outside:
+        raise AgentChannelError("forbidden", "source root not registered for this agent: " + outside[0])
+    for raw, item in zip(raw_items, items):
         row = inventory_row(agent.id, item["source_id"], item["snapshot_version"])
         changed = evaluate is not None and row is not None and any(
             getattr(row, field) != item[field] for field in ("root_id", "relative_path", "size", "sha256")
         )
         if row is None:
-            row = ClinicAgentInventory(agent_id=agent.id)
+            row = ClinicAgentInventory(agent_id=agent.id, reported_at=now)
             db.session.add(row)
             previous = None
         else:
@@ -472,14 +463,14 @@ def report_inventory(principal, policy, body, *, now=None, evaluate=None):
         item = {**item, **replay_hints(previous, raw)}
         for name, value in item.items():
             setattr(row, name, value)
-        row.reported_at = now
-        if evaluate is not None:
-            evaluated_rows.append((row, raw, changed))
-    if evaluated_rows:
+        inventory_rows.append((row, raw, changed))
+    if evaluate is not None and inventory_rows:
         db.session.flush()
-        evaluate(policy, evaluated_rows, now=now)
+        evaluate(policy, inventory_rows, now=now)
+    for row, _, _ in inventory_rows:
+        row.reported_at = now
     db.session.commit()
-    return {"accepted": len(items)}
+    return {"accepted": accepted}
 
 
 def inventory_row(agent_id, source_id, snapshot_version):
@@ -499,6 +490,15 @@ def list_inventory(policy, *, actor_user_id, agent_id):
 
 
 # --- intents ---------------------------------------------------------------------
+
+def _lock_intent_updates(agent_id):
+    # An UPDATE takes the write lock on both PostgreSQL and SQLite, even for a new snapshot.
+    locked = ClinicAgent.query.filter_by(id=agent_id, enabled=True).update(
+        {ClinicAgent.enabled: ClinicAgent.enabled}, synchronize_session=False,
+    )
+    if locked != 1:
+        raise AgentChannelError("forbidden", "agent disabled")
+
 
 def live_intent_exists(agent_id, source_id, snapshot_version, now):
     return ClinicAgentIntent.query.filter_by(
