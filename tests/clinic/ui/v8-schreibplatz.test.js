@@ -55,7 +55,7 @@ describe('V8 Schreibplatz markup (prototype structure, test ids kept)', () => {
 
     it('uses the assignment fallback for each missing metadata prop in both locations', () => {
         expect(TEXT.openAssignment).toBe('Zuordnung offen');
-        expect(TEXT.noPool).toBe('Kein Pool zugewiesen');
+        expect(TEXT.noPool).toBe('Kein Schreibdienst zugeordnet');
         expect(body().split('{{ dictator || TEXT.openAssignment }}')).toHaveLength(3);
         expect(body().split('{{ pool || TEXT.noPool }}')).toHaveLength(3);
     });

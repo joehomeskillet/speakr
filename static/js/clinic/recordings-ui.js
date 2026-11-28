@@ -27,7 +27,7 @@ export const TEXT = Object.freeze({
     eyebrow: 'Deine Aufnahmen',
     subtitle: 'Alle Aufnahmen an einem Ort, nach Aufnahmezeit geordnet.',
     searchLabel: 'Aufnahmen durchsuchen',
-    searchPlaceholder: 'Person, Pool oder Fall-ID suchen …',
+    searchPlaceholder: 'Person, Schreibdienst, Fallnummer',
     periodAny: 'Gesamter Zeitraum',
     periodToday: 'Heute',
     period7: 'Letzte 7 Tage',
@@ -63,25 +63,25 @@ export const TEXT = Object.freeze({
     open: 'Öffnen',
     time: 'Aufnahmezeit',
     author: 'Diktiert von',
-    pool: 'Schreibkräfte-Pool',
+    pool: 'Schreibdienst',
     lease: 'Übernahme',
     status: 'Status',
     duration: 'Dauer',
-    caseId: 'Fall-ID',
-    noPool: 'Kein Pool zugewiesen',
+    caseId: 'Fallnummer',
+    noPool: 'Kein Schreibdienst zugeordnet',
     noAuthor: 'Unbekannt',
     none: '–',
     apply: 'Anwenden',
     reset: 'Zurücksetzen',
     resetFilters: 'Filter zurücksetzen',
     filters: 'Filter',
-    roleFilters: 'Pool und Diktierende',
+    roleFilters: 'Schreibdienst und Diktierende',
     filtersShow: 'Filter anzeigen',
     filtersHide: 'Filter ausblenden',
     authorId: 'Diktiert von',
-    poolId: 'Schreibkräfte-Pool',
+    poolId: 'Schreibdienst',
     authorAny: 'Alle Diktierenden',
-    poolAny: 'Alle Pools',
+    poolAny: 'Alle Schreibdienste',
     statusAny: 'Alle Status',
     range: 'Zeitraum',
     activeFilters: 'Aktive Filter',
@@ -196,6 +196,12 @@ export function statusBadge(status) {
     }
 }
 
+const PROCESSING_DETAIL = Object.freeze({
+    QUEUED: 'Transkription wartet', PENDING: 'Transkription wartet',
+    PROCESSING: 'Transkription läuft', RUNNING: 'Transkription läuft',
+    FAILED: 'Transkription fehlgeschlagen',
+});
+
 function nextStep(item, pools, userId) {
     const mine = (person) => userId != null && person?.id != null && String(person.id) === String(userId);
     const wait = (label) => ({ label: label + ' – Sie müssen nichts tun', needsAction: false });
@@ -250,12 +256,12 @@ export function toViewRow(item, userId) {
     const pools = (Array.isArray(item.staff_pools) ? item.staff_pools : []).map((p) => p && p.name).filter(Boolean);
     const badge = statusBadge(item.workflow_status);
     const next = nextStep(item, pools, userId);
-    const processingState = String(item.processing_status || '').toUpperCase();
-    const processingActive = ['QUEUED', 'PENDING', 'PROCESSING', 'RUNNING'].includes(processingState);
+    const processingStatus = String(item.processing_status || '').toUpperCase();
+    const processingActive = ['QUEUED', 'PENDING', 'PROCESSING', 'RUNNING'].includes(processingStatus);
     let processing = '';
     if (item.text_created === true) processing = 'Text erstellt';
     else if (processingActive) processing = 'Text wird erstellt';
-    else if (processingState === 'FAILED') processing = 'Text konnte nicht erstellt werden';
+    else if (processingStatus === 'FAILED') processing = 'Text konnte nicht erstellt werden';
     const seconds = Number.isFinite(item.duration_ms) ? Math.round(item.duration_ms / 1000) : null;
     const time = formatTime(item.sort_time || item.recorded_at);
     const heading = item.case_display ? TEXT.caseId + ' ' + item.case_display : item.capture_label || TEXT.dictation;
@@ -285,6 +291,7 @@ export function toViewRow(item, userId) {
         nextStep: next.label,
         needsAction: next.needsAction,
         processing,
+        processingDetail: PROCESSING_DETAIL[processingStatus] || '',
         processingActive,
         duration: seconds === null ? TEXT.none : formatAudioDuration(seconds),
         caseDisplay: item.case_display || '',

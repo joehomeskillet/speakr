@@ -56,6 +56,12 @@ export function receiptDictationId(value) {
     return Number.isInteger(id) && id >= 0 ? String(id) : null;
 }
 
+export function formatRecordingDuration(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return '';
+    const whole = Math.floor(seconds);
+    return [Math.floor(whole / 60), whole % 60].map((part) => String(part).padStart(2, '0')).join(':');
+}
+
 /** Use the stock capture controls and send the finished microphone take through the clinic file upload. */
 export function createClinicRecorder(audio, state, uploadFile) {
     let samples;
@@ -112,14 +118,14 @@ export function createClinicRecorder(audio, state, uploadFile) {
             gatedTake = null;
             await audio.clearRecording();
         },
-        async uploadRecordedAudio({ title }) {
+        async uploadRecordedAudio({ title, ...uploadOptions }) {
             const chunks = state.audioChunks.value;
             if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
             const gated = gatedTake?.chunks === chunks ? gatedTake.blob : null;
             const file = gated
                 ? new File([gated], 'aufnahme.wav', { type: gated.type })
                 : new File(chunks, 'aufnahme.webm', { type: state.mediaRecorder.value.mimeType.split(';')[0] });
-            const receipt = await uploadFile(file, title);
+            const receipt = await uploadFile(file, title, uploadOptions);
             if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
             // A new take gets its own chunk array as soon as capture starts.
             if (state.audioChunks.value === chunks) {
@@ -297,7 +303,7 @@ export function createRecorderPhases(options) {
         }
     }
 
-    async function send() {
+    async function send(uploadOptions) {
         const blocked = guard(['review', 'failed']);
         if (blocked) return blocked;
         if (!automaticTitle && !state.title.trim()) return denied('missing_title');
@@ -306,7 +312,10 @@ export function createRecorderPhases(options) {
         set({ phase: 'sending', error: null });
         let receipt = null;
         try {
-            receipt = await recorder.uploadRecordedAudio({ title: state.title.trim() || localDictationTitle() });
+            receipt = await recorder.uploadRecordedAudio({
+                title: state.title.trim() || localDictationTitle(),
+                ...uploadOptions,
+            });
         } catch (e) {
             receipt = null;
         }
