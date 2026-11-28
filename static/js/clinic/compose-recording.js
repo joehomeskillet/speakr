@@ -32,6 +32,11 @@ import { PRIORITY_OPTIONS } from './dictation-properties-ui.js';
 import { surfaceFor } from './tokens.js';
 import { CorrectionView } from './compose-correction.js';
 
+function microphoneChoices(microphone) {
+    return (microphone?.inputs || []).filter(({ deviceId }) => deviceId && deviceId !== 'default')
+        .map(({ deviceId, label }, index) => ({ deviceId, label: label || `Mikrofon ${index + 1}` }));
+}
+
 export { receiptDictationId };
 export const COMPOSE_RECORDING_VERSION = 1;
 
@@ -158,6 +163,8 @@ export function createRecordingViewController(options) {
     const client = opts.client || null;
     const authorized = typeof opts.authorized === 'function' ? opts.authorized : () => true;
     const allowed = () => authorized() !== false;
+    let knownMicrophone = null;
+    let attemptedMicrophone = '';
 
     const machine = createRecorderPhases({
         recorder: opts.recorder, player: opts.player || null, api: client,
@@ -485,6 +492,7 @@ export function createRecordingViewController(options) {
 
     async function start() {
         if (routing || created() || state.mode !== 'record' || state.disposed) return denied('invalid_phase');
+        rememberAttemptedMicrophone();
         const forTake = voxEnabled;
         const result = await machine.start({ voxEnabled: forTake });
         if (result.ok) {
@@ -551,6 +559,23 @@ export function createRecordingViewController(options) {
         return state.mode === 'file' ? state.filePhase : machine.getState().phase;
     }
 
+    function microphoneOptions() {
+        const deviceId = opts.microphone?.deviceId;
+        const choices = microphoneChoices(opts.microphone);
+        const selected = choices.find((device) => device.deviceId === deviceId);
+        if (selected) knownMicrophone = selected;
+        if (deviceId && deviceId !== 'default' && !selected) {
+            choices.push({ deviceId, label: knownMicrophone?.deviceId === deviceId ? knownMicrophone.label : 'Gewähltes Mikrofon' });
+        }
+        return choices;
+    }
+
+    function rememberAttemptedMicrophone() {
+        if (!opts.microphone || !machine.controls().some(({ id, disabled }) => id === 'start' && !disabled)) return;
+        const deviceId = opts.microphone.deviceId;
+        attemptedMicrophone = microphoneOptions().find((device) => device.deviceId === deviceId)?.label || 'Standardmikrofon';
+    }
+
     function message() {
         if (!allowed()) return TEXT.denied;
         if (submitError) return submitError;
@@ -567,8 +592,11 @@ export function createRecordingViewController(options) {
         }
         if (s.phase === 'sent' && editableDraftId()) return TEXT.sent;
         if (s.phase === 'failed') return opts.oneButton || s.title.trim() ? TEXT.recordFailed : LABELS.titleHint;
+        if (s.error === 'microphone_unavailable' && attemptedMicrophone) {
+            return `„${attemptedMicrophone}“ ist nicht verfügbar. Schliessen Sie es erneut an oder wählen Sie ein anderes Mikrofon.`;
+        }
         if (s.error === 'microphone_denied') return TEXT.microphoneDenied;
-        if (s.error === 'start_failed') return TEXT.startFailed;
+        if (s.error === 'start_failed' || s.error === 'microphone_unavailable') return TEXT.startFailed;
         if (s.error === 'discard_failed') return TEXT.discardFailed;
         if (s.phase === 'sent') return opts.oneButton && !opts.draftMetadata && !categorySets.length ? '' : TEXT.sent;
         if (opts.oneButton && s.phase === 'sending') return TEXT.submitting;
@@ -614,6 +642,9 @@ export function createRecordingViewController(options) {
             authorId: String(user.id),
             title: s.title,
             titleLocked: !isTitleEditable(s.phase),
+            microphoneOptions: microphoneOptions(),
+            selectedMicrophoneId: opts.microphone?.deviceId === 'default' ? '' : opts.microphone?.deviceId || '',
+            needsMicrophoneAccess: !opts.microphone?.inputs?.some(({ deviceId, label }) => deviceId && deviceId !== 'default' && label),
             voxEnabled,
             voxStatus: ['recording', 'paused', 'review', 'failed'].includes(s.phase) && takeVoxEnabled
                 ? (voxEnabled ? TEXT.voxActive : TEXT.voxActiveNextOff)
@@ -747,6 +778,20 @@ export const RECORDING_TEMPLATE = `
             <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor" aria-hidden="true"><path :d="icons.start"></path></svg>
             Aufnahme starten
           </button>
+          <div v-if="microphone" role="group" aria-labelledby="crv-microphone-label"
+               style="display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ui-space-2); width: 100%; max-width: 20rem; text-align: left">
+            <span id="crv-microphone-label">Mikrofon</span>
+            <button v-for="device in [{ deviceId: '', label: 'Standardmikrofon' }, ...m.microphoneOptions]" :key="device.deviceId"
+                    type="button" class="button" :class="{ accent: device.deviceId === m.selectedMicrophoneId }"
+                    :aria-pressed="device.deviceId === m.selectedMicrophoneId" :disabled="!enabled('start')"
+                    @click="microphone.select(device.deviceId)" style="${TOUCH}; white-space: normal; overflow-wrap: anywhere">
+              {{ device.label }}
+            </button>
+            <button v-if="m.needsMicrophoneAccess" type="button" class="button quiet"
+                    :disabled="!enabled('start')" @click="microphone.requestAccess()" style="${TOUCH}">
+              Mikrofonzugriff erlauben
+            </button>
+          </div>
           <a href="#/neu" data-testid="mode-file" @click.prevent="c.setMode('file')" style="${LINK}; font-size: .875rem">oder Datei hochladen</a>
         </div>
         <div v-else-if="m.phase === 'recording' || m.phase === 'paused'" style="display: grid; justify-items: center; gap: var(--ui-space-4)">
@@ -826,6 +871,7 @@ export const RecordingView = {
         player: { type: Object, default: null },
         authorized: { type: Function, default: null },
         vue: { type: Object, default: null },
+        microphone: { type: Object, default: null },
     },
     setup(props, ctx) {
         const V = props.vue || (typeof window !== 'undefined' ? window.Vue : null);
@@ -838,6 +884,7 @@ export const RecordingView = {
             recorder: props.recorder,
             uploadFile: props.uploadFile,
             player: props.player,
+            microphone: props.microphone,
             authorized: props.authorized || undefined,
             oneButton: true,
             draftMetadata: true,
