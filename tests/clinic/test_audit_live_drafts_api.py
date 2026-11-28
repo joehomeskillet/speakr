@@ -91,6 +91,12 @@ assert locked_owner.get(first).json["text"] == "First saved"
 selection = alice.post(first + "/switch", headers=auth, json={"tab_id": "tab-a"})
 assert selection.status_code == 200
 assert (selection.json["draft_id"], selection.json["state"]) == (ids[0], "PAUSED")
+resume = f"/api/clinic/v1/live/dictations/{ids[0]}/resume"
+history = {"session_id": selection.json["session_id"]}
+fresh_owner, fresh_auth = log_in(owner_id)
+assert fresh_owner.post(resume, headers=fresh_auth, json=history).status_code == 403
+recovered = locked_owner.post(resume, headers=locked_auth, json=history)
+assert recovered.status_code == 200 and recovered.json["read_only"]
 for path in (first, f"{base}/{uuid4()}"):
     assert bob.get(path).status_code == 403
     foreign = bob.put(path, headers=bob_auth, json={"text": "Other account", "base_version": 1})
