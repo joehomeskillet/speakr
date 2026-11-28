@@ -91,8 +91,8 @@ def add_human_revision(
     """Append a human correction, or return the tip when the text is unchanged.
 
     A new row is flushed, so its ID is available to other writes in the same
-    session. The caller owns the commit or rollback. Bundle imports use
-    ``force_new`` because audio and formatting can differ with identical text.
+    session. The caller owns the commit or rollback. Use ``force_new`` when
+    audio, formatting or provenance changes with identical text.
 
     ``author_user_id`` must be an existing user. It is stored as
     ``revision_author_user_id``, separate from the dictating person.
@@ -111,10 +111,38 @@ def add_human_revision(
     )
 
 
+def append_working_revision(
+    dictation: ClinicDictation, head: ClinicTranscriptRevision, *, actor_user_id: int,
+) -> ClinicTranscriptRevision:
+    """Start a distinct working revision from the locked head, preserving its text kind."""
+    _check_dictation(dictation)
+    _check_revision(dictation, head)
+    _require_author(actor_user_id)
+    return _append(
+        dictation,
+        kind=head.kind,
+        text=head.body,
+        explicit_parent=head,
+        original_version=None,
+        model_ref=head.model_ref,
+        author_user_id=actor_user_id if head.kind == KIND_HUMAN else None,
+        reuse_unchanged=False,
+    )
+
+
 def current_revision(dictation: ClinicDictation) -> ClinicTranscriptRevision | None:
     """The head: latest human correction, or the latest ASR row if no human exists."""
     _check_dictation(dictation)
     return _select_head(_load(dictation.id))
+
+
+def current_revision_with_count(
+    dictation: ClinicDictation,
+) -> tuple[ClinicTranscriptRevision | None, int]:
+    """Return the correction head and bundle version from the same row snapshot."""
+    _check_dictation(dictation)
+    rows = _load(dictation.id)
+    return _select_head(rows), len(rows)
 
 
 def history(dictation: ClinicDictation) -> list[ClinicTranscriptRevision]:
@@ -159,20 +187,22 @@ def is_flagged(dictation: ClinicDictation, revision: ClinicTranscriptRevision) -
 
 
 def _append(dictation, *, kind, text, explicit_parent, original_version, model_ref,
-            author_user_id=None, force_new=False):
+            author_user_id=None, reuse_unchanged=True, force_new=False):
     digest = text_hash(text)
     normalised = normalise_text(text)
-    rows = _load(dictation.id)
-    existing, parent = _link(dictation, explicit_parent, rows, kind, digest)
-    if existing is not None:
-        if not force_new:
-            return existing
-        parent = existing
+    parent = explicit_parent
+    if reuse_unchanged:
+        rows = _load(dictation.id)
+        existing, parent = _link(dictation, explicit_parent, rows, kind, digest)
+        if existing is not None:
+            if not force_new:
+                return existing
+            parent = existing
     if kind == KIND_HUMAN:
         original_id = _human_original_id(parent, original_version, dictation)
         stored_model = None
     else:
-        original_id = original_version.id
+        original_id = original_version.id if original_version is not None else parent.original_version_id
         stored_model = model_ref
     row = ClinicTranscriptRevision(
         dictation_id=dictation.id,

@@ -29,19 +29,24 @@ describe('Neue Aufnahme', () => {
         expect(recorder.startRecording).not.toHaveBeenCalled();
     });
 
-    it('generates a local title, sends in one action and retries submission without re-uploading', async () => {
+    it('generates a local title, saves the draft and retries a confirmed selection without re-uploading', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date(2026, 10, 27, 9, 3));
         const { controller, request, recorder } = setup();
-        request.mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: id, etag: '"1"' } })
+        request.mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: id, etag: '"1"', default_version: 0,
+            default_label: 'Schreibdienst', options: [] } })
             .mockResolvedValueOnce({ outcome: 'network' })
-            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: id, status: 'vorbereitung_online' } });
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: id, status: 'vorbereitung_online',
+                routing_target: { label: 'Schreibdienst' } } });
         await controller.checkRouting();
         expect((await controller.start()).ok).toBe(true);
         await controller.stop();
-        expect((await controller.sendRecording()).ok).toBe(false);
-        expect(controller.model().phase).not.toBe('submitted');
         expect((await controller.sendRecording()).ok).toBe(true);
+        expect(request).not.toHaveBeenCalled();
+        expect((await controller.prepareSubmit()).ok).toBe(true);
+        expect((await controller.submit()).ok).toBe(false);
+        expect(controller.model().phase).not.toBe('submitted');
+        expect((await controller.submit()).ok).toBe(true);
         expect(controller.model().phase).toBe('submitted');
         expect(recorder.uploadRecordedAudio.mock.calls).toEqual([[{
             title: 'Diktat 27.11.2026 09:03',
@@ -49,7 +54,7 @@ describe('Neue Aufnahme', () => {
             clientUploadId: expect.stringMatching(/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i),
         }]]);
         expect(request.mock.calls[1]).toEqual([path + '/send', {
-            method: 'POST', body: {}, ifMatch: '"1"', idempotencyKey: expect.any(String),
+            method: 'POST', body: { expected_version: 0 }, ifMatch: '"1"', idempotencyKey: expect.any(String),
         }]);
         expect(request.mock.calls[2]).toEqual(request.mock.calls[1]);
     });
