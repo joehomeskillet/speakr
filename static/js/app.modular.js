@@ -530,20 +530,26 @@ document.addEventListener('DOMContentLoaded', async () => {
             // The correction view gets the user's permissions from the server.
             // Worklist double-click: author → case details, typist → player or correction.
             // A denied row stays on the list. Aufnahmen keeps the editor (see resolveClinicOpenTarget).
-            const openClinicDictation = (payload, source) => {
+            let clinicOpenAttempt = 0;
+            const openClinicDictation = async (payload, source) => {
                 if (!clinicWorklist || typeof clinicWorklist.resolveClinicOpenTarget !== 'function') return;
                 // Lists are mounted only on their own view, so currentView is the source.
                 // The template stays @open="openClinicDictation"; the mount test matches that text.
                 const view = typeof source === 'string' ? source : currentView.value;
                 const target = clinicWorklist.resolveClinicOpenTarget(payload, { view, user: clinicWorklist.user });
                 if (!target) return;
+                const id = target.dictationId;
+                const from = currentView.value;
+                const attempt = ++clinicOpenAttempt;
+                const protection = await clinicWorklist.client.request('/dictations/' + encodeURIComponent(id) + '/protection');
+                if (attempt !== clinicOpenAttempt || currentView.value !== from) return;
+                const locked = protection.outcome === 'ok' && protection.data?.protected && !protection.data.access;
                 const onDictation = currentView.value === 'clinic-correction' || currentView.value in CLINIC_DICTATION_HASH;
                 if (!onDictation) clinicOrigin.value = (view === 'clinic-worklist' || currentView.value === 'clinic-worklist') ? 'clinic-worklist' : 'clinic-recordings';
-                const id = target.dictationId;
                 const context = clinicListMount.value?.rowContext?.(id);
                 if (context) clinicOpenedRows.set(id, context);
                 else clinicOpenedRows.delete(id);
-                if (target.surface === 'details') {
+                if (locked || target.surface === 'details') {
                     clinicCorrectionId.value = null;
                     clinicOpenMode.value = 'correction';
                     clinicDictationId.value = id;
@@ -3119,9 +3125,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             ];
             const clinicMenuToolbarVisible = computed(() => clinicMenuActions.some((entry) => entry.view === currentView.value));
             // Recorded takes and selected files share the same upload and server receipt.
-            const clinicUploadFile = async (file, recordingTitle) => {
+            const clinicUploadFile = async (file, recordingTitle, { useSpeechRecognition = true, clientUploadId } = {}) => {
                 const body = new FormData();
                 body.append('file', file);
+                body.append('use_speech_recognition', String(useSpeechRecognition));
+                if (clientUploadId) body.append('client_upload_id', clientUploadId);
                 if (recordingTitle !== undefined) {
                     body.append('title', recordingTitle);
                     body.append('from_recorder', 'true');

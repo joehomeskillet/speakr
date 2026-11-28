@@ -234,6 +234,7 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
             conditions.append(ClinicDictation.id.in_(review))
         query = query.filter(or_(*conditions))
     from src.clinic.dictation_roles import project_roles  # lazy: dictation_roles imports stamp from here
+    from src.clinic.routes_dictation_properties import content_unlocked
 
     found = []
     for dictation, row, recording in query:
@@ -257,7 +258,8 @@ def load_entries(actor: int) -> list[routes_worklist.WorklistEntry]:
             author_user_id=dictation.author_user_id, priority=row.priority,
             deadline_at=stamp(row.deadline_at), assignee_user_id=row.assignee_user_id,
             assigned_at=stamp(row.assigned_at) if has_recipient else None,
-            notes=rec.notes or "", created_at=stamp(row.created_at),
+            notes=(rec.notes or "") if content_unlocked(actor, dictation.id) else "",
+            created_at=stamp(row.created_at),
             duration_seconds=row.audio_seconds,
             recipient=names.get(row.assignee_user_id) if has_recipient else None,
             source_kind=source_kind,
