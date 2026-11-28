@@ -1356,12 +1356,12 @@ def register_clinic_identity(flask_app):
     to be present (one dispatcher, mounted once). Identity providers stay disabled (default
     EntraConfig, IWA off): their routes answer the inert 422 and the exchange never runs.
     The directory has no provider, so it answers its capability-unavailable problem.
-    Workstation preferences, central locks and workflow presets use the shared clinic
-    database. Last selection still uses its process-local store.
+    The last selection persists in a clinic user-preset row per user. Workstation
+    preferences, central locks and workflow presets use the shared clinic database.
     """
     from src.clinic import (app_wiring, entra, pool_policy, routes_admin_dictations, routes_directory, routes_grants,
                             routes_identity_providers, routes_pool_admin, routes_pools, routes_preferences)
-    from src.clinic.last_selection import Allowed, SelectionStore
+    from src.clinic.last_selection import Allowed, PresetUserPreferences, SelectionStore
     from src.clinic.routes_metadata_fields import create_metadata_fields_blueprint
     from src.clinic.workstation_preferences import WorkstationPreferences
 
@@ -1376,10 +1376,22 @@ def register_clinic_identity(flask_app):
         return app_wiring.choose_author_pool(user_id)
 
     def allowed_for(user_id):
-        pool_ids = pool_policy.author_pool_ids(user_id)
-        return Allowed(roles=frozenset({'author'}) if pool_ids else frozenset(),
-                       author_ids=frozenset({user_id}) if pool_ids else frozenset(),
-                       pool_ids=pool_ids, own_author_id=user_id if pool_ids else None)
+        # Current roles only: author = member of an author pool; typist = member of a staff pool linked
+        # to an author pool. A typist gets no own author (no author context by default).
+        from src.clinic import pools as clinic_pools
+        author_pools = pool_policy.author_pool_ids(user_id)
+        linked = {pool_id for (pool_id,) in db.session.query(clinic_pools.ClinicPoolRoute.author_pool_id)
+                  .join(clinic_pools.ClinicStaffPool, clinic_pools.ClinicStaffPool.id
+                        == clinic_pools.ClinicPoolRoute.staff_pool_id)
+                  .join(GroupMembership, GroupMembership.group_id == clinic_pools.ClinicStaffPool.group_id)
+                  .filter(GroupMembership.user_id == user_id)}
+        roles = frozenset({'author'} if author_pools else set()) | frozenset({'typist'} if linked else set())
+        member = clinic_pools.ClinicAuthorPoolMember
+        typist_authors = {uid for (uid,) in db.session.query(member.user_id).filter(member.pool_id.in_(linked))} \
+            if linked else set()
+        author_ids = frozenset(typist_authors | ({user_id} if author_pools else set()))
+        return Allowed(roles=roles, author_ids=author_ids, pool_ids=frozenset(author_pools | linked),
+                       own_author_id=user_id if author_pools else None)
 
     flask_app.register_blueprint(
         routes_identity_providers.IdentityProvidersApi(entra.EntraConfig(), disabled_exchange).blueprint)
@@ -1393,7 +1405,7 @@ def register_clinic_identity(flask_app):
     flask_app.register_blueprint(create_metadata_fields_blueprint())
     flask_app.register_blueprint(routes_preferences.PreferenceRoutes(
         allowed_for=allowed_for, author_pool_for=author_pool_for,
-        selections=SelectionStore(), workstations=WorkstationPreferences()).blueprint)
+        selections=SelectionStore(preferences=PresetUserPreferences()), workstations=WorkstationPreferences()).blueprint)
 
 
 def register_clinic_audio(flask_app):
