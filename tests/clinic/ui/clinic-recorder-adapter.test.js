@@ -1,9 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createClinicRecorder, uploadClinicFile } from '../../../static/js/clinic/recorder-phases-ui.js';
 
-afterEach(() => vi.unstubAllGlobals());
-
-function stoppedTake() {
+function stoppedTake(offlineDrafts) {
     const state = {
         audioChunks: { value: [new Blob(['first']), new Blob(['last'])] },
         audioBlobURL: { value: 'blob:synthetic' },
@@ -12,8 +10,10 @@ function stoppedTake() {
     };
     const stock = { uploadRecordedAudio: vi.fn(), discardRecording: vi.fn(), clearRecording: vi.fn() };
     const upload = vi.fn();
-    return { recorder: createClinicRecorder(stock, state, upload), state, stock, upload };
+    return { recorder: createClinicRecorder(stock, state, upload, offlineDrafts), state, stock, upload };
 }
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('clinic recorder upload', () => {
     it('sends every recorded chunk in one file and returns the original receipt', async () => {
@@ -50,6 +50,37 @@ describe('clinic recorder upload', () => {
         state.audioChunks.value = [];
         expect(await pending).toEqual({ id: 1 });
         expect(stock.clearRecording).not.toHaveBeenCalled();
+    });
+
+    it('retains an approved offline take as unsent until a retry returns a receipt', async () => {
+        const drafts = { saveTake: vi.fn(async () => true), removeTake: vi.fn() };
+        const { recorder, stock, upload } = stoppedTake(() => drafts);
+        vi.stubGlobal('navigator', { onLine: false });
+        upload.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({}).mockResolvedValueOnce({ id: 1 });
+
+        const options = { useSpeechRecognition: false, clientUploadId: 'synthetic-upload' };
+        const take = { title: 'Test', ...options };
+        await expect(recorder.uploadRecordedAudio(take)).rejects.toThrow('offline_retained');
+        const [binding, file, title] = drafts.saveTake.mock.calls[0];
+        expect(await file.text()).toBe('firstlast');
+        expect(title).toBe('Test');
+        expect(drafts.removeTake).not.toHaveBeenCalled();
+        expect(stock.clearRecording).not.toHaveBeenCalled();
+
+        vi.stubGlobal('navigator', { onLine: true });
+        await expect(recorder.uploadRecordedAudio(take)).rejects.toThrow('offline_retained');
+        expect(drafts.removeTake).not.toHaveBeenCalled();
+        expect(await recorder.uploadRecordedAudio(take)).toEqual({ id: 1 });
+        const takeId = upload.mock.calls[0][2].id;
+        expect(takeId).toEqual(expect.any(String));
+        expect(upload.mock.calls.map(([, , sentOptions]) => sentOptions)).toEqual([
+            { ...options, id: takeId, retry: false },
+            { ...options, id: takeId, retry: true },
+            { ...options, id: takeId, retry: true },
+        ]);
+        expect(drafts.removeTake).toHaveBeenCalledOnce();
+        expect(drafts.removeTake).toHaveBeenCalledWith(binding);
+        expect(stock.clearRecording).toHaveBeenCalledOnce();
     });
 });
 
