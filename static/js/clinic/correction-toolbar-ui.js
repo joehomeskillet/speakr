@@ -7,8 +7,8 @@
  * search/replace panel and the overflow menu from controller state.
  *
  * Editor port (supplied by the mount package, wraps the editor text area):
- *   read()                  -> { text, start, end }  current text and selection
- *   write({ text, start, end })  set text and selection (no focus change)
+ *   read()                  -> { text, start, end, direction }  text and selection
+ *   write({ text, start, end, direction })  set text and selection (no focus change)
  *   select(start, end)      optional, selection only; falls back to write()
  *
  * Behaviour (EDITOR_AUFTRAG_V8.md sections 3 and 4): undo/redo with redo discard
@@ -107,6 +107,13 @@ export function applyReplacements(text, ranges, replacement, caret) {
     return { text: out, caret: Math.max(0, Math.min(out.length, newCaret + shift)) };
 }
 
+export function transformSelectionCase({ text, start, end, direction }, mode) {
+    const selection = text.slice(start, end);
+    const replacement = mode === 'upper' ? selection.toUpperCase() : selection.toLowerCase();
+    if (replacement === selection) return null;
+    return { text: text.slice(0, start) + replacement + text.slice(end), start, end: start + replacement.length, direction };
+}
+
 /** Linear history with a present entry; a new edit after undo discards redo. */
 export function createTextHistory(initial, limit) {
     const max = limit || HISTORY_LIMIT;
@@ -118,9 +125,9 @@ export function createTextHistory(initial, limit) {
         canUndo: () => past.length > 0,
         canRedo: () => future.length > 0,
         size: () => past.length + 1 + future.length,
-        syncSelection(start, end) { present = { ...present, start, end }; },
+        syncSelection(start, end, direction) { present = { ...present, start, end, direction }; },
         record(entry, options) {
-            if (entry.text === present.text) { present = { ...present, start: entry.start, end: entry.end }; return false; }
+            if (entry.text === present.text) { this.syncSelection(entry.start, entry.end, entry.direction); return false; }
             const typing = !!(options && options.typing);
             if (!(typing && present.typing && past.length)) {
                 past.push(present);
@@ -185,11 +192,10 @@ export function createCorrectionToolbar(options) {
     const editor = opts.editor;
     const canEdit = opts.canEdit || (() => true);
     const listeners = new Set();
-    const initial = editor.read();
-    let history = createTextHistory({ text: initial.text, start: initial.start, end: initial.end });
+    let history = createTextHistory(editor.read());
     const state = { fontSize: FONT_SIZE.start, focusMode: false, searchOpen: false, query: '', replacement: '', caseSensitive: false, matches: [], current: -1, message: '' };
-    function applyEntry(entry) {
-        editor.write({ text: entry.text, start: entry.start, end: entry.end });
+    function applyEntry({ text, start, end, direction }) {
+        editor.write({ text, start, end, direction });
     }
     function select(start, end) {
         if (typeof editor.select === 'function') editor.select(start, end);
@@ -207,8 +213,8 @@ export function createCorrectionToolbar(options) {
     function sync() {
         const cur = editor.read();
         const now = history.present();
-        if (cur.text !== now.text) history.record({ text: cur.text, start: cur.start, end: cur.end }, { typing: true });
-        else history.syncSelection(cur.start, cur.end);
+        if (cur.text !== now.text) history.record(cur, { typing: true });
+        else history.syncSelection(cur.start, cur.end, cur.direction);
         return cur;
     }
     function snapshot() {
@@ -231,9 +237,10 @@ export function createCorrectionToolbar(options) {
         emit();
         return true;
     }
-    function commit(text, start, end) {
-        history.record({ text, start, end }, { typing: false });
-        applyEntry({ text, start, end });
+    function commit(text, start, end, direction) {
+        const entry = { text, start, end, direction };
+        history.record(entry, { typing: false });
+        applyEntry(entry);
         recount();
         state.message = '';
         emit();
@@ -242,8 +249,7 @@ export function createCorrectionToolbar(options) {
         get history() { return history; },
         /** Drops undo/redo after the editor text was replaced from outside (load, server text). */
         reset() {
-            const cur = editor.read();
-            history = createTextHistory({ text: cur.text, start: cur.start, end: cur.end });
+            history = createTextHistory(editor.read());
             recount();
             emit();
         },
@@ -279,6 +285,13 @@ export function createCorrectionToolbar(options) {
             return true;
         },
         insertParagraph() { return api.insertText(PARAGRAPH_BREAK); },
+        changeSelectionCase(mode) {
+            if (blocked()) return false;
+            const next = transformSelectionCase(sync(), mode);
+            if (!next) return false;
+            commit(next.text, next.start, next.end, next.direction);
+            return true;
+        },
         // Review marks (W11) are server-side flags that block release. The toolbar never writes demo text into
         // the clinical transcript; until it is wired to the server mark path it only explains why it does nothing.
         insertMarker() {

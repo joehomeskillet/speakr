@@ -4,6 +4,10 @@
 
 Lokale API- und Editor-Tests prüfen persönliche, Pool- und globale Textbausteine: Pool-Mitglieder können freigegebenen Text einfügen, fremde Pools erhalten keinen Zugriff, und Schreibrechte werden separat geprüft. Lokale PNG-Referenzen sind an den Geltungsbereich gebunden. Staging und der vollständige Referenzvergleich BT-VOC-008 bleiben offen.
 
+## P-254 – Web-Alternative für PAR-OPS-004
+
+Im Klinikmodus bietet das App-Manifest die Schnellzugriffe **Neue Aufnahme**, **Aufnahmen** und **Arbeitsliste**. Sie öffnen bestehende Ansichten und setzen eine gültige Anmeldung voraus. Die [Browser-App-Anleitung](../docs/de/user-guide/pwa.md) erklärt auch Lesezeichen und Browserstart. `WG-OPS-004` bleibt offen; `BT-OPS-004` wurde nicht gegen das Referenzsystem ausgeführt. Kein nativer Autostart- oder Tray-Ersatz.
+
 ## P-062 – Versanddaten vor dem Einreichen
 
 Im lokalen Klinik-Browserlauf wurden Titel, Anmerkung, Priorität und ein Zürcher Tagesendtermin eines synthetischen P04-Entwurfs gespeichert und nach erneutem Öffnen geprüft. Die angezeigte Abnahmepflicht folgte einer separaten Admin-Änderung. Staging und Originalsystemvergleich stehen aus; die offenen Paritätslücken bleiben unverändert.
@@ -91,3 +95,7 @@ Für neue Diktate kann die erste erfolgreiche lokale Transkription eine Zusammen
 ## P-133 – Playerposition im Schreibplatz (PAR-COR-001)
 
 Teilfunktion umgesetzt und lokal mit synthetischem Audio im Browser geprüft: Die Playerleiste lässt sich per Zeiger und Pfeiltasten im sichtbaren Editorbereich verschieben und zurücksetzen. Audioelement, laufende Wiedergabe, Textauswahl und Bearbeitungslease blieben auch beim Wechsel auf 390 px erhalten. Die Prüfung auf Staging und der unveränderte Originaltest BT-COR-001 mit Referenzvergleich stehen aus; keine Aussage zur vollständigen Parität.
+
+## P-235 – Arbeitsplatzvorgaben (PAR-CFG-001)
+
+Gezielte API-/Datenbanktests mit SQLite und PostgreSQL bestätigen, dass zentrale Locks, Workflow-Presets und lokale Arbeitsplatzwerte nach einem App-Neustart erhalten bleiben. Die effektiven Werte berücksichtigen Systempflicht und Ceilings. Zentrale Schreibzugriffe erfordern einen aktiven Site-Admin und einen gültigen CSRF-Token. Der Staging-Neustarttest bleibt beim Orchestrator.

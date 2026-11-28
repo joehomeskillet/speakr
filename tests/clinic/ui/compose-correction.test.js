@@ -33,6 +33,8 @@ const correction = (extra = {}) => ({
     ...extra,
 });
 
+const plainCorrection = () => correction({ document: { nodes: [{ kind: 'graphic' }] } });
+
 const lease = (generation = 1) => ok({
     lease_id: 'lease-1', generation, expires_at: new Date(Date.now() + 600000).toISOString(),
 });
@@ -100,6 +102,7 @@ const count = (client, method, suffix) => client.calls.filter((c) => c.method ==
 it('inserts an eligible text block at the selection as one undoable edit', async () => {
     let detail = ok({ insert_text: 'Praxis' });
     const client = fakeClient(base({
+        'GET /dictations/d1/correction': ok(plainCorrection()),
         'GET /resources/text-blocks': ok({ items: [{ id: 'block-1', title: 'Testbaustein' }], next_cursor: null }),
         'GET /resources/text-blocks/block-1': () => detail,
     }));
@@ -141,6 +144,35 @@ it('inserts an eligible text block at the selection as one undoable edit', async
     }
 });
 
+it('inserts a scoped text block into the selected document run and undoes it in document history', async () => {
+    const client = fakeClient(base({
+        'GET /dictations/d1/correction': ok(correction({ links: [] })),
+        'GET /resources/text-blocks': ok({ items: [{ id: 'block-1' }] }),
+        'GET /resources/text-blocks/block-1': ok({ insert_text: 'Praxis' }),
+    }));
+    const ref = (value) => ({ value });
+    const vue = { ref, shallowRef: ref, computed: (read) => ({ get value() { return read(); } }) };
+    const view = CorrectionBody.setup({ client, dictationId: 'd1', currentUser: user, vue });
+    const field = { selectionStart: 6, selectionEnd: 10, setSelectionRange: vi.fn(), focus: vi.fn() };
+    try {
+        await view.c.start();
+        await view.c.editor.acquire();
+        expect(view.documentMode.value).toBe(true);
+        view.setRunRoot({ querySelector: () => field });
+        const [node] = view.doc.doc.value.nodes;
+        view.doc.select(node.id, node.runs[0].id);
+        await view.toggleBlocks();
+        await view.pickBlock('block-1');
+        expect(view.doc.doc.value.nodes[0].runs[0].text).toBe('Hallo Praxis heute');
+        expect(field.setSelectionRange).toHaveBeenCalledWith(12, 12, undefined);
+        expect(view.historyAction('undo')).toBe(true);
+        expect(view.doc.doc.value.nodes[0].runs[0].text).toBe('Hallo Welt heute');
+        expect(field.setSelectionRange).toHaveBeenLastCalledWith(6, 10, undefined);
+    } finally {
+        view.c.dispose();
+    }
+});
+
 async function openForEdit(client, extra = {}) {
     const c = controllerFor(client, extra);
     await c.start();
@@ -150,7 +182,7 @@ async function openForEdit(client, extra = {}) {
 
 describe('compose-correction contract', () => {
     it('opens a local editable draft for the selection hotkey and writes only on dialog submit', async () => {
-        const client = fakeClient(base());
+        const client = fakeClient(base({ 'GET /dictations/d1/correction': ok(plainCorrection()) }));
         const vue = {
             ref: (value) => ({ value }), shallowRef: (value) => ({ value }),
             computed: (fn) => ({ get value() { return fn(); } }), nextTick: async () => {},
@@ -190,22 +222,17 @@ describe('compose-correction contract', () => {
         expect(CorrectionView.emits).toContain('close');
     });
 
-    it('composes the editor and finish building blocks and reuses tokens, api-client and key bindings', () => {
-        for (const mod of [
+    it('composes the editor and finish building blocks and reuses tokens and api-client', () => {
+        const expected = [
             'correction-editor-ui', 'correction-alignment-ui', 'correction-waveform-ui', 'playback-tempo-ui',
             'correction-modes-ui', 'correction-save-ui', 'audio-markers-ui', 'playback-gain-ui',
-            'finish-options-ui', 'workflow-actions-ui',
-        ]) expect(source).toContain(`./${mod}.js`);
-        expect(source).toContain("from './tokens.js'");
-        expect(source).toContain("from './api-client.js'");
-        const allImports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
-        const additions = ['./compose-settings.js', './handmic-webhid.js', './correction-player-position.js'];
-        for (const path of additions) expect(allImports.filter((entry) => entry === path)).toHaveLength(1);
-        const imports = allImports.filter((path) => !additions.includes(path));
+            'correction-toolbar-ui', 'richtext-editor-ui', 'finish-options-ui', 'workflow-actions-ui',
+            'correction-player-position', 'worklist-ui', 'tokens', 'api-client',
+            'compose-settings', 'handmic-webhid', 'vocabulary-ui', 'key-bindings-ui',
+        ].map((mod) => `./${mod}.js`).sort();
+        const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
         expect(imports).toHaveLength(new Set(imports).size);
-        expect(imports).toContain('./vocabulary-ui.js');
-        expect(imports).toContain('./key-bindings-ui.js');
-        expect(imports).toHaveLength(15);
+        expect(imports.sort()).toEqual(expected);
     });
 
     it('keeps the fixed finish command in the focused section alongside personal shortcuts', () => {
@@ -323,6 +350,7 @@ describe('document preview', () => {
         let finishOld;
         const old = new Promise((resolve) => { finishOld = resolve; });
         const client = fakeClient(base({
+            'GET /dictations/d1/correction': ok(correction({ links: [] })),
             'GET /templates/old/preview': () => old,
             'GET /templates/current/preview': ok({ text: 'Aktuelle Vorlage', text_revision_id: 'r1' }),
             'GET /templates/stale/preview': ok({ text: 'Veraltete Vorlage', text_revision_id: 'r2' }),
