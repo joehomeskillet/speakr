@@ -126,6 +126,7 @@ function headersFor(method, token, options) {
     if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
     if (options.ifMatch) headers['If-Match'] = options.ifMatch;
     if (options.caseView) headers['X-Clinic-Case-View'] = options.caseView;
+    if (options.liveClientId) headers['X-Live-Client-Id'] = options.liveClientId;
     if (options.body !== undefined && method !== 'GET' && method !== 'HEAD') {
         headers['Content-Type'] = 'application/json';
     }
@@ -253,6 +254,7 @@ export function createClinicApiClient() {
             body: body,
             idempotencyKey: key,
             ifMatch: opts.ifMatch,
+            liveClientId: opts.liveClientId,
         });
     }
 
@@ -260,6 +262,7 @@ export function createClinicApiClient() {
         request: request,
         command: command,
         switchContext: switchContext,
+        supportsLiveCapture: true,
         get dictationChanges() { return dictationChanges; },
     };
 }

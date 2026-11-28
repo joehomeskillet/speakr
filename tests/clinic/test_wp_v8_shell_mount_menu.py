@@ -17,12 +17,16 @@ from pathlib import Path
 
 import pytest
 
+from test_audit_live_draft_picker_browser import AUTHOR, _create, draft_app as _draft_app
+from test_wp_mount_correction import _login as _login_author
+
 ROOT = Path(__file__).resolve().parents[2]
 
 _spec = importlib.util.spec_from_file_location("clinic_shell_nav_fixtures", ROOT / "tests/clinic/test_wp_v8_shell_nav.py")
 _nav = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_nav)
 live_server = _nav.live_server
+draft_app = _draft_app
 _render = _nav._render
 _launch = _nav._launch
 _login = _nav._login
@@ -30,14 +34,14 @@ _login = _nav._login
 # hash route, module root selector, entry (how a user reaches it)
 VIEWS = [
     ("#/neu", "[data-testid=clinic-recording-view]", "menu-new-recording"),
-    ("#/live", "[data-testid=clinic-live-view]", "menu-live"),
+    ("#/live", "[data-testid=clinic-live-picker]", "menu-live"),
     ("#/archiv", "[data-testid=clinic-archive-view]", "menu-archive"),
     ("#/import", "[data-testid=clinic-import-view]", "menu-file"),
     ("#/einstellungen", ".clinic-settings-view", "user-menu:nav-clinic-settings"),
     ("#/offline", ".clinic-offline", "nav-clinic-offline"),
 ]
 NEW_MARKUP = ("clinic-menu-actions", "clinic-menu-view", "nav-clinic-new", "nav-clinic-offline", "nav-clinic-settings",
-              "clinic-recording-view", "clinic-archive-view", "clinic-import-view", "clinic-settings-view",
+              "clinic-recording-view", "clinic-live-draft-picker", "clinic-archive-view", "clinic-import-view", "clinic-settings-view",
               "clinic-offline-view", "V8 menu views")
 
 
@@ -111,7 +115,8 @@ def test_header_new_recording_is_hidden_only_on_recorder(live_server, width: int
         browser = _launch(p)
         try:
             page = _start(browser, base, dictation, width, height)
-            page.route("**/api/config?recording_preflight=1", lambda route: route.fulfill(json={"routable": True}))
+            page.route("**/api/clinic/v1/recording-takes/preflight",
+                       lambda route: route.fulfill(json={"routable": True}))
             new = page.get_by_role("link", name="Neue Aufnahme", exact=True).and_(page.get_by_test_id("nav-clinic-new"))
             expect(new).to_be_visible()
             new.click()
@@ -130,23 +135,22 @@ def test_header_new_recording_is_hidden_only_on_recorder(live_server, width: int
             browser.close()
 
 
-def test_live_view_without_dictation_asks_for_the_id(live_server):
-    from playwright.sync_api import sync_playwright
+def test_live_picker_creates_a_named_draft_for_an_owned_dictation(draft_app):
+    from playwright.sync_api import expect, sync_playwright
 
-    base, dictation = live_server
+    base, originals = draft_app
     with sync_playwright() as p:
         browser = _launch(p)
         try:
-            page = _login(browser, base, 1280, 720)
-            _stub(page, dictation)
+            page = _login_author(browser, base, AUTHOR)
             page.goto(base + "/#/live")
             _mounted(page)
             picker = page.locator("[data-testid=clinic-live-picker]")
             picker.wait_for(state="visible", timeout=30000)
-            assert page.locator("[data-testid=clinic-live-open]").is_disabled()
-            page.locator("[data-testid=clinic-live-id]").fill(dictation)
-            page.locator("[data-testid=clinic-live-open]").click()
-            page.locator("[data-testid=clinic-live-view]").wait_for(state="visible", timeout=30000)
+            expect(picker.get_by_test_id("clinic-live-open")).to_be_disabled()
+            _create(page, next(iter(originals)), "Synthetischer Entwurf")
+            expect(page.get_by_test_id("clinic-live-view")).to_be_visible()
+            expect(picker).to_be_visible()
             assert not page.js_errors, page.js_errors
         finally:
             browser.close()
@@ -248,7 +252,7 @@ def test_icon_only_entries_have_a_tooltip(live_server):
 def test_clinic_page_renders_the_menu_entries(tmp_path):
     out = _render(tmp_path, True)
     for needle in ("clinic-menu-actions", "clinic-menu-view", "nav-clinic-new", "nav-clinic-offline", "nav-clinic-settings",
-                   "<clinic-recording-view", "<clinic-live-view", "<clinic-archive-view", "<clinic-import-view",
+                   "<clinic-recording-view", "<clinic-live-draft-picker", "<clinic-archive-view", "<clinic-import-view",
                    "<clinic-settings-view", "<clinic-offline-view"):
         assert needle in out, needle
     assert 'aria-label="Neue Aufnahme"' in out and 'aria-label="Verbindungsstatus / Entwürfe"' in out
