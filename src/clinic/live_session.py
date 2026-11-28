@@ -374,7 +374,9 @@ def recover(
             or session.end_reason != END_EXPIRED
         ):
             raise LiveSessionError(NO_SESSION, session)
-    reclaim = (client_id is not None and type(generation) is int and generation > 0
+    other_active = any(row.dictation_id != dictation_id for row in author_holders(user_id, now))
+    reclaim = (not other_active
+               and client_id is not None and type(generation) is int and generation > 0
                and (_expiry(session) <= now or (session.state == PAUSED and session.client_id is None))
                and (session.client_id != client_id or session.holder_generation is None))
     if not reclaim:
