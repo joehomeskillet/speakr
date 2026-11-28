@@ -1,5 +1,9 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## Implementierung P-086
+
+Autoren mit Selbstkorrektur als Versandziel können ohne Schreibpool aufnehmen und einreichen. Synthetische HTTP-/DB-Tests belegen die eigene Editierlease, das Speichern von Text und den Ausschluss impliziter Pool-Sicht und Freigaberechte. Staging- und Referenznachweis für BT-ADM-007 stehen aus.
+
 ## P-062 – Versanddaten vor dem Einreichen
 
 Im lokalen Klinik-Browserlauf wurden Titel, Anmerkung, Priorität und ein Zürcher Tagesendtermin eines synthetischen P04-Entwurfs gespeichert und nach erneutem Öffnen geprüft. Die angezeigte Abnahmepflicht folgte einer separaten Admin-Änderung. Staging und Originalsystemvergleich stehen aus; die offenen Paritätslücken bleiben unverändert.
