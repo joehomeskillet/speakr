@@ -230,6 +230,24 @@ describe('recording view controller', () => {
         expect(rec.uploadRecordedAudio).toHaveBeenCalledOnce();
     });
 
+    it('reuses the category flow’s save action and allows editing before category selection', async () => {
+        const set = { id: 's1', name: 'Testbereich', version: 1, categories: ['Rot'], required: true };
+        const request = vi.fn().mockResolvedValueOnce({ outcome: 'ok', data: { sets: [set] } });
+        const rec = recorder(async () => ({ id: 7, dictation_id: 'draft-7' }));
+        const { c } = make({ recorder: rec, options: { client: { request } } });
+        await c.loadCategories();
+        await toReview(c);
+        expect(c.model()).toMatchObject({ recordActionLabel: TEXT.upload, canSaveRecording: false });
+        expect((await c.sendRecording()).ok).toBe(true);
+        expect(c.model()).toMatchObject({
+            recordActionLabel: TEXT.submit,
+            editableDraftId: 'draft-7',
+            categories: [{ ...set, value: '' }],
+        });
+        expect((await c.submit()).code).toBe('missing_category');
+        expect(request.mock.calls).toEqual([['/categories']]);
+    });
+
     it('does not open the audio editor with a legacy recording-only receipt', async () => {
         const { c } = make({ options: { client: { request: vi.fn() } } });
         await toReview(c);
