@@ -6,7 +6,7 @@ from flask import Blueprint, abort, jsonify, request, session
 from flask_login import current_user
 
 from src.clinic import (
-    agent_channel, author_suggestion, decoder, import_centre, import_source_config, import_visibility,
+    agent_channel, author_suggestion, decoder, device_inventory_view, import_centre, import_source_config, import_visibility,
     pools, speaker_client, speaker_pipeline, worklist_entries,
 )
 from src.clinic import routes_import_sources_web as source_routing
@@ -115,6 +115,19 @@ def inventory():
         body = import_visibility.list_inventory(visibility, channel_policy, actor_user_id=actor, agent_id=agent_id)
         items.extend(body["items"])
     return jsonify(items=items, count=len(items), can_clarify=bool(admin or led_pools))
+
+
+@blueprint.get("/devices")
+def devices():
+    actor = current_user.id
+    admin = _is_active_site_admin(db.session, current_user)
+    led_pools = () if admin else worklist_entries._led_author_pools(actor)
+    can_import = admin or _can_import(actor)
+    if not (can_import or led_pools):
+        return _problem("FORBIDDEN")
+    return jsonify(device_inventory_view.get_device_report_view(
+        site_admin=admin, own_author_id=actor if can_import else None, led_pools=led_pools,
+    ))
 
 
 def _clarification_policy():

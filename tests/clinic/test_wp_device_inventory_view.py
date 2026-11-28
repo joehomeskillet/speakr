@@ -254,3 +254,22 @@ def test_retry_after_inventory_report_sees_latest_version(setup, user):
     assert second["count"] == 2
     versions = {r["snapshot_version"] for r in second["items"]}
     assert versions == {"v1", "v2"}
+
+
+@pytest.mark.parametrize(("bad_report", "code"), [
+    ({"root_id": "foreign-root", "devices": []}, "forbidden"),
+    ({"root_id": "usb-2", "devices": [{"device_id": "device", "capabilities": {"pin_lock": 0}}]}, "invalid"),
+    ({"root_id": "usb-2", "devices": [{"device_id": "device", "driver_status": "installed?"}]}, "invalid"),
+    ({"root_id": "usb-2", "devices": [{"device_id": "same"}, {"device_id": "same"}]}, "invalid"),
+])
+def test_invalid_device_report_rolls_back_file_snapshots(user, bad_report, code):
+    policy = _policy()
+    reg, principal = _register(policy, user, roots=("usb-1", "usb-2"))
+    with pytest.raises(ch.AgentChannelError) as err:
+        ch.report_inventory(principal, policy, {
+            "items": [_item()],
+            "device_reports": [{"root_id": "usb-1", "devices": []}, bad_report],
+        }, now=NOW)
+    assert err.value.code == code
+    assert ch.list_inventory(policy, actor_user_id=user.id, agent_id=reg["agent_id"]) == []
+    assert ch.ClinicAgentDeviceReport.query.filter_by(agent_id=reg["agent_id"]).count() == 0

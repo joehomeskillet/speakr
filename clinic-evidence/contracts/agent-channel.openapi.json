@@ -10,7 +10,7 @@
       "put": {
         "operationId": "reportAgentInventory",
         "summary": "Report allowed source and snapshot inventory",
-        "description": "Replaces or adds the reported snapshots. Any item whose root_id is not registered for the calling agent refuses the whole report with 403. No author or patient right is derived from it. A body field agent_id is ignored.",
+        "description": "Replaces or adds the reported file snapshots and optionally replaces the latest device observations per included root. A root not registered for the calling agent refuses the whole report with 403. No author or patient right is derived from it. A body field agent_id is ignored. The accepted count refers to file snapshots.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/InventoryReport"}}}},
         "responses": {
           "200": {"description": "Stored", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "properties": {"accepted": {"type": "integer", "minimum": 0}}, "required": ["accepted"]}}}},
@@ -143,10 +143,36 @@
         "type": "object", "additionalProperties": true,
         "properties": {
           "agent_id": {"type": "string", "deprecated": true, "description": "Ignored by the server. Identity is the transport credential."},
-          "items": {"type": "array", "maxItems": 5000, "items": {"$ref": "#/components/schemas/InventoryItem"}}
+          "items": {"type": "array", "maxItems": 5000, "items": {"$ref": "#/components/schemas/InventoryItem"}},
+          "device_reports": {"type": "array", "maxItems": 128, "items": {"$ref": "#/components/schemas/DeviceReport"}}
         },
         "required": ["items"]
       },
+      "DeviceReport": {
+        "type": "object", "additionalProperties": false, "required": ["root_id", "devices"],
+        "description": "Root IDs must be unique in a submission. A present root with an empty device list reports observed zero. An omitted root keeps its previous observations. The server records receipt time.",
+        "properties": {
+          "root_id": {"type": "string", "pattern": "^[A-Za-z0-9._:@-]{1,128}$"},
+          "devices": {"type": "array", "maxItems": 128, "items": {"$ref": "#/components/schemas/DeviceObservation"}}
+        }
+      },
+      "DeviceObservation": {
+        "type": "object", "additionalProperties": false, "required": ["device_id"],
+        "properties": {
+          "device_id": {"type": "string", "pattern": "^[A-Za-z0-9._:@-]{1,128}$", "description": "Stable opaque identifier unique within the agent and root."},
+          "capabilities": {"$ref": "#/components/schemas/DeviceCapabilities"},
+          "driver_status": {"$ref": "#/components/schemas/DeviceDriverStatus"}
+        }
+      },
+      "DeviceCapabilities": {
+        "type": "object", "nullable": true, "additionalProperties": false,
+        "description": "Reported support for configuration features. Omitted capabilities are unknown. False is an explicit observation of no support.",
+        "properties": {
+          "author_list": {"type": "boolean"}, "recording_encryption": {"type": "boolean"},
+          "pin_lock": {"type": "boolean"}, "power_saving": {"type": "boolean"}
+        }
+      },
+      "DeviceDriverStatus": {"type": "string", "enum": ["unknown", "available", "missing"], "default": "unknown"},
       "Intent": {
         "type": "object", "additionalProperties": false,
         "properties": {

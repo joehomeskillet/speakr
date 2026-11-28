@@ -3,12 +3,13 @@
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from src.app import app, db
-from src.clinic import import_centre, import_source_config, policy, pools
+from src.clinic import agent_channel, import_centre, import_source_config, policy, pools
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.identity import ClinicAccountPolicy
 from src.models import GroupMembership
@@ -17,7 +18,7 @@ from test_import_centre import _data, _env as _env, _finalize, _upload, env as e
 
 
 PREFIX = "/api/clinic/v1/imports/"
-PATHS = ("intents", "inventory", "unassigned")
+PATHS = ("intents", "inventory", "unassigned", "devices")
 CLINIC_AT_STARTUP = clinic_mode_enabled()
 clinic_routes = pytest.mark.skipif(not CLINIC_AT_STARTUP, reason="run with CLINIC_MODE=1 at app startup")
 stock_routes = pytest.mark.skipif(CLINIC_AT_STARTUP, reason="run with CLINIC_MODE off at app startup")
@@ -167,3 +168,64 @@ def test_ambiguous_registered_source_is_visible_only_for_admin_clarification(sce
     for path in ("inventory", "unassigned"):
         assert "usb-1" not in roots(lead, path)
         assert "usb-1" in roots(admin, path)
+
+
+def _report_device_scene(scene, root, devices, hour):
+    agent_channel.report_inventory(scene["principal"], scene["policy"], {
+        "items": [], "device_reports": [{"root_id": root, "devices": devices}],
+    }, now=datetime(2026, 11, 18, hour, tzinfo=timezone.utc))
+
+
+@clinic_routes
+def test_device_reports_preserve_unknowns_and_scope_all_aggregates(scene):
+    admin, author, lead = (scene[key] for key in ("admin", "author", "other"))
+    other_pool = pools.create_author_pool("Other device pool", actor_id=admin.id)
+    import_source_config.create_source_config(
+        actor_user_id=admin.id, source_kind="device", source_ref="usb-2", approved_root="/synthetic-imports",
+        target_author_user_id=admin.id, target_pool_id=other_pool.id,
+    )
+    policy.register_grant_provider(lambda uid: [policy.Grant("own", frozenset({"import"}))] if uid == author.id else [])
+    lead_client = _client(lead)
+    no_reports = {"items": [], "device_count": None, "last_report_at": None}
+    assert _get(lead_client, "devices").json == no_reports  # Existing file reports are present.
+    known = {"device_id": "other-device", "capabilities": {"pin_lock": False}, "driver_status": "available"}
+    _report_device_scene(scene, "usb-2", [known], hour=11)
+    assert _get(lead_client, "devices").json == no_reports
+
+    _report_device_scene(scene, "usb-1", [{"device_id": "local-device"}], hour=9)
+    _report_device_scene(scene, "usb-1", [{"device_id": "local-device"}], hour=10)
+    _report_device_scene(scene, "usb-1", [], hour=9)  # Late commit of an earlier receipt.
+    expected = {
+        "device_count": 1, "last_report_at": "2026-11-18T10:00:00Z",
+        "items": [{"agent_id": scene["agent_id"], "root_id": "usb-1", "device_id": "local-device",
+                   "capabilities": None, "driver_status": "unknown", "last_report_at": "2026-11-18T10:00:00Z"}],
+    }
+    before = agent_channel.ClinicAgentIntent.query.count()
+    for client in (lead_client, _client(author)):
+        response = _get(client, "devices")
+        assert response.status_code == 200
+        assert response.cache_control.private and response.cache_control.no_store
+        assert response.json == expected
+    assert agent_channel.ClinicAgentIntent.query.count() == before
+
+    admin_view = _get(_client(admin), "devices").json
+    assert admin_view == {"device_count": 2, "last_report_at": "2026-11-18T11:00:00Z", "items": [
+        *expected["items"], {**known, "root_id": "usb-2", "agent_id": scene["agent_id"],
+                             "last_report_at": "2026-11-18T11:00:00Z"},
+    ]}
+    assert {"POST", "PUT", "PATCH", "DELETE"}.isdisjoint(
+        next(rule for rule in app.url_map.iter_rules() if rule.rule == PREFIX + "devices").methods,
+    )
+    scene["lead_membership"].role = "member"
+    db.session.commit()
+    _assert_problem(_get(lead_client, "devices"), 403)
+
+    _report_device_scene(scene, "usb-1", [], hour=12)
+    assert _get(_client(author), "devices").json == {
+        "items": [], "device_count": 0, "last_report_at": "2026-11-18T12:00:00Z",
+    }
+    agent_channel.register_agent(scene["policy"], actor_user_id=admin.id, display_name="Other station",
+                                 allowed_sources=["usb-1"], credential_fingerprint="bb" * 20)
+    assert _get(_client(author), "devices").json == no_reports
+    agent_channel.set_agent_enabled(scene["policy"], actor_user_id=admin.id, agent_id=scene["agent_id"], enabled=False)
+    assert _get(_client(admin), "devices").json == no_reports

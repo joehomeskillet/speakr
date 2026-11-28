@@ -41,6 +41,19 @@
   },
   "security": [{"browserSession": []}],
   "paths": {
+    "/api/clinic/v1/imports/devices": {
+      "get": {
+        "operationId": "listObservedImportDevices",
+        "summary": "Gemeldete Importgeräte anzeigen",
+        "x-handler": "src.clinic.routes_imports_web.devices",
+        "x-permission": "Active site admin, lead of the bound author pool, or bound author with import permission. For non-admins the registered root owner and the device source binding must be unambiguous.",
+        "responses": {
+          "200": {"description": "Private, no-store device view", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeviceReportView"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/api/clinic/v1/import-centre/agents/{agent_id}/inventory": {
       "get": {"operationId": "listImportInventory", "summary": "Freigegebene Importdateien anzeigen", "x-handler": "src.clinic.device_inventory_view.get_device_inventory", "x-permission": "clinic.import.read_inventory on this agent and its approved source roots", "parameters": [{"$ref": "#/components/parameters/AgentId"}], "responses": {"200": {"description": "Snapshotliste", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/InventoryView"}}}}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "404": {"$ref": "#/components/responses/Problem"}}}
     },
@@ -82,6 +95,26 @@
     },
     "responses": {"Problem": {"description": "Verweigerung ohne Patientendaten", "content": {"application/problem+json": {"schema": {"$ref": "../../clinic-spec/contracts/clinic-api.openapi.json#/components/schemas/Problem"}}}}},
     "schemas": {
+      "DeviceReportView": {
+        "type": "object", "additionalProperties": false, "required": ["items", "device_count", "last_report_at"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/ObservedImportDevice"}},
+          "device_count": {"type": "integer", "nullable": true, "minimum": 0, "description": "Number of visible observed devices. Null without a visible report. Zero with visible reports and no devices."},
+          "last_report_at": {"type": "string", "nullable": true, "format": "date-time", "description": "Latest server receipt time across visible root reports, including empty reports."}
+        }
+      },
+      "ObservedImportDevice": {
+        "type": "object", "additionalProperties": false,
+        "required": ["agent_id", "root_id", "device_id", "capabilities", "driver_status", "last_report_at"],
+        "properties": {
+          "agent_id": {"type": "string", "format": "uuid"},
+          "root_id": {"$ref": "#/components/schemas/SourceRef"},
+          "device_id": {"$ref": "#/components/schemas/SourceRef"},
+          "capabilities": {"$ref": "agent-channel.openapi.json#/components/schemas/DeviceCapabilities"},
+          "driver_status": {"$ref": "agent-channel.openapi.json#/components/schemas/DeviceDriverStatus"},
+          "last_report_at": {"type": "string", "format": "date-time"}
+        }
+      },
       "InventoryView": {"type": "object", "additionalProperties": false, "required": ["agent_id", "count", "items", "queried_at"], "properties": {"agent_id": {"type": "string", "format": "uuid"}, "count": {"type": "integer", "minimum": 0, "maximum": 5000}, "items": {"type": "array", "maxItems": 5000, "items": {"$ref": "agent-channel.openapi.json#/components/schemas/InventoryItem"}}, "queried_at": {"type": "string", "format": "date-time"}}},
       "ImportIntentCreate": {"type": "object", "additionalProperties": false, "required": ["source_kind", "source_ref"], "properties": {"source_kind": {"type": "string", "enum": ["device", "folder"]}, "source_ref": {"$ref": "#/components/schemas/SourceRef"}, "expected_files": {"type": "array", "maxItems": 500, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 255}}, "target_author_user_id": {"type": "integer", "minimum": 1, "description": "Defaults to signed-in user; explicit authorization for another author."}, "target_pool_id": {"type": "string", "format": "uuid", "nullable": true}, "language_id": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 1031}}},
       "ImportIntent": {"type": "object", "additionalProperties": false, "required": ["id", "status", "source_kind", "source_ref", "expected_files", "target_author_user_id", "language_id", "created_at", "expires_at"], "properties": {"id": {"type": "string", "format": "uuid"}, "status": {"type": "string", "enum": ["OPEN", "FULFILLED", "EXPIRED", "CANCELLED"]}, "source_kind": {"type": "string", "enum": ["device", "folder"]}, "source_ref": {"$ref": "#/components/schemas/SourceRef"}, "expected_files": {"type": "array", "maxItems": 500, "items": {"type": "string", "maxLength": 255}}, "target_author_user_id": {"type": "integer", "minimum": 1}, "target_pool_id": {"type": "string", "format": "uuid", "nullable": true}, "language_id": {"type": "integer", "minimum": 1, "maximum": 65535}, "created_at": {"type": "string", "format": "date-time"}, "expires_at": {"type": "string", "format": "date-time"}}},

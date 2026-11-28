@@ -7,10 +7,15 @@ surfaces the open WG-IMP-009/WG-IMP-010 status for configuration and firmware
 actions. It never emits an import-agent control command.
 """
 
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
+from sqlalchemy import tuple_
+
+from src.clinic import agent_channel
 from src.clinic.agent_channel import AgentChannelError, ChannelPolicy, list_inventory
+from src.clinic.import_source_config import ClinicImportSourceConfig
 
 
 def _utc_iso() -> str:
@@ -33,6 +38,39 @@ def get_device_inventory(
         "items": rows,
         "count": len(rows),
         "queried_at": _utc_iso(),
+    }
+
+
+def get_device_report_view(*, site_admin, own_author_id, led_pools):
+    """Project the latest observations for roots visible to the authenticated actor."""
+    registry = agent_channel.registered_agent_roots()
+    if site_admin:
+        scopes = [(agent_id, root) for agent_id, (enabled, roots) in registry.items() if enabled for root in roots]
+    else:
+        owners = {root: agent_id for root, agent_id in agent_channel.unique_root_owners(registry).items() if agent_id}
+        bindings = defaultdict(list)
+        for config in ClinicImportSourceConfig.query.filter(ClinicImportSourceConfig.source_ref.in_(owners)):
+            bindings[config.source_ref].append(config)
+        scopes = []
+        for root, configs in bindings.items():
+            if len(configs) != 1 or configs[0].source_kind != "device":
+                continue
+            config = configs[0]
+            if config.target_author_user_id == own_author_id or config.target_pool_id in led_pools:
+                scopes.append((owners[root], root))
+
+    report = agent_channel.ClinicAgentDeviceReport
+    reports = report.query.filter(tuple_(report.agent_id, report.root_id).in_(scopes)).order_by(
+        report.agent_id, report.root_id,
+    ).all() if scopes else []
+    items = [
+        dict(device, agent_id=row.agent_id, root_id=row.root_id, last_report_at=agent_channel.stamp(row.reported_at))
+        for row in reports for device in row.devices
+    ]
+    return {
+        "items": items,
+        "device_count": len(items) if reports else None,
+        "last_report_at": max(agent_channel.stamp(row.reported_at) for row in reports) if reports else None,
     }
 
 
@@ -151,6 +189,7 @@ __all__ = [
     "filter_inventory_by_date",
     "get_config_action_status",
     "get_device_inventory",
+    "get_device_report_view",
     "get_firmware_action_status",
     "get_inventory_summary",
 ]
