@@ -383,8 +383,8 @@ def test_dictation_files_round_trip(file_server, tmp_path):
                 for width, height in ((1440, 900), (1280, 720), (390, 844)):
                     page.set_viewport_size({'width': width, 'height': height})
                     page.evaluate("() => document.querySelector('[data-testid=clinic-correction-mount]').scrollTop = 0")
-                    if width < 1440:
-                        files.evaluate("element => element.scrollIntoView({ block: 'start' })")
+                    files.evaluate("(element, width) => element.scrollIntoView({"
+                                   " block: width < 1440 ? 'start' : 'nearest', behavior: 'instant' })", width)
                     assert files.locator('summary, button').evaluate_all(
                         "controls => controls.every(control => {"
                         " const r = control.getBoundingClientRect();"
