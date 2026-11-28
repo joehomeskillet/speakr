@@ -60,6 +60,7 @@ const LABELS = Object.freeze({
     'clinic.asr.format': 'Ausgabeformat',
     'clinic.asr.engine': 'Verwendete Erkennung',
     'clinic.asr.engine.unknown': 'Nicht ermittelt',
+    'clinic.asr.engine.synthetic': 'Synthetischer Test',
     'clinic.asr.engine.gpu': 'GPU',
     'clinic.asr.engine.cpu': 'CPU',
     'clinic.asr.fallback': 'Ausweichlösung aktiv: CPU statt GPU.',
@@ -211,7 +212,9 @@ export function createAsrProfilesController(deps) {
             output: d.output_format && typeof d.output_format === 'object' ? d.output_format : null,
             engine: {
                 configured: ENGINES.includes(engine.configured) ? engine.configured : base.engine.configured,
-                actual: ENGINES.includes(engine.actual) ? engine.actual : base.engine.actual,
+                actual: ENGINES.includes(engine.actual) ? engine.actual : (engine.status ? null : base.engine.actual),
+                status: engine.status,
+                fallback: engine.fallback === true,
                 reason: str(engine.reason),
             },
             // Prompts stay off unless the server says otherwise.
@@ -339,9 +342,11 @@ export function createAsrProfilesController(deps) {
     function view(asrStatus, waitedS) {
         const s = state.server;
         const d = state.draft;
-        const fallback = s.engine.configured === 'gpu' && s.engine.actual === 'cpu';
+        const fallback = s.engine.status ? s.engine.fallback : s.engine.configured === 'gpu' && s.engine.actual === 'cpu';
         const provenSet = new Set(s.proven);
-        const verifiedEngine = ['batch', 'live'].some((name) => provenSet.has(name)) || fallback;
+        const verifiedEngine = s.engine.status ? s.engine.status === 'runtime' && s.engine.actual !== null
+            : ['batch', 'live'].some((name) => provenSet.has(name)) || fallback;
+        const engineLabel = s.engine.status === 'synthetic' ? 'synthetic' : (verifiedEngine ? s.engine.actual : 'unknown');
         const dirty = d.source !== s.source || d.liveProfileId !== s.liveProfileId || d.batchProfileId !== s.batchProfileId
             || d.skipWaitMinutes !== s.skipWaitMinutes || d.saveRule !== s.saveRule
             || d.profileMode !== s.profileMode || d.batchSource !== s.batchSource;
@@ -372,7 +377,7 @@ export function createAsrProfilesController(deps) {
             engine: {
                 configured: s.engine.configured,
                 actual: s.engine.actual,
-                label: label('clinic.asr.engine.' + (verifiedEngine ? s.engine.actual : 'unknown')),
+                label: label('clinic.asr.engine.' + engineLabel),
                 fallback,
                 fallbackLabel: fallback ? label('clinic.asr.fallback') : '',
                 reason: s.engine.reason,

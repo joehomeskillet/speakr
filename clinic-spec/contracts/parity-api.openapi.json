@@ -246,6 +246,7 @@
           "dictation_id": {"type": "string", "format": "uuid"},
           "text_revision_id": {"type": ["string", "null"], "format": "uuid"},
           "text": {"type": "string", "maxLength": 1000000},
+          "audio_synced": {"type": "boolean", "readOnly": true, "description": "For an imported text revision, whether the current audio is the one imported with that text."},
           "document": {"$ref": "#/components/schemas/CorrectionDocument"},
           "document_version": {"type": "integer", "minimum": 0, "description": "Snapshot version scoped to text_revision_id; 0 means no persisted rich snapshot, positive values identify immutable snapshots."},
           "recognition_marks": {"type": "array", "readOnly": true, "maxItems": 8192, "items": {"$ref": "#/components/schemas/CorrectionRecognitionMark"}}
