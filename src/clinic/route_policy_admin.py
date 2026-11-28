@@ -31,6 +31,9 @@ AUTH: tuple[str, ...] = (
     'clinic_pool_admin.usage',
     'clinic_pool_admin.set_member_role',
     'clinic_grants.read',
+    # Versioned command export/import (PAR-VOC-008). Handlers check scope ownership and CSRF.
+    'clinic_commands.export_commands',
+    'clinic_commands.import_commands',
     'clinic_preferences.recipient_default',
     'clinic_preferences.recipient_resolve',
     'clinic_preferences.last_selection',
