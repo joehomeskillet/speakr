@@ -13,8 +13,9 @@ from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
 from wtforms.validators import ValidationError
 
 from src.clinic import (
-    agent_channel, author_suggestion, decoder, firmware_catalog, import_centre, import_source_config,
-    import_visibility, pools, recipient_defaults, speaker_client, speaker_pipeline, worklist_entries,
+    agent_channel, author_suggestion, decoder, device_inventory_view, firmware_catalog, import_centre,
+    import_source_config, import_visibility, pools, recipient_defaults, speaker_client, speaker_pipeline,
+    worklist_entries,
 )
 from src.clinic import routes_import_sources_web as source_routing
 from src.clinic.admin_dictation_access import _is_active_site_admin
@@ -417,6 +418,19 @@ def update_firmware(device_type: str) -> Response | tuple[Response, int]:
         return _problem("DEPENDENCY_UNAVAILABLE")
     db.session.commit()
     return jsonify(entry)
+
+
+@blueprint.get("/devices")
+def devices():
+    actor = current_user.id
+    admin = _is_active_site_admin(db.session, current_user)
+    led_pools = () if admin else worklist_entries._led_author_pools(actor)
+    can_import = admin or _can_import(actor)
+    if not (can_import or led_pools):
+        return _problem("FORBIDDEN")
+    return jsonify(device_inventory_view.get_device_report_view(
+        site_admin=admin, own_author_id=actor if can_import else None, led_pools=led_pools,
+    ))
 
 
 def _clarification_policy():
