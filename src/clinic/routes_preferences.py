@@ -28,6 +28,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from wtforms.validators import ValidationError
 
 from src.clinic import (
+    app_wiring,
     correction_modes,
     key_bindings,
     notification_preferences,
