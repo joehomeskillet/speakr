@@ -32,10 +32,12 @@
 import { useCorrectionPlayerPosition } from './correction-player-position.js';
 import { formatDictationReference } from './worklist-ui.js';
 import { createClinicApiClient } from './api-client.js';
+import { SessionTransportNotice } from './compose-settings.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { CorrectionAudioPanel, DictationSummary, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
 import { CorrectionWaveform } from './correction-waveform-ui.js';
+import { createHandmicView } from './handmic-webhid.js';
 import { PlaybackTempo, usePlaybackTempo } from './playback-tempo-ui.js';
 import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
@@ -316,9 +318,11 @@ export function createCorrectionViewController(options) {
 
     // contract 'v8': shared lease controller, reconcile before a new key, +-5 s step. Without it the pre-V8 behaviour stays.
     const v8 = opts.contract === 'v8';
+    const stepSeconds = v8 ? STEP_SECONDS_V8 : STEP_SECONDS;
     const editor = useCorrectionEditor({
         client, dictationId, currentUser: user, vue: V || undefined, exposeLeaseController: v8,
     });
+    const lease = createLeaseAdapter(editor, V);
 
     const position = () => {
         const el = audioEl.value;
@@ -365,11 +369,44 @@ export function createCorrectionViewController(options) {
 
     const saver = useCorrectionSave({
         editor, client, dictationId, getPositionMs, vue: V || undefined,
-        lease: createLeaseAdapter(editor, V),
+        lease,
         ...(opts.autosaveMs !== undefined ? { autosaveMs: opts.autosaveMs } : {}),
         ...(v8 ? { reconcileFirst: true } : {}),
         ...(opts.saveOptions || {}),
     });
+
+    const handmicWritable = () => !disposed && opts.openMode !== 'player'
+        && editor.canEdit.value && lease.getState().writable;
+    const handmicVersion = ref(0);
+    const handmic = opts.openMode === 'player' ? null : createHandmicView(opts.hid, {
+        feedback() {
+            return handmicWritable()
+                ? { message: 'Handmikrofon bereit.', led: 'standby' }
+                : { message: 'Handmikrofon gesperrt. Bearbeitung nicht möglich.', led: 'off' };
+        },
+        onCommand(command) {
+            if (!handmicWritable()) {
+                handmic.sync();
+                return;
+            }
+            switch (command) {
+            case 'play': return togglePlayback();
+            case 'stop': return modeAudio.pause();
+            case 'rewind': return tempo?.rewind(stepSeconds);
+            case 'forward': return tempo?.skip(stepSeconds);
+            case 'eol': return editor.dirty.value ? save() : undefined;
+            }
+        },
+        onChange() { handmicVersion.value += 1; },
+    });
+    const handmicModel = api.computed(() => {
+        handmicVersion.value;
+        return handmic?.model() ?? null;
+    });
+    if (handmic) {
+        if (editor.leaseController) stops.push(lease.subscribe(() => handmic.sync()));
+        if (api.watch) stops.push(api.watch(handmicWritable, () => handmic.sync(), { flush: 'sync' }));
+    }
 
     const repeat = createRepeatTranscription({ editor, ref });
     const resumeLabel = (api.computed)(() => {
@@ -769,6 +806,7 @@ export function createCorrectionViewController(options) {
         disposed = true;
         repeat.dispose();
         for (const stop of stops.splice(0)) if (typeof stop === 'function') stop();
+        const handmicClosed = handmic?.dispose().catch((error) => console.warn('WebHID close failed', error));
         if (pedal) { pedal.detach(); pedal = null; }
         pedalStatus.value = '';
         unbindAudio();
@@ -781,6 +819,7 @@ export function createCorrectionViewController(options) {
         ready.value = false;
         editor.text.value = '';
         Promise.resolve(released).catch(() => {});
+        return handmicClosed;
     }
 
     return {
@@ -794,6 +833,7 @@ export function createCorrectionViewController(options) {
         pedalStatus, pedalReady: () => pedalReady, pedal: () => pedal, setPedalSettings,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
         client: scoped, adoptAudioRevision, bindAudio, bindAlignmentRoot, alignmentRootEl: () => alignmentRoot, alignmentNotice, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
+        handmic, handmicModel,
         text: TEXT,
     };
 }
@@ -958,6 +998,8 @@ export const CorrectionBody = {
             vue: props.vue || undefined,
             contract: 'v8', // the mounted view runs the V8 save contract: lease controller, reconcile first, +-5 s step
             recordingId: props.recordingId || undefined,
+            get openMode() { return props.openMode; },
+            hid: props.openMode === 'player' ? undefined : globalThis.navigator?.hid,
             createAudioContext: props.createAudioContext || undefined,
             onClose: () => { if (ctx && typeof ctx.emit === 'function') ctx.emit('close'); },
         });
@@ -1165,6 +1207,7 @@ export const CorrectionBody = {
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
             onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
+            SessionTransportNotice,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId, loading: e.loading, error: e.error, manual: e.manual,
             lease: e.lease, audio: e.audio, audioSynced: e.audioSynced,
             template: e.template, templates: e.templates, templatesError: e.templatesError,
@@ -1175,7 +1218,7 @@ export const CorrectionBody = {
             backstepSeconds: m.backstepSeconds,
             ready: c.ready, loadGeneration: c.loadGeneration, revisionGeneration: c.revisionGeneration,
             audioEl: c.audioEl, gainState: c.gainState, closeMessage: c.closeMessage, resumeLabel: c.resumeLabel,
-            pedalStatus: c.pedalStatus, alignmentNotice: c.alignmentNotice,
+            pedalStatus: c.pedalStatus, alignmentNotice: c.alignmentNotice, handmicModel: c.handmicModel,
         };
     },
     template: `
@@ -1200,6 +1243,7 @@ export const CorrectionBody = {
       </slot>
     </div>
   </div>
+  <component :is="SessionTransportNotice" :client="c.client" :vue="vue" />
   <p v-if="closeMessage" role="alert" class="note" :style="box('error')">{{ closeMessage }}</p>
   <p class="sr-only" id="ccv-keys">{{ TEXT.keys }}</p>
 
@@ -1250,9 +1294,14 @@ export const CorrectionBody = {
     <div class="live-inline-status" role="group" :aria-label="TEXT.lease" data-testid="lease-bar"
          style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
       <span role="status" aria-live="polite" :style="{ color: lease.surface.color }">{{ lease.message }}</span>
-      <button v-for="b in c.leaseButtons()" :key="b.id" type="button" :class="['button', 'small', b.id === 'acquire' ? 'primary' : '']" :style="FOCUS" :disabled="b.disabled"
+      <button v-for="b in c.leaseButtons()" :key="b.id" type="button" :class="['button', 'small', b.id === 'acquire' ? 'primary' : '']" :style="FOCUS" style="min-height: 48px" :disabled="b.disabled"
               :data-action="b.id" @click="c.leaseRun[b.id]()">{{ b.label }}</button>
+      <button v-if="openMode !== 'player' && handmicModel?.available" type="button" class="button" :style="FOCUS"
+              style="min-height: 48px" :disabled="!handmicModel.canPair" data-testid="handmic-pair"
+              @click="c.handmic.pair()">Handmikrofon koppeln</button>
     </div>
+    <p v-if="openMode !== 'player' && handmicModel" role="status" aria-live="polite" data-testid="handmic-status"
+       style="margin: 0 0 var(--ui-space-2); color: var(--v8-text)">{{ handmicModel.message }}</p>
 
     <template v-if="ready">
       <div class="player-dock" ref="playerDock">
