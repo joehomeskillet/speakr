@@ -621,6 +621,7 @@ export const RecordingView = {
             return c.dispose();
         });
         return {
+            SessionTransportNotice,
             c,
             m,
             root,
@@ -630,7 +631,6 @@ export const RecordingView = {
             finishDurationProbe,
             shortcuts,
             icons: ICON_PATHS,
-            SessionTransportNotice,
             enabled, level, elapsed, previewUrl,
             act: (id) => { if (RECORDER_ACTIONS.includes(id)) c[id](); },
             discard: () => {
