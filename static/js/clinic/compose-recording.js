@@ -349,7 +349,7 @@ export function createRecordingViewController(options) {
         if (s.error === 'microphone_denied') return TEXT.microphoneDenied;
         if (s.error === 'start_failed') return TEXT.startFailed;
         if (s.error === 'discard_failed') return TEXT.discardFailed;
-        if (s.phase === 'sent') return TEXT.sent;
+        if (s.phase === 'sent') return opts.oneButton ? '' : TEXT.sent;
         if (opts.oneButton && s.phase === 'sending') return TEXT.submitting;
         return machine.announcement();
     }
@@ -383,7 +383,7 @@ export function createRecordingViewController(options) {
             canCancelFile: allowed() && (state.filePhase === 'selected' || state.filePhase === 'failed'),
             canSwitchMode: allowed() && !recorderBusy() && !fileBusy,
             created: created(),
-            message: message(),
+            message: message() || (created() && s.phase === 'sent' ? TEXT.sent : ''),
             surface: surface(),
         };
     }
@@ -490,13 +490,15 @@ export const RECORDING_TEMPLATE = `
                      :client="client" :dictation-id="m.created.dictationId" />
         </details>
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
-        <div class="actions" style="justify-content: center">
-          <button v-if="m.canSubmit" type="button" class="button primary" style="${TOUCH}"
-                  data-testid="submit-draft" :disabled="protecting()" @click="c.submit()">{{ c.text.submit }}</button>
+        <fieldset class="actions" :disabled="protecting()" style="justify-content: center; border: 0; padding: 0; margin: 0; min-inline-size: 0">
+          <button v-if="m.mode === 'record' && m.canSubmit" type="button" class="button primary" style="${TOUCH}"
+                  data-testid="submit-draft" :disabled="m.categoriesLoading" @click="c.submit()">{{ c.text.submit }}</button>
+          <button v-if="m.mode === 'file' && m.canSubmit" type="button" class="button primary" style="${TOUCH}"
+                  data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
           <a href="#/diktat" data-testid="open-created" style="${LINK}" @click.prevent="c.openCreated()">{{ m.mode === 'file' ? c.text.open : 'Diktat öffnen' }}</a>
           <button v-if="m.mode === 'file'" type="button" class="button" style="${TOUCH}" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
           <button type="button" class="button" style="${TOUCH}" data-testid="another" @click="c.another()">{{ c.text.title }}</button>
-        </div>
+        </fieldset>
     </div>
   </div>
 </section>`;
