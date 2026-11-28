@@ -14,7 +14,7 @@ from wtforms.validators import ValidationError
 
 from src.clinic import (
     agent_channel, agent_channel_ingest, author_suggestion, decoder,
-    device_inventory_view, import_centre,
+    device_inventory_view, firmware_catalog, import_centre,
     import_source_config, import_visibility, pools, recipient_defaults,
     speaker_client, speaker_pipeline, worklist_entries,
 )
@@ -394,14 +394,13 @@ def retry_intent(intent_id: UUID) -> Response | tuple[Response, int]:
     return _import_write(str(intent_id), retry)
 
 
-@blueprint.get("/inventory")
-def inventory():
+def _visible_inventory(*, include_recipients: bool = False) -> tuple[list[dict], bool, list[dict]] | None:
     actor = current_user.id
-    admin = _is_active_site_admin(db.session, current_user)
+    admin = _is_active_site_admin(db.session(), current_user)
     led_pools = () if admin else worklist_entries._led_author_pools(actor)
     can_import = admin or _can_import(actor)
     if not (can_import or led_pools):
-        return _problem("FORBIDDEN")
+        return None
 
     registry = agent_channel.registered_agent_roots()
     owners = agent_channel.unique_root_owners(registry)
@@ -423,8 +422,8 @@ def inventory():
         master_secret=b"", authorise=lambda uid, action: uid == actor and action == "read_inventory",
     )
     visibility = import_visibility.ClarificationPolicy(may_access=may_read)
-    items = []
-    recipients_by_pool = {None: ()}
+    items: list[dict] = []
+    recipients_by_pool: dict[int | None, tuple[int, ...]] = {None: ()}
     now = agent_channel.utcnow()
     for agent_id in roots_by_agent:
         body = import_visibility.list_inventory(visibility, channel_policy, actor_user_id=actor, agent_id=agent_id)
@@ -451,7 +450,7 @@ def inventory():
                             item["cleanup"] = {"receipt_id": receipt_id, "policy_version": config["policy_version"]}
                             break
             items.append(item)
-            if not can_import or snapshot.size <= 0:
+            if not include_recipients or not can_import or snapshot.size <= 0:
                 continue
             try:
                 config, eligible_pools = _route_snapshot(snapshot, actor, owners, now)
@@ -465,13 +464,22 @@ def inventory():
     recipient_ids = {uid for pool_recipients in recipients_by_pool.values() for uid in pool_recipients}
     users = User.query.filter(User.id.in_(recipient_ids)).order_by(User.name, User.username, User.id) if recipient_ids else ()
     recipients = [{"id": user.id, "name": display_name(user)} for user in users]
-    return jsonify(items=items, count=len(items), can_clarify=bool(admin or led_pools), recipients=recipients)
+    return items, bool(admin or led_pools), recipients
+
+
+@blueprint.get("/inventory")
+def inventory():
+    visible = _visible_inventory(include_recipients=True)
+    if visible is None:
+        return _problem("FORBIDDEN")
+    items, can_clarify, recipients = visible
+    return jsonify(items=items, count=len(items), can_clarify=can_clarify, recipients=recipients)
 
 
 @blueprint.get("/devices")
 def devices():
     actor = current_user.id
-    admin = _is_active_site_admin(db.session, current_user)
+    admin = _is_active_site_admin(db.session(), current_user)
     led_pools = () if admin else worklist_entries._led_author_pools(actor)
     can_import = admin or _can_import(actor)
     if not (can_import or led_pools):
@@ -479,6 +487,46 @@ def devices():
     return jsonify(device_inventory_view.get_device_report_view(
         site_admin=admin, own_author_id=actor if can_import else None, led_pools=led_pools,
     ))
+
+
+@blueprint.get("/firmware")
+def firmware() -> Response | tuple[Response, int]:
+    visible = _visible_inventory()
+    if visible is None:
+        return _problem("FORBIDDEN")
+    targets = firmware_catalog.list_targets()
+    items = [firmware_catalog.compare(row, targets) for row in visible[0]]
+    return jsonify(catalog=[targets[key] for key in sorted(targets)], items=items, count=len(items),
+                   firmware_action=device_inventory_view.get_firmware_action_status())
+
+
+@blueprint.put("/firmware/<device_type>")
+def update_firmware(device_type: str) -> Response | tuple[Response, int]:
+    if not _is_active_site_admin(db.session(), current_user):
+        return _problem("FORBIDDEN")
+    try:
+        validate_csrf(request.headers.get("X-CSRFToken") or request.headers.get("X-CSRF-Token"))
+    except ValidationError:
+        return _problem("FORBIDDEN")
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or body.keys() - {"target_version", "expected_version"}:
+        return _problem("INVALID_PAYLOAD")
+    try:
+        entry = firmware_catalog.set_target(device_type, body.get("target_version"), body.get("expected_version", 0))
+    except ValueError:
+        return _problem("INVALID_PAYLOAD")
+    except firmware_catalog.RevisionConflict:
+        db.session.rollback()
+        return _problem("REVISION_CONFLICT")
+    event = audit.record_in_tx(
+        "admin.setting.changed", actor_kind="session", actor_user_id=current_user.id, force=True,
+        details={"key": f"firmware:{entry['device_type']}", "new": entry},
+    )
+    if event is None:
+        db.session.rollback()
+        return _problem("DEPENDENCY_UNAVAILABLE")
+    db.session.commit()
+    return jsonify(entry)
 
 
 def _clarification_policy():

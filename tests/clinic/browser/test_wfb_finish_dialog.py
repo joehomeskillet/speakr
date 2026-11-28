@@ -19,7 +19,7 @@ TXT = "Textdatei (TXT)"
 DOCX = "Word-Dokument (DOCX)"
 READY = "Datei erzeugt"
 FAILED = "Datei konnte nicht erzeugt werden."
-DOWNLOAD = "Laden"
+DOWNLOAD = "Herunterladen"
 SEED = """
 from datetime import datetime, timezone
 from src.clinic import export, revisions
@@ -75,10 +75,15 @@ def _open(page: Page, base: str, mount: str) -> str:
     expect(row).to_have_count(1)
     did = row.get_attribute("data-id")
     assert did
-    row.click()
-    if mount != "correction":
+    path = base + f"/api/clinic/v1/dictations/{did}"
+    if mount == "correction":
+        with page.expect_response(lambda r: r.url == path + "/leases" and r.request.method == "POST") as lease:
+            row.click()
+        assert lease.value.ok, lease.value.text()
+    else:
+        row.click()
         page.get_by_test_id(f"clinic-dictation-link-{mount}").click()
-    return base + f"/api/clinic/v1/dictations/{did}"
+    return path
 
 
 def _open_dialog(page: Page, mount: str, path: str) -> Locator:
@@ -86,7 +91,9 @@ def _open_dialog(page: Page, mount: str, path: str) -> Locator:
     start = view.get_by_role("button", name=TITLE, exact=True)
     if mount == "review":
         expect(view.get_by_test_id("review-text")).to_contain_text(TEXT)
-        acquire = view.get_by_test_id("begin-review")
+        with page.expect_response(lambda r: r.url == path + "/leases" and r.request.method == "POST") as lease:
+            view.get_by_test_id("begin-review").click()
+        assert lease.value.ok, lease.value.text()
     else:
         text = view.get_by_test_id("text")
         expect(text).to_have_value(TEXT)
@@ -96,9 +103,9 @@ def _open_dialog(page: Page, mount: str, path: str) -> Locator:
         expect(text).not_to_be_editable()
         expect(start).to_be_disabled()
         acquire = lease_bar.locator('[data-action="acquire"]')
-    with page.expect_response(lambda r: r.url == path + "/leases" and r.request.method == "POST") as lease:
-        acquire.click()
-    assert lease.value.ok, lease.value.text()
+        with page.expect_response(lambda r: r.url == path + "/leases" and r.request.method == "POST") as lease:
+            acquire.click()
+        assert lease.value.ok, lease.value.text()
     expect(start).to_be_enabled()
     start.click()
     dialog = page.get_by_role("dialog", name=TITLE, exact=True)

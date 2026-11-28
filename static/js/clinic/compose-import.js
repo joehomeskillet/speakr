@@ -53,6 +53,7 @@ export const ENDPOINTS = Object.freeze({
     intents: '/imports/intents',
     inventory: '/imports/inventory',
     deviceSend: '/imports/device-send',
+    firmware: '/imports/firmware',
     unassigned: '/imports/unassigned',
     candidates: (id) => '/imports/unassigned/' + encodeURIComponent(id) + '/candidates',
     assign: (id) => '/imports/unassigned/' + encodeURIComponent(id) + '/assign',
@@ -85,6 +86,20 @@ export const TEXT = Object.freeze({
     inventoryNote: 'Markieren Sie die Dateien, die Sie senden möchten.',
     sendQueued: 'Zur Übernahme vorgemerkt.',
     sendFailed: 'Vormerkung nicht bestätigt. Sie können es erneut versuchen.',
+    firmware: 'Firmware am Gerät',
+    firmwareBlocked: 'Firmware-Flash gesperrt (WG-IMP-010)',
+    firmwareFailed: 'Der Firmwarekatalog und der Versionsvergleich konnten nicht geladen werden.',
+    firmwareCatalog: 'Firmwarekatalog',
+    firmwareCatalogEmpty: 'Im Katalog sind keine Firmwareversionen hinterlegt.',
+    firmwareReports: 'Gemeldete Versionen',
+    firmwareReportsEmpty: 'Es liegen keine Meldungen für den Firmwarevergleich vor.',
+    deviceType: 'Gerätetyp',
+    catalogVersion: 'Im Katalog',
+    reportedVersion: 'Gemeldet',
+    firmwareVersions: 'Versionen',
+    firmwareComparison: 'Vergleich',
+    notReported: 'Keine Angabe',
+    noCatalogVersion: 'Nicht hinterlegt',
     clarification: 'Klärliste',
     clarificationEmpty: 'Keine Dateien in Klärung.',
     clarificationFailed: 'Die Klärliste konnte nicht geladen werden.',
@@ -127,10 +142,25 @@ export const STATUS = Object.freeze({
 // Tag modifier of the shared V8 stylesheet per status surface.
 const TAG_CLASS = Object.freeze({ pending: 'wait', success: '', warning: 'wait', error: 'error', normal: 'neutral' });
 const RETRYABLE = new Set(['FAILED', 'EXPIRED']);
+const FIRMWARE_CURRENT = { label: 'Aktuell', surface: 'success' };
+const FIRMWARE_COMPARISON = new Map([
+    ['equal', FIRMWARE_CURRENT],
+    ['newer', FIRMWARE_CURRENT],
+    ['older', { label: 'Älter', surface: 'warning' }],
+]);
+const FIRMWARE_UNKNOWN = { label: 'Unbekannt', surface: 'normal' };
 
 export function statusView(status) {
     const known = STATUS[String(status || '').toUpperCase()];
     const entry = known || { label: status ? String(status) : '–', surface: 'normal' };
+    return badgeView(entry);
+}
+
+function firmwareStatusView(status) {
+    return badgeView(FIRMWARE_COMPARISON.get(status) ?? FIRMWARE_UNKNOWN);
+}
+
+function badgeView(entry) {
     const s = surfaceFor(entry.surface);
     return {
         label: entry.label,
@@ -184,12 +214,13 @@ export function createImportController(deps) {
         inventory: [], inventoryError: null, inventoryLoaded: false,
         recipients: [], selectedSnapshots: [], deviceForm: deviceForm(), deviceResults: {},
         sending: false, deviceNotice: '',
+        firmware: null, firmwareError: null,
         unassigned: [], unassignedError: null, clarificationDenied: false,
         canClarify: mayClarify(user), candidates: null, candidatesError: false, target: null, hint: null,
         pending: null, // delivery id awaiting confirmation
         busy: {}, // item id -> true while a write is in flight
         notice: null,
-        cleanupTarget: null,
+        cleanupTarget: null, cleanupNotice: null,
     });
     const keys = new Map(); // item id -> Idempotency-Key reused until the write succeeds
     let disposed = false;
@@ -251,6 +282,18 @@ export function createImportController(deps) {
         return res;
     }
 
+    async function loadFirmware() {
+        const res = await client.request(ENDPOINTS.firmware, { method: 'GET' });
+        if (disposed) return;
+        if (res.outcome === 'ok' && Array.isArray(res.data?.catalog) && Array.isArray(res.data?.items)) {
+            state.firmware = { catalog: res.data.catalog, reports: res.data.items };
+            state.firmwareError = null;
+        } else {
+            state.firmware = null;
+            state.firmwareError = res.outcome === 'permission' ? TEXT.denied : TEXT.firmwareFailed;
+        }
+    }
+
     // An ordinary actor never requests the clarification list.
     async function loadUnassigned() {
         if (!state.canClarify) return null;
@@ -266,10 +309,10 @@ export function createImportController(deps) {
     }
 
     async function load() {
-        if (disposed) return;
+        if (disposed || state.loading) return;
         state.loading = true;
         try {
-            await Promise.all([loadIntents(), loadInventory().then(loadUnassigned)]);
+            await Promise.all([loadIntents(), loadInventory().then(loadUnassigned), loadFirmware()]);
         } finally {
             if (!disposed) state.loading = false;
         }
@@ -429,7 +472,7 @@ export function createImportController(deps) {
     function askCleanup(row) {
         if (disposed || state.cleanupTarget || !canClean(row) || !state.inventory.includes(row)) return false;
         state.cleanupTarget = row;
-        state.notice = null;
+        state.cleanupNotice = null;
         return true;
     }
 
@@ -444,7 +487,7 @@ export function createImportController(deps) {
         if (disposed || !row || state.busy.cleanup) return false;
         if (!state.inventory.includes(row) || !canClean(row)) {
             cancelCleanup();
-            state.notice = TEXT.cleanupChanged;
+            state.cleanupNotice = TEXT.cleanupChanged;
             return true;
         }
         const body = { agent_id: row.agent_id, source_snapshot_id: row.snapshot_id,
@@ -459,7 +502,7 @@ export function createImportController(deps) {
                 state.inventory = state.inventory.map((item) => item === row ? { ...item, cleanup: null } : item);
             }
             state.cleanupTarget = null;
-            state.notice = accepted ? TEXT.cleanupAccepted : res.outcome === 'conflict' ? TEXT.cleanupChanged
+            state.cleanupNotice = accepted ? TEXT.cleanupAccepted : res.outcome === 'conflict' ? TEXT.cleanupChanged
                 : res.outcome === 'permission' ? TEXT.denied : TEXT.cleanupFailed;
             return true;
         } finally {
@@ -476,6 +519,7 @@ export function createImportController(deps) {
         state.cleanupTarget = null;
         state.recipients = []; state.selectedSnapshots = []; state.deviceForm = deviceForm();
         state.deviceResults = {}; state.deviceNotice = '';
+        state.firmware = null;
         client.switchContext({ accountId: null, dictationId: null });
     }
 
@@ -487,7 +531,7 @@ export function createImportController(deps) {
         canClean, askCleanup, cancelCleanup, confirmCleanup,
         isBusy: (action, id) => Boolean(state.busy[action + ':' + id]),
         retryable: (row) => RETRYABLE.has(String(row && row.status).toUpperCase()),
-        statusView, text: TEXT, size: formatSize, when: formatWhen,
+        statusView, firmwareStatusView, text: TEXT, size: formatSize, when: formatWhen,
     };
 }
 
@@ -606,6 +650,7 @@ export const IMPORT_TEMPLATE = `
       </template>
     </section>
 
+    <p v-if="c.state.cleanupNotice" class="note" role="status">{{ c.state.cleanupNotice }}</p>
     <dialog id="civ-cleanup" ref="cleanupDialog" class="panel pool-dialog m-auto" aria-labelledby="civ-cleanup-title"
             aria-describedby="civ-cleanup-hint" @cancel.prevent="closeCleanup">
       <h2 id="civ-cleanup-title">{{ c.text.cleanupTitle }}</h2>
@@ -616,6 +661,45 @@ export const IMPORT_TEMPLATE = `
         <button type="button" class="primary min-h-12 focus-visible:outline-brand-accent" :disabled="c.state.busy.cleanup" @click="submitCleanup">{{ c.text.cleanupConfirm }}</button>
       </div>
     </dialog>
+
+    <section class="panel" aria-labelledby="civ-firmware" data-testid="firmware-panel">
+      <h2 id="civ-firmware">{{ c.text.firmware }}</h2>
+      <p class="note warning" data-testid="firmware-blocked">{{ c.text.firmwareBlocked }}</p>
+      <p v-if="c.state.loading" class="hint">{{ c.text.loading }}</p>
+      <p v-else-if="c.state.firmwareError" class="note warning" role="alert">{{ c.state.firmwareError }}</p>
+      <template v-else-if="c.state.firmware">
+        <h3 id="civ-firmware-catalog" class="mt-4">{{ c.text.firmwareCatalog }}</h3>
+        <p v-if="!c.state.firmware.catalog.length" class="empty" data-testid="firmware-catalog-empty">{{ c.text.firmwareCatalogEmpty }}</p>
+        <div v-else class="table-wrap">
+          <table class="${ACTION_TABLE} table-fixed whitespace-normal" aria-labelledby="civ-firmware-catalog" data-testid="firmware-catalog">
+            <thead><tr><th scope="col">{{ c.text.deviceType }}</th><th scope="col">{{ c.text.catalogVersion }}</th></tr></thead>
+            <tbody>
+              <tr v-for="entry in c.state.firmware.catalog" :key="entry.device_type">
+                <td class="break-words"><strong>{{ entry.device_type }}</strong></td>
+                <td class="break-words tabular-nums">{{ entry.target_version }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 id="civ-firmware-reports" class="mt-4">{{ c.text.firmwareReports }}</h3>
+        <p v-if="!c.state.firmware.reports.length" class="empty" data-testid="firmware-reports-empty">{{ c.text.firmwareReportsEmpty }}</p>
+        <div v-else class="table-wrap">
+          <table class="${ACTION_TABLE} table-fixed whitespace-normal" aria-labelledby="civ-firmware-reports" data-testid="firmware-comparison">
+            <thead><tr><th scope="col">{{ c.text.colSource }}</th><th scope="col">{{ c.text.firmwareVersions }}</th><th scope="col">{{ c.text.firmwareComparison }}</th></tr></thead>
+            <tbody>
+              <tr v-for="(item, i) in c.state.firmware.reports" :key="i">
+                <td class="break-words"><strong>{{ item.source_id ?? c.text.notReported }}</strong><small v-if="item.device_type">{{ item.device_type }}</small></td>
+                <td class="break-words tabular-nums">
+                  <div>{{ c.text.reportedVersion }}: {{ item.firmware_version ?? c.text.notReported }}</div>
+                  <div>{{ c.text.catalogVersion }}: {{ item.target_version ?? c.text.noCatalogVersion }}</div>
+                </td>
+                <td><span class="tag !whitespace-normal break-words max-w-full" :class="c.firmwareStatusView(item.comparison_status).tag" :style="c.firmwareStatusView(item.comparison_status).style">{{ c.firmwareStatusView(item.comparison_status).label }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+    </section>
     <import-source-routing :client="client"></import-source-routing>
     <details class="panel">
       <summary>Geräteautor am Philips LFH9600 oder LFH9620</summary>
