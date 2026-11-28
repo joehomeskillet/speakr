@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, load_only, object_session
 
 from src.clinic import workflow
 from src.clinic.asr_profiles import ClinicAsrProfile
-from src.clinic.asr_wait_policy import config_from_options, view_state
+from src.clinic.asr_wait_policy import WaitConfig, WaitView, config_from_options, view_state
 
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
@@ -106,19 +106,27 @@ def asr_outcome(dictation, *, outcomes=None, detailed=False):
             'skipped': 'none'}.get(state, state)
 
 
+def running_wait(session: Session, dictation: ClinicDictation, now: datetime) -> tuple[WaitConfig, WaitView] | None:
+    """Read the author's wait policy for the oldest active recognition job."""
+    outcome, queued_at = _asr_details([dictation])[dictation.id]
+    if outcome not in ('queued', 'processing') or queued_at is None:
+        return None
+    profile = session.query(ClinicAsrProfile).filter_by(user_id=dictation.author_user_id).one_or_none()
+    config = config_from_options(profile.options if profile else None)
+    elapsed = max(0, int((now - queued_at.replace(tzinfo=timezone.utc)).total_seconds()))
+    return config, view_state('running', elapsed, manual_started=False, config=config)
+
+
 def skip_wait(session: Session, dictation: ClinicDictation, now: datetime) -> workflow.ClinicWorkflowDictation:
     """Leave preparation after the ASR wait, without cancelling the background job."""
     row = session.get(workflow.ClinicWorkflowDictation, dictation.id,
                       populate_existing=True, with_for_update=True)
     if row is None or row.status not in (workflow.PREP_ONLINE, workflow.PREP_OFFLINE):
         raise workflow.WorkflowError('not_preparing')
-    outcome, queued_at = _asr_details([dictation])[dictation.id]
-    if outcome not in ('queued', 'processing') or queued_at is None:
+    running = running_wait(session, dictation, now)
+    if running is None:
         raise workflow.WorkflowError('asr_not_running')
-    profile = session.query(ClinicAsrProfile).filter_by(user_id=dictation.author_user_id).one_or_none()
-    config = config_from_options(profile.options if profile else None)
-    elapsed = max(0, int((now - queued_at.replace(tzinfo=timezone.utc)).total_seconds()))
-    wait = view_state('running', elapsed, manual_started=False, config=config)
+    config, wait = running
     if not wait.can_start_manual:
         raise workflow.WorkflowError('asr_wait_disabled' if config.wait_disabled else 'asr_wait_not_elapsed')
     return workflow.transition(session, dictation.id, 'skip_recognition')

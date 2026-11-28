@@ -1,7 +1,9 @@
 """Local synthetic proof through normal Flask ingress and the mounted editor."""
 import json
+import os
 from pathlib import Path
 import socket
+import sqlite3
 import subprocess
 import sys
 import time
@@ -232,13 +234,24 @@ def test_normal_save_ingress(tmp_path, source):
 
 
 @pytest.fixture
-def manual_server(tmp_path):
+def manual_server(tmp_path, request):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
-    server = SETUP + r'''
+    server = SETUP + '\ndid = seed(audio=True)\n'
+    if getattr(request, 'param', None) == 'asr-wait':
+        server += r'''
+from src.models import ProcessingJob
+with app.app_context():
+    dic = db.session.get(ClinicDictation, did)
+    db.session.get(Recording, dic.recording_id).status = 'PROCESSING'
+    db.session.get(workflow.ClinicWorkflowDictation, did).status = workflow.PREP_ONLINE
+    db.session.add(ProcessingJob(user_id=uid, recording_id=dic.recording_id,
+                                 job_type='transcribe', status='processing'))
+    db.session.commit()
+'''
+    server += r'''
 from werkzeug.serving import make_server
-did = seed(audio=True)
 server = make_server('127.0.0.1', int(sys.argv[2]), app, threaded=True)
 print('READY ' + json.dumps({'dictation': did}), flush=True)
 server.serve_forever()
@@ -280,6 +293,7 @@ def test_signed_in_owner_types_saves_and_reopens(manual_server):
             _open_from_worklist(page, base)
             text = page.locator('[data-testid=text]')
             expect(text).to_have_value('')
+            _asr_wait_artifacts(page, 'baseline')
             page.locator('[data-action=acquire]').click()
             expect(text).to_be_editable()
             text.press_sequentially(TEXT)
@@ -297,3 +311,97 @@ def test_signed_in_owner_types_saves_and_reopens(manual_server):
             assert not page.js_errors, page.js_errors
         finally:
             browser.close()
+
+
+@pytest.mark.parametrize('manual_server', ['asr-wait'], indirect=True)
+def test_asr_wait_opens_manual_editor(manual_server, tmp_path):
+    from playwright.sync_api import expect, sync_playwright
+
+    base, did = manual_server
+    with sync_playwright() as playwright:
+        browser = _launch(playwright)
+        try:
+            page = _login(browser, base, OWNER)
+            _open_from_worklist(page, base)
+            view = page.get_by_test_id('clinic-correction-view')
+            waiting = view.locator('.asr-wait-status').get_by_role('status')
+            manual = view.get_by_role('button', name='Manuell schreiben', exact=True)
+            text = view.get_by_test_id('text')
+            expect(waiting).to_have_text('Spracherkennung läuft …')
+            expect(manual).to_have_count(0)
+            expect(text).to_have_value('')
+            expect(text).not_to_be_editable()
+
+            # Make the existing running job older while the real browser stays open.
+            with sqlite3.connect(tmp_path / 'w213.db') as connection:
+                connection.execute("UPDATE processing_job SET created_at = datetime('now', '-10 minutes')")
+            expect(manual).to_be_enabled(timeout=12000)
+            manual.focus()
+            page.keyboard.press('Tab')
+            page.keyboard.press('Shift+Tab')
+            expect(manual).to_be_focused()
+            assert manual.evaluate("el => el.matches(':focus-visible') && getComputedStyle(el).outlineWidth !== '0px'")
+            manual.blur()
+            _asr_wait_artifacts(page, 'empty')
+            with page.expect_response(lambda r: r.url.endswith('/asr/skip') and r.request.method == 'POST') as response:
+                manual.click()
+            assert response.value.status == 200, response.value.text()
+            assert response.value.json()['status'] == 'zu_schreiben'
+            expect(waiting).to_have_text('Zu schreiben')
+            expect(manual).to_have_count(0)
+            expect(text).to_be_focused()
+            expect(text).to_be_editable()
+            text.fill(TEXT)
+            with page.expect_response(lambda r: r.url.endswith('/correction/save') and r.request.method == 'POST') as saved:
+                view.get_by_test_id('save').click()
+            assert saved.value.status == 200, saved.value.text()
+            _asr_wait_artifacts(page, 'filled')
+            with page.expect_response(lambda r: r.url.endswith('/leases/release')) as released:
+                page.get_by_test_id('clinic-correction-back').click()
+            assert released.value.status == 200, released.value.text()
+            detail = page.request.get(f'{base}/api/clinic/v1/dictations/{did}/detail').json()
+            assert detail['status_axes']['workflow'] == 'zu_schreiben'
+            _open_from_worklist(page, base)
+            expect(text).to_have_value(TEXT)
+            assert not page.js_errors, page.js_errors
+        finally:
+            browser.close()
+
+
+def _asr_wait_artifacts(page, state):
+    if not (output := os.environ.get('P169_ARTIFACTS')):
+        return
+    from playwright.sync_api import expect
+
+    out = Path(output)
+    initial_size = page.viewport_size
+    initial_dark = page.evaluate("document.documentElement.classList.contains('dark')")
+    sizes = ((390, 844),) if state == 'baseline' else ((1440, 900), (1280, 720), (390, 844))
+    page.mouse.move(0, 0)
+    for width, height in sizes:
+        page.set_viewport_size({'width': width, 'height': height})
+        for theme in ('light', 'dark'):
+            page.evaluate("dark => document.documentElement.classList.toggle('dark', dark)", theme == 'dark')
+            button = page.get_by_role('button', name='Manuell schreiben', exact=True)
+            if state == 'empty':
+                expect(button).to_be_enabled()
+                bounds = button.bounding_box()
+                assert min(bounds['width'], bounds['height']) >= 48
+                assert 0 <= bounds['x'] <= bounds['x'] + bounds['width'] <= width
+            stem = out / f'p169-schreibplatz-{width}x{height}-{theme}-{state}'
+            if state != 'baseline':
+                page.screenshot(path=stem.with_suffix('.png'), animations='disabled', caret='hide')
+            html = page.evaluate('''() => {
+                const view = document.querySelector('[data-testid="clinic-correction-view"]');
+                const snapshot = view.cloneNode(true);
+                snapshot.querySelector('textarea').textContent = view.querySelector('textarea').value;
+                const styles = [...document.querySelectorAll('link[rel="stylesheet"][href^="/static/"], style')]
+                    .map(el => el.outerHTML.replace('href="/static/', 'href="../../static/')).join('');
+                return '<!doctype html><html lang="de" class="' + document.documentElement.className +
+                    '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+                    '<title>Schreibplatz</title>' + styles + '</head><body class="v8-ui"><main>' +
+                    snapshot.outerHTML + '</main></body></html>';
+            }''')
+            stem.with_suffix('.html').write_text(html, encoding='utf-8')
+    page.set_viewport_size(initial_size)
+    page.evaluate("dark => document.documentElement.classList.toggle('dark', dark)", initial_dark)

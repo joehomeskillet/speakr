@@ -7,17 +7,19 @@ display name, which is staff data. Reading is audit-logged like the history.
 """
 
 from collections.abc import Callable
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from flask import Blueprint, Response, abort, jsonify, session
 from flask_login import current_user
 from werkzeug.exceptions import HTTPException
 
-from src.clinic import release, revisions, workflow
+from src.clinic import recognition_state, release, revisions, workflow
 from src.clinic.acceptance_policy import AcceptanceLedger, PolicyError, SCOPE_DICTATION
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
 from src.clinic.pools import ClinicAuthorPool, ClinicPoolRoute, ClinicStaffPool
+from src.clinic.routes_workflow import PERM_SKIP_ASR
 from src.clinic.worklist_entries import stamp
 from src.database import db
 from src.models import Recording, User
@@ -151,6 +153,12 @@ def create_blueprint(
             abort(404)
         snap = dictation_snapshot(dictation)
         flow = db.session.get(workflow.ClinicWorkflowDictation, dictation.id)
+        wait = None
+        if (flow is not None and flow.status in (workflow.PREP_ONLINE, workflow.PREP_OFFLINE)
+                and authorize(current_user, PERM_SKIP_ASR, dictation) is True):
+            running = recognition_state.running_wait(db.session(), dictation, datetime.now(timezone.utc))
+            if running is not None:
+                _, wait = running
         recording = db.session.get(Recording, dictation.recording_id)
         recorded = None if recording is None else recording.meeting_date
         fallback = recorded is None
@@ -172,6 +180,8 @@ def create_blueprint(
             priority=None if flow is None else flow.priority,
             deadline_at=None if flow is None else stamp(flow.deadline_at),
             case_display=snap['case_display'],
+            can_start_manual=wait is not None and wait.can_start_manual,
+            asr_wait_message=None if wait is None else wait.message,
             status_axes=dict(
                 processing=snap['asr_state'],
                 workflow=None if flow is None else flow.status,
