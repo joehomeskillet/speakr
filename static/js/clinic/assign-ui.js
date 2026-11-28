@@ -1,6 +1,6 @@
 /** W13: only the server's candidate response authorizes the assignment UI. */
 export function createAssignment({ client, dictationId, currentUser = {}, reactive = (v) => v, onAssigned = () => {} }) {
-    const state = reactive({ allowed: false, candidates: [], query: '', selected: '', busy: false, error: '', message: '', etag: null });
+    const state = reactive({ allowed: false, candidates: [], query: '', selected: '', busy: false, error: '', message: '', etag: null, target: '' });
     const path = '/dictations/' + encodeURIComponent(dictationId) + '/assignment';
     let generation = 0;
     let receipt = null;
@@ -15,6 +15,7 @@ export function createAssignment({ client, dictationId, currentUser = {}, reacti
             state.allowed = candidates.status === 200 && candidates.outcome === 'ok' && Array.isArray(candidates.data);
             state.candidates = state.allowed ? candidates.data : [];
             state.etag = detail.outcome === 'ok' ? detail.data?.etag : null;
+            state.target = detail.outcome === 'ok' && detail.data?.routing_target?.label ? detail.data.routing_target.label : '';
         } catch {
             if (seen === generation) state.error = 'Die Zuweisung konnte nicht geladen werden.';
         }
@@ -79,6 +80,7 @@ export const AssignmentPanel = {
     },
     template: `
 <section aria-label="Zuweisung">
+  <p v-if="c.state.target" data-testid="routing-target">Versandziel: {{ c.state.target }}</p>
   <p role="status" aria-live="polite">{{ c.state.message || (assignee ? 'Zugewiesen an: ' + assignee : 'Klärliste') }}</p>
   <button v-if="c.state.allowed" type="button" class="secondary" @click="open">Zuweisen</button>
   <button v-if="c.canClaim()" type="button" class="secondary" :disabled="c.state.busy || !c.state.etag" @click="submit(currentUser.id)">Für mich übernehmen</button>

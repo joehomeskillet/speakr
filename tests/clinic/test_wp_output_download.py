@@ -10,6 +10,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 from io import BytesIO
+from types import SimpleNamespace
 
 import pytest
 from flask import Flask, g, jsonify
@@ -126,6 +127,28 @@ def test_clinic_mode_accepts_rtf_and_odt_without_listing_them(case):
     assert list(ro.FILE_FORMATS) == ['txt', 'docx']
 
 
+def test_output_page_can_list_all_file_formats_with_ready_job(web):
+    client, c = web
+    _release(c)
+    http, csrf = client(c['actor'])
+    created = _post(http, c, csrf, 'rtf')
+    assert created.status_code == 201, created.json
+
+    url = _base(c) + '/output-targets'
+    legacy = http.get(url)
+    assert legacy.status_code == 200
+    assert [target['id'] for target in legacy.json['targets'] if target['channel'] == 'file'] == ['txt', 'docx']
+
+    expanded = http.get(url, query_string={'file_formats': 'all'})
+    assert expanded.status_code == 200
+    files = {target['id']: target for target in expanded.json['targets'] if target['channel'] == 'file'}
+    assert list(files) == ['txt', 'docx', 'rtf', 'odt']
+    assert files['rtf'] == {'id': 'rtf', 'channel': 'file', 'available': True, 'reason': None,
+                            'status': 'ready', 'job_id': created.json['id']}
+    assert files['odt']['available'] is True
+    assert 'job_id' not in files['odt']
+
+
 @pytest.mark.parametrize('fmt', ['txt', 'docx', 'rtf', 'odt'])
 def test_download_matches_the_release_render(web, fmt):
     client, c = web
@@ -170,6 +193,42 @@ def test_docx_download_is_a_zip_and_odt_names_mimetype_first(web):
     with zipfile.ZipFile(BytesIO(odt_body)) as archive:
         assert archive.namelist()[0] == 'mimetype'
         assert archive.read('mimetype') == b'application/vnd.oasis.opendocument.text'
+
+
+def test_docx_download_survives_a_change_in_the_zip_clock(web, monkeypatch):
+    client, c = web
+    _release(c)
+    http, csrf = client(c['actor'])
+    seconds = 0
+    monkeypatch.setattr(zipfile, 'time', SimpleNamespace(
+        time=lambda: 0, localtime=lambda _: (2026, 11, 20, 9, 0, seconds, 4, 324, 0),
+    ))
+    created = _post(http, c, csrf, 'docx')
+    assert created.status_code == 201, created.json
+    seconds = 4
+
+    downloaded = http.get(_base(c) + f"/exports/{created.json['id']}/download")
+    assert downloaded.status_code == 200, downloaded.json
+    assert hashlib.sha256(downloaded.data).hexdigest() == created.json['sha256']
+
+
+def test_legacy_docx_job_can_be_regenerated_in_the_output_page(web):
+    client, c = web
+    release = _release(c)
+    http, _csrf = client(c['actor'])
+    job_id = str(uuid.uuid4())
+    scope = (c['actor'], 'file_export', c['dictation'].id, job_id)
+    ro.parity_receipts.run_once(scope, f'{release.id}:docx', lambda: {
+        'id': job_id, 'kind': 'file', 'status': 'ready', 'format': 'docx', 'actor_id': c['actor'],
+    })
+
+    url = _base(c) + '/output-targets'
+    expanded = http.get(url, query_string={'file_formats': 'all'})
+    assert expanded.status_code == 200
+    docx = next(target for target in expanded.json['targets'] if target['id'] == 'docx')
+    assert docx == {'id': 'docx', 'channel': 'file', 'available': True, 'reason': None,
+                    'status': 'stale', 'job_id': job_id}
+    assert http.get(_base(c) + f'/exports/{job_id}').json['status'] == 'ready'
 
 
 def test_replay_returns_the_same_job_and_the_same_bytes(web):
