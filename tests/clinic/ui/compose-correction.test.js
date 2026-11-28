@@ -157,6 +157,38 @@ describe('compose-correction contract', () => {
 });
 
 describe('loading and shared state', () => {
+    it('requests missing word alignment once the current audio is playable', async () => {
+        const client = fakeClient(base({
+            'GET /dictations/d1/leases': ok({ may_acquire: true }),
+            'GET /transcript-revisions/r1/document': ok({ document_hash: 'synthetic-hash' }),
+            'GET /alignment?audio_revision_id=a1&transcript_revision_id=r1': fail('http', 404, 'Keine Ausrichtung'),
+            'POST /alignment': ok({ state: 'failed' }),
+        }));
+        const c = controllerFor(client, { openMode: 'correction' });
+        const audio = new FakeAudio();
+        audio.readyState = 0;
+        c.bindAudio(audio);
+        try {
+            await c.start();
+            expect(c.editor.canEdit.value).toBe(true);
+            expect(count(client, 'POST', '/alignment')).toBe(0);
+
+            audio.src = new URL(c.editor.audio.value.src, 'http://localhost').href;
+            audio.getAttribute = () => c.editor.audio.value.src;
+            audio.readyState = 1;
+            audio.currentSrc = 'http://localhost/previous-audio-revision';
+            audio.dispatchEvent(new Event('loadedmetadata'));
+            expect(count(client, 'POST', '/alignment')).toBe(0);
+
+            audio.currentSrc = audio.src;
+            audio.dispatchEvent(new Event('loadedmetadata'));
+            audio.dispatchEvent(new Event('loadedmetadata'));
+            expect(count(client, 'POST', '/alignment')).toBe(1);
+        } finally {
+            c.dispose();
+        }
+    });
+
     it('loads text, audio revision, links, resume position and defaults to the W6 mode', async () => {
         const client = fakeClient(base());
         const c = controllerFor(client);

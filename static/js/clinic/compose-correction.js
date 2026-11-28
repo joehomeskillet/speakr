@@ -339,7 +339,15 @@ export function createCorrectionViewController(options) {
     const getPositionMs = () => (audioEl.value ? Math.round(position() * 1000) : null);
     const seek = (seconds) => { if (audioEl.value) audioEl.value.currentTime = seconds; };
 
-    const alignment = useCorrectionAlignment({ editor, client, dictationId, seek, vue: V || undefined });
+    const alignment = useCorrectionAlignment({
+        editor, client, dictationId, seek, vue: V || undefined,
+        canRequestAlignment() {
+            const audio = audioEl.value;
+            // A revision can exist before its media is available to the player.
+            return !closing && audio?.readyState >= 1 && !audio.error
+                && audio.currentSrc === audio.src && audio.getAttribute('src') === editor.audio.value.src;
+        },
+    });
 
     // Adapter for the correction modes (w153); inert until the element is bound.
     const modeAudio = {
@@ -470,6 +478,7 @@ export function createCorrectionViewController(options) {
             createAudioContext: factory ? () => { gainContext = factory(); return gainContext; } : undefined,
         }, { shallowRef: api.shallowRef || shallowRef });
         gainState.value = gain.state;
+        listen('loadedmetadata', alignment.requestMissingAlignment);
         listen('play', () => {
             if (gainContext && typeof gainContext.resume === 'function') Promise.resolve(gainContext.resume()).catch(() => {});
             if (gain) gain.start();
