@@ -778,7 +778,7 @@ const DraftSendFields = {
     <h2 style="margin: 0 0 var(--ui-space-3); font-size: 1.25rem">Versanddaten</h2>
     <p role="status" v-if="m.draft.loading">Entwurfsdaten werden geladen …</p>
     <button v-else-if="!m.draft.fields" type="button" class="button" style="${TOUCH}" @click="c.loadDraft()">Erneut laden</button>
-    <form v-else data-testid="draft-metadata" style="text-align: left" @submit.prevent="c.saveDraft()">
+    <form v-else class="draft-metadata" data-testid="draft-metadata" style="text-align: left" @submit.prevent="c.saveDraft()">
       <fieldset :disabled="!m.canEditDraft" style="min-width: 0">
         <legend class="sr-only">Versanddaten bearbeiten</legend>
         <label style="${DRAFT_FIELD}"><span>Titel</span>
