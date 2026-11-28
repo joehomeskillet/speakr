@@ -97,6 +97,25 @@ describe('PAR-WF-007 edit lease lifecycle', () => {
         }
     });
 
+    it('reads alignment on writable open and requests missing alignment after a save', async () => {
+        const server = sharedCase({ hasAudio: true });
+        const a = correction(server, 1);
+        try {
+            await a.start();
+            expect(a.editor.canEdit.value).toBe(true);
+            expect(server.calls).toContainEqual([1, 'GET', base + '/alignment?audio_revision_id=audio1&transcript_revision_id=r0']);
+            expect(writes(server)).toEqual([[1, 'POST', leases]]);
+
+            expect(a.setText('Neue gespeicherte Fassung')).toBe(true);
+            expect((await a.save()).ok).toBe(true);
+            expect(writes(server)).toEqual([
+                [1, 'POST', leases], [1, 'POST', base + '/correction/save'], [1, 'POST', base + '/alignment'],
+            ]);
+        } finally {
+            a.dispose();
+        }
+    });
+
     it('acquires on writable open, excludes another writer, and saves before releasing and closing', async () => {
         const server = sharedCase();
         const a = correction(server, 1, { onClose: () => expect(server.holder()).toBeNull() });
