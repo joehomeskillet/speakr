@@ -50,7 +50,7 @@ export function createFinishOptionsController({ workflow, client, vue, newKey })
             if (!withOutput) return;
             state.step = 'output';
             output = createOutputViewController({ client, dictationId, vue, newKey });
-            if (!await output.load()) {
+            if (!await output.load({ includePreferences: false })) {
                 state.error = 'Die Ausgabeziele konnten nicht geladen werden.';
             } else if (result.data?.transcript_revision_id !== revision || output.releasedRevisionId.value !== revision) {
                 state.error = 'Die freigegebene Textrevision konnte für die Ausgabe nicht bestätigt werden.';
