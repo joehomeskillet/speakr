@@ -706,9 +706,11 @@
   "evidence": [
    "tests/clinic/test_revisions.py::test_late_asr_does_not_replace_a_human_correction",
    "src/clinic/asr_wait_policy.py",
-   "tests/clinic/test_asr_wait_policy.py"
+   "tests/clinic/test_asr_wait_policy.py",
+   "src/clinic/routes_workflow.py",
+   "tests/clinic/test_wp_asr_skip_wait.py::test_skip_wait_through_real_app"
   ],
-  "note": "Wartezeit-Policy mit manueller Ersatzbearbeitung als Service getestet. Routen-/UI-Wiring fehlt (Wiring-Welle)."
+  "note": "Klinik-API für berechtigte Bearbeiter nach serverseitiger Frist. Synthetischer API-/DB-Test prüft Zu schreiben und schützt bei verspäteter ASR den menschlichen Textkopf. Eingebauter UI-Auslöser und Referenzvergleich nicht nachgewiesen."
  },
  {
   "id": "PAR-ASR-004",

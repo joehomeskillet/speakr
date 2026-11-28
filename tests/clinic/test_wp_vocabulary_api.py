@@ -4,10 +4,13 @@ Positive, unauthorized, stale-version and failure cases against the real
 ``vocabulary`` service. BT-VOC-* stay in their own files.
 """
 
+from datetime import datetime, timedelta
+
 import pytest
 from flask import Flask, g, jsonify
 from flask_login import LoginManager, login_user
 from flask_wtf.csrf import CSRFProtect, generate_csrf
+from sqlalchemy import event
 
 from src.app import app as real_app
 from src.clinic import pools, vocabulary
@@ -138,6 +141,91 @@ def test_suppress_reactivate_and_stale_version(world):
     assert on.json["entry"]["status"] == "active"
 
 
+def test_edit_entry_persists_forms_and_rejects_stale_version(world):
+    c, h = world["client"](world["author"])
+    entry = _add(c, h, scope="user", written="Dosis", spoken="dosis").json["entry"]
+    url = f"{PREFIX}/entries/{entry['id']}"
+    body = {"expected_version": entry["version"], "written": "  Tagesdosis ", "spoken": " Tages dosis "}
+
+    edited = c.put(url, headers=h, json=body)
+    assert edited.status_code == 200
+    updated = edited.json["entry"]
+    assert updated["version"] != entry["version"]
+    assert updated == {**entry, "written": "Tagesdosis", "spoken": "Tages dosis", "version": updated["version"]}
+
+    stale = c.put(url, headers=h, json={**body, "written": "Alte Form", "spoken": None})
+    assert (stale.status_code, stale.json["code"], stale.json["current_version"]) == (
+        409, "stale_version", updated["version"],
+    )
+    assert c.get(PREFIX + "/search?scope=user").json["entries"] == [updated]
+
+
+def test_edit_entry_rejects_a_write_that_loses_the_version_race(world):
+    c, h = world["client"](world["author"])
+    entry = _add(c, h, scope="user", written="Dosis").json["entry"]
+    model = vocabulary.ClinicVocabularyEntry
+    newer = datetime.fromisoformat(entry["version"]) + timedelta(seconds=1)
+    engine = db.engine
+
+    def concurrent_edit(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if statement.startswith("UPDATE clinic_vocabulary_entry "):
+            with real_app.app_context(), db.engine.begin() as writer:
+                writer.execute(db.update(model).where(model.id == entry["id"])
+                               .values(written_form="Parallel", updated_at=newer))
+
+    event.listen(engine, "before_cursor_execute", concurrent_edit)
+    try:
+        stale = c.put(f"{PREFIX}/entries/{entry['id']}", headers=h,
+                      json={"expected_version": entry["version"], "written": "Veraltet"})
+    finally:
+        event.remove(engine, "before_cursor_execute", concurrent_edit)
+
+    assert (stale.status_code, stale.json["code"], stale.json["current_version"]) == (
+        409, "stale_version", newer.isoformat(),
+    )
+    assert c.get(PREFIX + "/search?scope=user").json["entries"] == [
+        {**entry, "written": "Parallel", "version": newer.isoformat()},
+    ]
+
+
+def test_edit_entry_rejects_invalid_forms_and_duplicate_words(world):
+    c, h = world["client"](world["author"])
+    entry = _add(c, h, scope="user", written="Original", spoken="original").json["entry"]
+    other = _add(c, h, scope="user", written="Vorhanden").json["entry"]
+    url = f"{PREFIX}/entries/{entry['id']}"
+    body = {"expected_version": entry["version"], "written": "Vorhanden", "spoken": None}
+
+    for invalid in ({"expected_version": 1}, {"written": " "}, {"spoken": False}, {"scope": "pool"}):
+        r = c.put(url, headers=h, json={**body, **invalid})
+        assert (r.status_code, r.json["code"]) == (400, "invalid_payload")
+    duplicate = c.put(url, headers=h, json=body)
+    assert (duplicate.status_code, duplicate.json["code"]) == (409, "duplicate_entry")
+    assert c.get(PREFIX + "/search?scope=user").json["entries"] == [entry, other]
+
+
+def test_edit_pool_entry_checks_live_membership_and_write_permission(world):
+    c, h = world["client"](world["author"])
+    pid = world["pool"].id
+    entry = _add(c, h, scope="pool", pool_id=pid, written="Pool-Wort", spoken="pool").json["entry"]
+    url = f"{PREFIX}/entries/{entry['id']}"
+    body = {"expected_version": entry["version"], "written": "Neu", "spoken": None}
+
+    c2, h2 = world["client"](world["other"])
+    denied = c2.put(url, headers=h2, json=body)
+    assert (denied.status_code, denied.json["code"]) == (404, "not_found")
+    c, h = world["client"](world["author"])
+    edited = c.put(url, headers=h, json=body)
+    assert edited.status_code == 200
+    updated = edited.json["entry"]
+    assert (updated["written"], updated["spoken"]) == ("Neu", None)
+
+    pools.remove_author_member(pid, world["author"].id, actor_id=world["admin"].id)
+    denied = c.put(url, headers=h, json={**body, "written": "Entzogen", "expected_version": updated["version"]})
+    assert (denied.status_code, denied.json["code"]) == (404, "not_found")
+    c2, _ = world["client"](world["other"])
+    assert c2.get(f"{PREFIX}/search?scope=pool&pool_id={pid}").json["entries"] == [updated]
+
+
 def test_pool_membership_and_write_policy(world):
     pid = world["pool"].id
     c, h = world["client"](world["author"])
@@ -157,12 +245,23 @@ def test_pool_membership_and_write_policy(world):
     assert c3.get(f"{PREFIX}/search?scope=pool&pool_id={pid}").status_code == 403
 
 
+def test_search_reports_write_permission_even_for_empty_pool(world):
+    query = f"{PREFIX}/search?scope=pool&pool_id={world['pool'].id}"
+    writer, _ = world["client"](world["author"])
+    assert writer.get(query).json == {"entries": [], "can_write": True}
+    reader, _ = world["client"](world["other"])
+    assert reader.get(query).json == {"entries": [], "can_write": False}
+
+
 def test_foreign_user_entry_is_hidden(world):
     c, h = world["client"](world["author"])
     entry = _add(c, h, scope="user", written="Privat").json["entry"]
     c2, h2 = world["client"](world["other"])
     r = c2.post(f"{PREFIX}/entries/{entry['id']}/suppress", headers=h2, json={"expected_version": entry["version"]})
     assert r.status_code == 404
+    edit = c2.put(f"{PREFIX}/entries/{entry['id']}", headers=h2,
+                  json={"expected_version": entry["version"], "written": "Fremde Änderung"})
+    assert (edit.status_code, edit.json["code"]) == (404, "not_found")
     assert c2.get(PREFIX + "/search?scope=user&q=Privat").json["entries"] == []
 
 
@@ -178,6 +277,91 @@ def test_selection_bounds_and_untrusted_payloads(world):
     assert _add(c, h, scope="group", written="Ok").status_code == 400
     assert _add(c, h, scope="user", pool_id=world["pool"].id, written="Ok").status_code == 400
     assert c.get(PREFIX + "/search?scope=user&mode=regex").status_code == 400
+
+
+def test_search_field_covers_spoken_written_and_both(world):
+    c, h = world["client"](world["author"])
+    _add(c, h, scope="user", written="Hypertonie", spoken="Bluthochdruck")
+    _add(c, h, scope="user", written="Blutbild", spoken="Labor")
+    _add(c, h, scope="user", written="Anamnese")
+
+    def names(field, q, mode):
+        found = c.get(PREFIX + f"/search?scope=user&field={field}&mode={mode}&q={q}").json["entries"]
+        return [e["written"] for e in found]
+
+    assert names("written", "Hyper", "prefix") == ["Hypertonie"]
+    assert names("written", "druck", "suffix") == []
+    assert names("written", "tonie", "contains") == ["Hypertonie"]
+    assert names("written", "Anamnese", "exact") == ["Anamnese"]
+
+    assert names("spoken", "Blut", "prefix") == ["Hypertonie"]
+    assert names("spoken", "druck", "suffix") == ["Hypertonie"]
+    assert names("spoken", "hoch", "contains") == ["Hypertonie"]
+    assert names("spoken", "Labor", "exact") == ["Blutbild"]
+
+    assert names("all", "Blut", "prefix") == ["Blutbild", "Hypertonie"]
+    assert names("all", "druck", "suffix") == ["Hypertonie"]
+    assert names("all", "bor", "contains") == ["Blutbild"]
+    assert names("all", "Anamnese", "exact") == ["Anamnese"]
+
+    # The old default stays the written form, and an unknown field is refused.
+    assert names("written", "Blut", "prefix") == ["Blutbild"]
+    assert c.get(PREFIX + "/search?scope=user&q=Blut").json["entries"][0]["written"] == "Blutbild"
+    assert c.get(PREFIX + "/search?scope=user&field=regex").status_code == 400
+
+
+def _bulk(c, h, action, entries):
+    return c.post(PREFIX + "/entries/bulk", headers=h, json={"action": action, "confirm": True, "entries": entries})
+
+
+def test_bulk_suppress_and_delete_check_version_and_permission(world):
+    c, h = world["client"](world["author"])
+    first = _add(c, h, scope="user", written="Alpha", spoken="a").json["entry"]
+    second = _add(c, h, scope="user", written="Beta", spoken="b").json["entry"]
+    items = [{"id": e["id"], "expected_version": e["version"]} for e in (first, second)]
+
+    # One stale version: neither entry changes.
+    stale = [{"id": first["id"], "expected_version": "1999-01-01T00:00:00+00:00"}, items[1]]
+    refused = _bulk(c, h, "suppress", stale)
+    assert (refused.status_code, refused.json["code"]) == (409, "stale_version")
+    assert [e["status"] for e in c.get(PREFIX + "/search?scope=user&status=all&q=").json["entries"]] == ["active", "active"]
+
+    done = _bulk(c, h, "suppress", items)
+    assert done.status_code == 200
+    assert [e["status"] for e in done.json["entries"]] == ["suppressed", "suppressed"]
+    # The versions just used are now stale, so the same body cannot delete.
+    assert _bulk(c, h, "delete", items).status_code == 409
+    fresh = [{"id": e["id"], "expected_version": e["version"]} for e in done.json["entries"]]
+    deleted = _bulk(c, h, "delete", fresh)
+    assert (deleted.status_code, deleted.json["deleted"]) == (200, 2)
+    assert c.get(PREFIX + "/search?scope=user&status=all&q=").json["entries"] == []
+
+    # A foreign entry, and a pool entry the caller may read but not write, both refuse
+    # the whole list and look like a missing entry.
+    own = _add(c, h, scope="user", written="Eigen").json["entry"]
+    c2, h2 = world["client"](world["other"])
+    foreign = _add(c2, h2, scope="user", written="Fremd").json["entry"]
+    # Logging the other user in replaced the shared session, so the author needs a fresh client.
+    c, h = world["client"](world["author"])
+    mixed = _bulk(c, h, "delete", [
+        {"id": own["id"], "expected_version": own["version"]},
+        {"id": foreign["id"], "expected_version": foreign["version"]},
+    ])
+    assert mixed.status_code == 404
+    assert c.get(PREFIX + "/search?scope=user&q=Eigen").json["entries"][0]["status"] == "active"
+
+    pid = world["pool"].id
+    pool_entry = _add(c, h, scope="pool", pool_id=pid, written="Pool-Wort").json["entry"]
+    c2, h2 = world["client"](world["other"])
+    reader = _bulk(c2, h2, "suppress", [{"id": pool_entry["id"], "expected_version": pool_entry["version"]}])
+    assert reader.status_code == 404
+    c, h = world["client"](world["author"])
+    assert c.get(PREFIX + f"/search?scope=pool&pool_id={pid}&q=Pool").json["entries"][0]["status"] == "active"
+
+    # confirm is mandatory, and a body may not name an actor.
+    assert c.post(PREFIX + "/entries/bulk", headers=h, json={"action": "delete", "entries": [
+        {"id": own["id"], "expected_version": own["version"]}]}).status_code == 400
+    assert _bulk(c, h, "delete", [{"id": own["id"], "expected_version": own["version"], "user_id": 1}]).status_code == 400
 
 
 def test_unauthorized_csrf_and_clinic_mode(world, monkeypatch):
