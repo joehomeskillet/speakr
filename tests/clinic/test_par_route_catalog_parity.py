@@ -34,7 +34,7 @@ CATALOGS = (
 # Intentional route changes must update the snapshot together with their registration tests.
 BASELINE_TABLE_SHA256 = {
     False: "88f25130a4c4514b82b166e06829ec5427fb26343a2cba42f37b0614fb03502e",
-    True: "331d9821fff9445edd1ec7a6945f69d0ff8aaf508853c18fa45cffbbeff02fdb",
+    True: "f26c2c24ea6b52fdf81d11b37e39beef7fd6fe31f766642d28bb21c9c6919093",
 }
 
 _CHILD_INSPECT = r'''
@@ -137,7 +137,7 @@ def test_catalog_endpoints_match_built_clinic_table(monkeypatch):
             for endpoint in getattr(module, attr):
                 catalog_entries[endpoint] = kind
 
-    assert len(catalog_entries) == 157
+    assert len(catalog_entries) == 159
     assert not (set(catalog_entries) & set(off_table))
     assert set(on_table) - set(off_table) == set(catalog_entries)
     for endpoint, kind in catalog_entries.items():
