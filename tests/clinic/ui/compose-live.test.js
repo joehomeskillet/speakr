@@ -83,7 +83,10 @@ describe('compose-live contract', () => {
         expect(source).toContain("from './tokens.js'");
         expect(source).toContain("from './api-client.js'");
         const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
-        expect(imports).toHaveLength(3);
+        expect(imports).toEqual([
+            './api-client.js', './compose-correction.js', './lease-ui.js',
+            './richtext-editor-ui.js', './tokens.js', './live-session-ui.js',
+        ]);
     });
 
     it('keeps nothing in browser storage and cites the server-side draft policy', () => {
