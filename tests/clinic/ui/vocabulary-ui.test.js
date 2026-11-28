@@ -89,6 +89,32 @@ describe('vocabulary ui', () => {
         expect(await store.suppress('missing')).toBeNull();
     });
 
+    it('keeps decoder unavailability distinct from the saved list status', async () => {
+        const active = ENTRY('v1');
+        const suppressed = { ...active, version: 'v2', status: 'suppressed' };
+        const reactivated = ENTRY('v3');
+        const { store, reads, writes } = setup([], [
+            ok({ entries: [active] }), ok({ entries: [] }), ok({ entries: [suppressed] }),
+            ok({ entries: [] }), ok({ entries: [reactivated] }),
+        ]);
+        await store.search();
+        await store.suppress('e1');
+        expect(store.state.entries).toEqual([]);
+        await store.search({ filter: 'suppressed' });
+        expect(reads()[2][0]).toContain('status=suppressed');
+        expect(store.state.entries).toEqual([suppressed]);
+        await store.reactivate('e1');
+        expect(writes()[1][1].body).toEqual({ expected_version: 'v2' });
+        expect(store.state.entries).toEqual([]);
+        await store.search({ filter: 'active' });
+        expect(store.state.entries).toEqual([reactivated]);
+        expect(VOCABULARY_TEMPLATE).toContain('<p id="voc-asr-suppression" class="note">');
+        expect(VOCABULARY_TEMPLATE).toContain("label('clinic.vocabulary.asrSuppressionUnavailable')");
+        expect(VOCABULARY_TEMPLATE).toContain("label('clinic.vocabulary.asrSuppressionDetail')");
+        expect(label('clinic.vocabulary.asrSuppressionUnavailable')).toBe('ASR-Wortunterdrückung nicht verfügbar');
+        expect(label('clinic.vocabulary.asrSuppressionDetail')).toContain('weiterhin erkennen');
+    });
+
     it('stale version keeps the newer server state and does not retry', async () => {
         const { store, writes } = setup([bad('conflict')], [ok({ entries: [ENTRY('v1')] }), ok({ entries: [ENTRY('v2')] })]);
         await store.search();
