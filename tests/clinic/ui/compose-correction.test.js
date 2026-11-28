@@ -99,8 +99,12 @@ const count = (client, method, suffix) => client.calls.filter((c) => c.method ==
 
 it.each(['plain', 'document'])('inserts an eligible text block at the %s selection as one undoable edit', async (mode) => {
     let detail = ok({ insert_text: 'Praxis' });
+    const fixture = { links: [] };
+    if (mode === 'plain') fixture.document = { schema_version: 1, nodes: [
+        { id: 'g1', kind: 'graphic', object_id: 'a'.repeat(64), alt_text: 'Logo' },
+    ] };
     const client = fakeClient(base({
-        'GET /dictations/d1/correction': ok(correction({ links: [] })),
+        'GET /dictations/d1/correction': ok(correction(fixture)),
         'GET /resources/text-blocks': ok({ items: [{ id: 'block-1', title: 'Testbaustein' }], next_cursor: null }),
         'GET /resources/text-blocks/block-1': () => detail,
     }));
@@ -110,13 +114,12 @@ it.each(['plain', 'document'])('inserts an eligible text block at the %s selecti
     try {
         await view.c.start();
         await view.c.editor.acquire();
+        expect(view.documentMode.value).toBe(mode === 'document');
         expect(view.canEdit.value).toBe(true);
         const editor = { selectionStart: 6, selectionEnd: 10, setSelectionRange: vi.fn(), focus: vi.fn() };
         if (mode === 'plain') {
-            view.doc.available.value = false;
             view.setTextEl(editor);
         } else {
-            expect(view.documentMode.value).toBe(true);
             view.setRunRoot({ querySelector: () => editor });
         }
         await view.toggleBlocks();

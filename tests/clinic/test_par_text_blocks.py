@@ -102,6 +102,54 @@ def test_pool_visibility_and_write_authority(world):
     assert member.get(path).status_code == 404
 
 
+def test_pool_member_inserts_block_in_document_editor(tmp_path_factory, monkeypatch):
+    from playwright.sync_api import expect, sync_playwright
+    import test_wp_mount_correction as mount
+
+    server = mount.SERVER.replace('ClinicAuthorPool(name="Autoren 213"',
+                                  'ClinicAuthorPool(id="pool-a", name="Autoren 213"')
+    server = server.replace('    db.session.add_all([pool, group])', '''
+    other = ClinicAuthorPool(id="pool-b", name="Fremder Pool", created_by=stranger.id)
+    db.session.add_all([pool, group, other])
+    db.session.flush()
+    db.session.add(pools.ClinicAuthorPoolMember(pool_id=pool.id, user_id=typist.id, created_by=admin.id))
+''')
+    server = server.replace('status=workflow.TO_WRITE', 'status=workflow.TO_CORRECT')
+    monkeypatch.setattr(mount, 'SERVER', server)
+
+    for base, _ in mount.live_server.__wrapped__(tmp_path_factory):
+        with sync_playwright() as playwright:
+            browser = mount._launch(playwright)
+            try:
+                manager = mount._login(browser, base, 'admin213@local.test')
+                csrf = manager.request.get(base + '/api/csrf-token').json()['csrf_token']
+                url = base + BLOCKS
+                created = manager.request.post(url, headers={'X-CSRFToken': csrf}, data={
+                    'scope': 'pool', 'pool_id': 'pool-a', 'title': 'Synthetischer Baustein', 'text': 'Halsweh',
+                })
+                assert created.status == 201, created.text()
+
+                member = mount._login(browser, base, mount.TYPIST)
+                mount._open_from_worklist(member, base)
+                field = member.get_by_test_id('correction-document').get_by_test_id('text')
+                expect(field).to_be_editable()
+                field.focus()
+                field.evaluate('el => el.setSelectionRange(9, 15)')
+                member.get_by_role('button', name='Textbaustein einfügen').click()
+                member.get_by_role('button', name='Synthetischer Baustein').click()
+                expect(field).to_have_value('Anamnese Halsweh seit drei Tagen.')
+                expect(field).to_be_focused()
+                field.press('Control+z')
+                expect(field).to_have_value('Anamnese Husten seit drei Tagen.')
+
+                outsider = mount._login(browser, base, mount.STRANGER)
+                assert outsider.request.get(url).json()['items'] == []
+                assert outsider.request.get(f"{url}/{created.json()['id']}").status == 404
+                assert not member.js_errors, member.js_errors
+            finally:
+                browser.close()
+
+
 def test_personal_and_global_visibility_and_paging(world):
     owner, headers = browser(world, 2)
     admin, admin_headers = browser(world, 4)

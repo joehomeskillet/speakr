@@ -133,6 +133,7 @@ export const TEXT = Object.freeze({
     blocksMore: 'Weitere Bausteine',
     blocksEmpty: 'Keine Textbausteine verfügbar.',
     blocksFailed: 'Textbaustein konnte nicht geladen werden.',
+    blockInsertFailed: 'Textbaustein konnte nicht eingefügt werden.',
     blockSelectionChanged: 'Auswahl geändert. Textbaustein erneut wählen.',
     openAssignment: 'Zuordnung offen',
     noPool: 'Kein Pool zugewiesen',
@@ -1356,7 +1357,7 @@ export const CorrectionBody = {
                 if (documentMode.value) {
                     const selected = currentRun.value;
                     const el = selected && runField(selected.run.id);
-                    return { text: rawDocumentText.value,
+                    return { text: rawDocumentText.value, runId: selected?.run.id ?? null,
                         start: el ? selected.start + el.selectionStart : 0, end: el ? selected.start + el.selectionEnd : 0 };
                 }
                 const el = textEl.value;
@@ -1366,8 +1367,9 @@ export const CorrectionBody = {
                 if (documentMode.value) return;
                 if (c.setText(next.text)) {
                     later(() => {
-                        if (next.direction === undefined) textEl.value?.setSelectionRange(next.start, next.end);
-                        else textEl.value?.setSelectionRange(next.start, next.end, next.direction);
+                        const field = textEl.value;
+                        if (next.direction === undefined) field?.setSelectionRange(next.start, next.end);
+                        else field?.setSelectionRange(next.start, next.end, next.direction);
                     });
                 }
             },
@@ -1452,12 +1454,15 @@ export const CorrectionBody = {
             if (!canEdit.value || !currentRun.value) return false;
             const { node, run } = currentRun.value;
             const field = runField(run.id);
-            if (!field) return false;
-            const start = field.selectionStart;
-            const next = run.text.slice(0, start) + text + run.text.slice(field.selectionEnd);
-            const changed = doc.editRun(node.id, run.id, next);
-            later(() => { field.focus(); field.setSelectionRange(start + text.length, start + text.length); });
-            return changed;
+            if (!field || field.value !== run.text) return false;
+            const before = { runId: run.id, start: field.selectionStart, end: field.selectionEnd, direction: field.selectionDirection };
+            const next = run.text.slice(0, before.start) + text + run.text.slice(before.end);
+            if (sanitizePaste(next).changed) return false;
+            const caret = before.start + text.length;
+            const after = { runId: run.id, start: caret, end: caret };
+            if (!doc.editRun(node.id, run.id, next, { before, after })) return false;
+            restoreRunSelection(after);
+            return true;
         }
         function insertManualRun(text = '', before = false) {
             if (!canEdit.value || !currentRun.value) return false;
@@ -1685,7 +1690,7 @@ export const CorrectionBody = {
                 if (insertAt(block.insert_text, selection)) {
                     closeBlocks();
                     if (!selection.runId) later(() => textEl.value?.focus());
-                } else blocksError.value = TEXT.blocksFailed;
+                } else blocksError.value = TEXT.blockInsertFailed;
             });
         };
         const choice = V.shallowRef(null);

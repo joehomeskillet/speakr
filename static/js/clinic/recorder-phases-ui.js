@@ -61,6 +61,7 @@ export function receiptDictationId(value) {
 export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = () => null) {
     let samples;
     const retained = new WeakMap();
+    const reopened = new WeakSet();
     let takeVoxEnabled = false;
     let gatedTake = null;
 
@@ -128,6 +129,7 @@ export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = (
             if (state.audioBlobURL.value) URL.revokeObjectURL(state.audioBlobURL.value);
             gatedTake = null;
             state.audioChunks.value = [file];
+            reopened.add(state.audioChunks.value);
             state.audioBlobURL.value = url;
         },
         async discardRecording() {
@@ -142,7 +144,7 @@ export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = (
             let binding = retained.get(chunks);
             let receipt;
             try {
-                if (file === chunks[0]) uploadOptions.reopened = true;
+                if (reopened.has(chunks)) uploadOptions.reopened = true;
                 receipt = Object.keys(uploadOptions).length
                     ? await uploadFile(file, title, uploadOptions)
                     : await uploadFile(file, title);
