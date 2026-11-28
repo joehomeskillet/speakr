@@ -55,6 +55,7 @@ AUTH: tuple[str, ...] = (
     'clinic_output.request_export',
     'clinic_output.download_export',
     'clinic_output.export_status',
+    'clinic_audio.download_original',
 )
 
 ADMIN: tuple[str, ...] = ()

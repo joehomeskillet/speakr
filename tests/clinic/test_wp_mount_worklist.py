@@ -3,7 +3,7 @@
 PAR-WF-001, PAR-REC-006; R-041, V4-013.
 
 The real application is started in a child process (real Flask app, throwaway
-SQLite database, synthetic user and one synthetic dictation, no patient data).
+SQLite database, synthetic users and dictations, no patient data).
 With CLINIC_MODE on, headless Chromium logs in through the login form, opens
 ``/`` and must land on the worklist, see the synthetic row and open it.
 Unauthenticated access redirects to the login page. With CLINIC_MODE off the
@@ -29,32 +29,56 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 PASSWORD = "Synthetic-pass-207!"
 EMAIL = "w207@local.test"
+TYPIST = "typist207@local.test"
+STRANGER = "stranger207@local.test"
 
 SERVER = r'''
-import sys, uuid
+import sys
 from werkzeug.serving import make_server
 from src.app import app, db
-from src.clinic import identity
+from src.clinic import identity, pools, workflow
+from src.clinic.models import ClinicContextRevision, ClinicDictation
 from src.init_db import initialize_database
 from src.models import Recording, User
-from src.clinic import workflow
-from src.clinic.models import ClinicDictation
 
-port = int(sys.argv[1])
+port, author_email, password, typist_email, stranger_email = sys.argv[1:]
+
+
+def add_user(username, email, name, *, admin=False):
+    user = User(username=username, email=email, name=name,
+                password=identity.hash_password(password), is_admin=admin)
+    db.session.add(user)
+    db.session.flush()
+    db.session.add(identity.ClinicAccountPolicy(user_id=user.id, status="active", login_policy="local_only"))
+    return user
+
+
 with app.app_context():
     initialize_database(app)
-    user = User(username="w207", email=sys.argv[2],
-                password=identity.hash_password(sys.argv[3]), is_admin=False)
-    db.session.add(user); db.session.flush()
-    db.session.add(identity.ClinicAccountPolicy(user_id=user.id, status="active", login_policy="local_only"))
-    rec = Recording(user_id=user.id, title="Synthetisch", status="COMPLETED", original_filename="s.wav")
-    db.session.add(rec); db.session.flush()
-    dic = ClinicDictation(recording_id=rec.id, author_user_id=user.id, version_counter=0)
-    db.session.add(dic); db.session.flush()
-    db.session.add(workflow.ClinicWorkflowDictation(
-        id=dic.id, author_user_id=user.id, pool_id=str(uuid.uuid4()), status=workflow.TO_WRITE, audio_seconds=30))
+    admin = add_user("admin207", "admin207@local.test", "Testverwaltung", admin=True)
+    author = add_user("w207", author_email, "Autor Beispiel")
+    typist = add_user("typist207", typist_email, "Schreibkraft Nord")
+    add_user("stranger207", stranger_email, "Unbeteiligte Person")
+    pool = pools.ClinicAuthorPool(name="Synthetischer Autorenpool", created_by=admin.id)
+    db.session.add(pool)
+    db.session.flush()
+    for case, title, notes, assignee in (
+        ("SYN-2071", "Stimmprobe", "Rückfrage vor Abschluss <b>Probe</b>", typist),
+        ("SYN-2072", "Kontrollbefund", "Interne Zweitlesung", author),
+    ):
+        rec = Recording(user_id=author.id, title=title, notes=notes, status="COMPLETED", original_filename="s.wav")
+        db.session.add(rec)
+        db.session.flush()
+        dic = ClinicDictation(recording_id=rec.id, author_user_id=author.id, pool_id=pool.id, version_counter=0)
+        db.session.add(dic)
+        db.session.flush()
+        db.session.add(ClinicContextRevision(dictation_id=dic.id, case_ref=case))
+        db.session.add(workflow.ClinicWorkflowDictation(
+            id=dic.id, author_user_id=author.id, pool_id=pool.id, status=workflow.TO_WRITE,
+            assignee_user_id=assignee.id, audio_seconds=30))
     db.session.commit()
-server = make_server("127.0.0.1", port, app, threaded=True)
+    pools.allow(typist.id, "pool", actor_id=admin.id, pool_id=pool.id, actions=("view",))
+server = make_server("127.0.0.1", int(port), app, threaded=True)
 print("READY", flush=True)
 server.serve_forever()
 '''
@@ -100,7 +124,7 @@ def live_server(tmp_path_factory):
         port = s.getsockname()[1]
     log = tmp / "server.log"  # a file, not a pipe: nobody drains a pipe while the browser runs
     with open(log, "w") as out:
-        proc = subprocess.Popen([sys.executable, "-c", SERVER, str(port), EMAIL, PASSWORD], cwd=ROOT,
+        proc = subprocess.Popen([sys.executable, "-c", SERVER, str(port), EMAIL, PASSWORD, TYPIST, STRANGER], cwd=ROOT,
                                 env=_env(tmp, True), stdout=out, stderr=subprocess.STDOUT, text=True)
         try:
             deadline = time.time() + 120
@@ -164,6 +188,95 @@ def test_browser_login_worklist_row_and_open(live_server):
             # W16: no patient name or ID in the worklist.
             assert "patient" not in view.inner_text().lower()
             assert not js_errors, js_errors
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("theme", ("light", "dark"))
+def test_worklist_scoped_columns_search_and_refresh(live_server, theme):
+    from playwright.sync_api import expect, sync_playwright
+
+    cases = {
+        "SYN-2071": ("Stimmprobe", "Rückfrage vor Abschluss <b>Probe</b>", "Schreibkraft Nord"),
+        "SYN-2072": ("Kontrollbefund", "Interne Zweitlesung", "Autor Beispiel"),
+    }
+    rows_url = f"{live_server}/api/clinic/v1/worklist/rows"
+    output = os.environ.get("P068_BROWSER_OUT")
+
+    def assert_items(response, expected):
+        assert response.ok, response.status
+        data = response.json()
+        assert data["total"] == len(expected)
+        assert {row["case_display"]: (row["title"], row["notes"], row["recipient"]) for row in data["items"]} == {
+            case: cases[case] for case in expected
+        }
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE") or None)
+        try:
+            for email, visible in ((EMAIL, set(cases)), (TYPIST, {"SYN-2071"}), (STRANGER, set())):
+                with browser.new_context(viewport={"width": 1440, "height": 900}, color_scheme=theme) as context:
+                    context.add_init_script(f"localStorage.setItem('darkMode', '{str(theme == 'dark').lower()}')")
+                    page = context.new_page()
+                    errors = []
+                    page.on("pageerror", lambda error: errors.append(str(error)))
+                    page.goto(live_server + "/login")
+                    page.fill("input[name=email]", email)
+                    page.fill("input[name=password]", PASSWORD)
+                    page.locator("form:has(input[name=password]) [type=submit]:visible").first.click()
+                    page.get_by_test_id("nav-clinic-worklist").click()
+                    view = page.get_by_test_id("clinic-worklist-view")
+                    expect(view).to_be_visible()
+                    expect(page.locator("html.dark")).to_have_count(int(theme == "dark"))
+                    rows = view.locator("[data-row]")
+                    expect(rows).to_have_count(len(visible))
+
+                    def assert_columns():
+                        for case in sorted(visible):
+                            row = rows.filter(has=page.locator(".titletext strong", has_text=f"Fall-ID {case}"))
+                            expect(row.locator(".titletext strong")).to_have_text(f"Fall-ID {case}")
+                            for label, value in zip(("Titel", "Anmerkung", "Empfänger"), cases[case], strict=True):
+                                cell = row.locator(f'td[data-label="{label}"]')
+                                expect(cell).to_be_visible(timeout=5000)
+                                expect(cell).to_have_text(value)
+                        expect(rows.locator('td[data-label="Anmerkung"] b')).to_have_count(0)
+
+                    assert_columns()
+                    with page.expect_response(lambda response: response.url == rows_url) as pending:
+                        view.get_by_test_id("refresh-button").click()
+                    assert_items(pending.value, visible)
+                    expect(rows).to_have_count(len(visible))
+                    assert_columns()
+
+                    if output and email != TYPIST:
+                        state = "rows" if visible else "empty"
+                        if not visible:
+                            expect(view.get_by_test_id("empty-state")).to_contain_text("Keine Diktate")
+                        for width, height in ((1440, 900), (1280, 720), (390, 844)):
+                            page.set_viewport_size({"width": width, "height": height})
+                            assert_columns()
+                            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                            stem = f"p068-{width}x{height}-{theme}-{state}"
+                            if width == 390:
+                                page.screenshot(path=Path(output) / f"{stem}-top.png", animations="disabled")
+                                target = rows.first if visible else view.get_by_test_id("empty-state")
+                                target.evaluate("element => element.scrollIntoView({block: 'center'})")
+                                expect(target).to_be_in_viewport()
+                            elif width == 1280 and visible:
+                                rows.last.scroll_into_view_if_needed()
+                            page.screenshot(path=Path(output) / f"{stem}.png", animations="disabled")
+
+                    search = view.get_by_role("searchbox", name="Metadatensuche")
+                    for term, case in (("Stimmprobe", "SYN-2071"), ("Zweitlesung", "SYN-2072"),
+                                       ("Schreibkraft Nord", "SYN-2071")):
+                        with page.expect_response(lambda response: response.url.startswith(rows_url + "?")
+                                                  and "search=" in response.url) as pending:
+                            search.fill(term)
+                            search.press("Enter")
+                        expected = [case] if case in visible else []
+                        assert_items(pending.value, expected)
+                        expect(rows.locator(".titletext strong")).to_have_text([f"Fall-ID {item}" for item in expected])
+                    assert not errors, errors
         finally:
             browser.close()
 

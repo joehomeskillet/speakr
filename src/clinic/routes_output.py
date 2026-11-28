@@ -41,8 +41,9 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
-from src.clinic import export as export_service
-from src.clinic import kis, parity_receipts, release
+from src.clinic import docx_template, export as export_service, odt_output
+from src.clinic import kis, parity_receipts, presets, release
+from src.clinic import routes_templates
 from src.clinic.parity_dispatch import CommandProblem
 from src.clinic.config import FALLBACK_CLIENT_PROFILE, clinic_mode_enabled, config_dir, kis_delivery_enabled
 from src.clinic.models import (
@@ -78,7 +79,7 @@ _PROBLEMS = {
     403: ('FORBIDDEN', 'Zugriff verweigert'),
     404: ('NOT_FOUND', 'Diktat nicht gefunden'),
     409: ('EXPORT_CONFLICT', 'Export nicht möglich'),
-    422: ('DESTINATION_WRITE_FAILED', 'Ablage fehlgeschlagen'),
+    422: ('TEMPLATE_MARK_ERROR', 'Vorlage ohne eindeutige Einfügemarke'),
     503: ('KIS_UNAVAILABLE', 'KIS-Anbindung nicht verfügbar'),
 }
 _OPTIONAL_EXPORT_KEYS = frozenset({
@@ -89,9 +90,9 @@ _FORMAT_EXTENSION = {'txt': 'txt', 'rtf': 'rtf', 'docx': 'docx', 'odt': 'odt'}
 _ALIAS_ACTIONS = frozenset({'export'})
 
 
-def _problem(status: int, code: str | None = None, **extra) -> Response:
-    default_code, title = _PROBLEMS[status]
-    response = jsonify(type='about:blank', title=title, status=status, code=code or default_code,
+def _problem(status: int, code: str | None = None, *, title: str | None = None, **extra) -> Response:
+    default_code, default_title = _PROBLEMS[status]
+    response = jsonify(type='about:blank', title=title or default_title, status=status, code=code or default_code,
                        correlation_id=str(uuid4()), **extra)
     response.status_code = status
     response.mimetype = 'application/problem+json'
@@ -198,12 +199,20 @@ def _attachment_name(filename: str) -> str:
     return cleaned or 'export.bin'
 
 
-def _failed_file_job(job_id, fmt, dictation_id, release_id, revision_id, actor_id, reason) -> dict:
+def _job_template(template: dict | None) -> dict:
+    """Fields a later download needs to reproduce the same bytes."""
+    if template is None:
+        return {}
+    return {'template_id': template['id'], 'text_mode': template['text_mode']}
+
+
+def _failed_file_job(job_id, fmt, dictation_id, release_id, revision_id, actor_id, reason,
+                     template: dict | None = None) -> dict:
     """Durable per-target failure. No file bytes and no exception text."""
     return {
         'id': job_id, 'kind': 'file', 'status': 'failed', 'format': fmt,
         'dictation_id': dictation_id, 'release_id': release_id, 'revision_id': revision_id,
-        'reason': reason, 'actor_id': actor_id,
+        'reason': reason, 'actor_id': actor_id, **_job_template(template),
     }
 
 
@@ -226,6 +235,136 @@ def _latest_file_results(actor_id: int, release_id: str) -> dict:
         if fmt in offered:
             found[fmt] = result
     return found
+
+
+_OPTIONAL_FIELDS = frozenset({'template_id', 'text_mode'})
+_DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+_ODT_MIME = 'application/vnd.oasis.opendocument.text'
+
+
+class _TemplateExportError(Exception):
+    """A template export was refused before bytes existed. ``code`` is a stable HTTP code."""
+
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(code)
+
+
+def _optional_template(body):
+    """``None`` when the body is a plain export, a problem response when it is not.
+
+    ``template_id`` and ``text_mode`` are optional and only valid together, on a
+    docx or odt export. Every other shape stays the existing 400.
+    """
+    extra = _OPTIONAL_FIELDS & set(body)
+    if not extra:
+        return None
+    if (extra != _OPTIONAL_FIELDS or body['format'] not in ('docx', 'odt')
+            or not isinstance(body.get('template_id'), str)
+            or body.get('text_mode') not in ('plain', 'formatted')):
+        return _problem(400, detail='template_id und text_mode gelten nur gemeinsam für docx oder odt')
+    try:
+        template_id = str(UUID(body['template_id']))
+    except ValueError:
+        return _problem(400, detail='template_id ist keine UUID')
+    row = db.session.get(presets.ClinicTemplate, template_id)
+    # A foreign or inactive template is the same 404 as an unknown one.
+    if row is None or not routes_templates._can_read_template(current_user.id, row):
+        abort(404)
+    expected = _DOCX_MIME if body['format'] == 'docx' else _ODT_MIME
+    if row.mime_type != expected:
+        return _problem(409, 'TEMPLATE_FORMAT_MISMATCH',
+                        detail='Die Vorlage passt nicht zum angeforderten Format')
+    if not row.insertion_mark:
+        return _problem(422, 'TEMPLATE_MARK_ERROR', detail='Die Vorlage hat keine Einfügemarke')
+    return {'id': row.id, 'text_mode': body['text_mode']}
+
+
+def _template_of_job(job: dict) -> dict | None:
+    """The template a stored job was rendered with, or ``None`` for a plain export."""
+    template_id = job.get('template_id')
+    if not template_id:
+        return None
+    return {'id': template_id, 'text_mode': job.get('text_mode')}
+
+
+def _template_row(template: dict) -> presets.ClinicTemplate:
+    row = db.session.get(presets.ClinicTemplate, template['id'])
+    if row is None or not row.is_active:
+        raise _TemplateExportError('TEMPLATE_NOT_FOUND')
+    return row
+
+
+def _render_with_template(active: ClinicRelease, fmt: str, template: dict):
+    """Insert the released revision body into the permitted template, unchanged."""
+    row = _template_row(template)
+    source = export_service._resolve(active, allow_draft=False)
+    text = source.body
+    try:
+        if fmt == 'docx':
+            content = docx_template.insert_into_template(
+                bytes(row.content_bytes), row.insertion_mark, text, text_mode=template['text_mode'])
+        else:
+            content = _odt_from_template(active, row, text, template['text_mode'])
+    except docx_template.TemplateMarkError as exc:
+        code = 'TEMPLATE_MACRO' if exc.code == 'macro' else 'TEMPLATE_MARK_ERROR'
+        raise _TemplateExportError(code) from exc
+    except odt_output.OdtOutputError as exc:
+        # macro_refused is the package guard. Every other refusal is the mark:
+        # missing, ambiguous, or a template that is not the stored ODT.
+        code = 'TEMPLATE_MACRO' if exc.code == 'macro_refused' else 'TEMPLATE_MARK_ERROR'
+        raise _TemplateExportError(code) from exc
+    digest = hashlib.sha256(content).hexdigest()
+    filename = export_service.export_filename(
+        source.dictation_id, source.transcript_revision_id,
+        '.docx' if fmt == 'docx' else '.odt', mode=source.mode, label=source.document_type)
+    mimetype = _DOCX_MIME if fmt == 'docx' else _ODT_MIME
+    outcome = export_service.ExportOutcome(
+        action=export_service.RENDERED, release_id=source.release_id,
+        dictation_id=source.dictation_id, transcript_revision_id=source.transcript_revision_id,
+        audio_revision_id=source.audio_revision_id, context_revision_id=source.context_revision_id,
+        text_hash=source.text_hash, sha256=digest, filename=filename,
+        mimetype=mimetype, mode=source.mode, local_save_proven=False,
+    )
+    return export_service.RenderedExport(
+        content=content, filename=filename, mimetype=mimetype, sha256=digest,
+        release_id=source.release_id, dictation_id=source.dictation_id,
+        transcript_revision_id=source.transcript_revision_id,
+        audio_revision_id=source.audio_revision_id, context_revision_id=source.context_revision_id,
+        text_hash=source.text_hash, mode=source.mode, outcome=outcome,
+    )
+
+
+def _odt_from_template(active: ClinicRelease, row, text: str, text_mode: str) -> bytes:
+    """ODT through ``odt_output.render_odt_output``. It has no formatted switch.
+
+    A formatted request is a mark error rather than a guess. This does not drive
+    Writer, so WG-EXP-005 stays open.
+    """
+    if text_mode != 'plain':
+        raise odt_output.OdtOutputError('mark_not_found')
+    from src.clinic.output_attempts import OutputSource
+    from src.clinic.revisions import text_hash
+    from src.clinic.rich_text_doc import Node, to_plain_text
+    from src.clinic.richtext import SCHEMA_VERSION, CanonicalDocument, Segment
+
+    lines = text.split('\n') if text else ['']
+    nodes = tuple(
+        Node(f'p{index}', 'paragraph', (Segment(id=f's{index}', text=line),))
+        for index, line in enumerate(lines)
+    )
+    document = CanonicalDocument(nodes)
+    source = OutputSource(
+        active.dictation_id, active.audio_revision_id, active.transcript_revision_id,
+        active.context_revision_id, 'template-export', text_hash(to_plain_text(document)),
+        'template-export', True,
+    )
+    produced = odt_output.render_odt_output(
+        document, template=bytes(row.content_bytes), template_hash=row.content_hash,
+        insertion_mark=row.insertion_mark, source=source, expected_version=SCHEMA_VERSION,
+        allowed=True,
+    )
+    return produced.data
 
 
 def create_blueprint(
@@ -337,15 +476,18 @@ def create_blueprint(
         if not isinstance(body, dict) or not isinstance(body.get('revision_id'), str):
             abort(400)
         extra = set(body) - {'revision_id', 'format'}
-        if extra - _OPTIONAL_EXPORT_KEYS or body.get('format') not in offered:
+        if extra - (_OPTIONAL_EXPORT_KEYS | _OPTIONAL_FIELDS) or body.get('format') not in offered:
             abort(400)
-        placing = bool(extra)
+        placing = bool(extra & _OPTIONAL_EXPORT_KEYS)
         if placing:
             collision_policy = body.get('collision_policy', 'fail')
             if (body['format'] == KIS_FORMAT or 'destination_alias' not in body
                     or not isinstance(collision_policy, str) or collision_policy not in POLICIES
                     or _name_choice(body) is None):
                 abort(400)
+        template = _optional_template(body)
+        if isinstance(template, Response):
+            return template
         revision = db.session.get(ClinicTranscriptRevision, body['revision_id'])
         if revision is None or revision.dictation_id != dictation.id:
             abort(404)
@@ -354,37 +496,47 @@ def create_blueprint(
             return _problem(409, 'NOT_RELEASED', detail='Nur die freigegebene Version kann ausgegeben werden')
         if body['format'] == KIS_FORMAT:
             return _kis_export(dictation, active)
-        placed = _file_export(dictation, active, body['format'], key)
+        placed = _file_export(dictation, active, body['format'], key, template)
         if not placing or placed.status_code not in (200, 201):
             return placed
         return _place_file_export(dictation, active, body, placed)
 
-    def _file_export(dictation: ClinicDictation, active: ClinicRelease, fmt: str, key: str) -> Response:
+    def _file_export(dictation: ClinicDictation, active: ClinicRelease, fmt: str, key: str,
+                     template: dict | None = None) -> Response:
         actor_id = current_user.id
         dictation_id = dictation.id
         release_id = active.id
         revision_id = active.transcript_revision_id
         job_id = str(uuid5(NAMESPACE_URL, f'speakr/file-export/{actor_id}/{dictation_id}/{key}'))
         scope = (actor_id, 'file_export', dictation_id, job_id)
-        digest = f'{release_id}:{fmt}'
+        # The template id and text mode belong to the idempotency digest: the same
+        # key with another template is a conflict, not a silent second render.
+        digest = f'{release_id}:{fmt}' if template is None else (
+            f'{release_id}:{fmt}:{template["id"]}:{template["text_mode"]}')
 
         def render_job():
             # A renderer error used to roll back with no receipt, so the target vanished on reload.
             try:
-                rendered = file_formats()[fmt](active)
+                rendered = (_render_with_template(active, fmt, template) if template is not None
+                            else file_formats()[fmt](active))
+            except _TemplateExportError as refused:
+                db.session.rollback()
+                return _failed_file_job(
+                    job_id, fmt, dictation_id, release_id, revision_id, actor_id, refused.code, template)
             except export_service.ExportRefused as refused:
                 db.session.rollback()
                 return _failed_file_job(
-                    job_id, fmt, dictation_id, release_id, revision_id, actor_id, refused.reason)
+                    job_id, fmt, dictation_id, release_id, revision_id, actor_id, refused.reason, template)
             except Exception:
                 db.session.rollback()
                 return _failed_file_job(
-                    job_id, fmt, dictation_id, release_id, revision_id, actor_id, 'render_failed')
+                    job_id, fmt, dictation_id, release_id, revision_id, actor_id, 'render_failed', template)
             job = {
                 'id': job_id, 'kind': 'file', 'status': 'ready', 'format': fmt,
                 'dictation_id': dictation_id, 'release_id': release_id,
                 'revision_id': rendered.transcript_revision_id, 'filename': rendered.filename,
                 'mimetype': rendered.mimetype, 'sha256': rendered.sha256, 'actor_id': actor_id,
+                **_job_template(template),
             }
             if fmt == 'docx':
                 job['stable_docx_zip'] = True
@@ -398,7 +550,11 @@ def create_blueprint(
             # Preserve the optional caller-supplied index of observed jobs.
             jobs[(actor_id, dictation_id, key)] = jobs[('id', job_id)] = job
         if job.get('status') == 'failed' and not replayed and job.get('reason') != 'render_failed':
-            return _problem(409, 'EXPORT_REFUSED', reason=job.get('reason'), format=fmt,
+            reason = job.get('reason')
+            if reason in ('TEMPLATE_MARK_ERROR', 'TEMPLATE_MACRO'):
+                return _problem(422 if reason == 'TEMPLATE_MARK_ERROR' else 409, reason,
+                                format=fmt, target_status='failed', id=job['id'])
+            return _problem(409, 'EXPORT_REFUSED', reason=reason, format=fmt,
                             target_status='failed', id=job['id'])
         response = jsonify(_job_view(job) | {'replayed': replayed})
         response.status_code = 200 if replayed else 201
@@ -412,10 +568,13 @@ def create_blueprint(
         if job.get('status') != 'ready' or job.get('sha256') is None:
             return placed
         pattern, manual = _name_choice(body)
+        fmt = job['format']
         try:
-            rendered = file_formats()[body['format']](active)
-        except export_service.ExportRefused:
-            return _problem(409, 'EXPORT_REFUSED', reason='render_failed', format=body['format'])
+            template = _template_of_job(job)
+            rendered = (_render_with_template(active, fmt, template) if template is not None
+                        else file_formats()[fmt](active))
+        except (_TemplateExportError, export_service.ExportRefused):
+            return _problem(409, 'EXPORT_REFUSED', reason='render_failed', format=fmt)
         if rendered.sha256 != job.get('sha256'):
             return _problem(409, 'EXPORT_CONFLICT', detail='Gerenderte Datei stimmt nicht mit der Quittung überein')
         alias_name = body['destination_alias']
@@ -485,8 +644,10 @@ def create_blueprint(
                 or active.transcript_revision_id != job.get('revision_id')):
             abort(404)
         try:
-            rendered = file_formats()[job['format']](active)
-        except export_service.ExportRefused:
+            template = _template_of_job(job)
+            rendered = (_render_with_template(active, job['format'], template) if template is not None
+                        else file_formats()[job['format']](active))
+        except (_TemplateExportError, export_service.ExportRefused):
             abort(404)
         if (rendered.sha256 != job.get('sha256') or rendered.filename != job.get('filename')
                 or hashlib.sha256(rendered.content).hexdigest() != job.get('sha256')):
@@ -626,7 +787,8 @@ def _placement_response(placed: Response, receipt) -> Response:
         )
     if receipt.outcome == 'write_error':
         return _problem(
-            422, reason=receipt.reason, local_save_proven=False, destination=body['destination'],
+            422, 'DESTINATION_WRITE_FAILED', title='Ablage fehlgeschlagen',
+            reason=receipt.reason, local_save_proven=False, destination=body['destination'],
             id=job.get('id'), format=job.get('format'),
         )
     return _problem(
