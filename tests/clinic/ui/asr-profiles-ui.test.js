@@ -42,6 +42,19 @@ const PROFILES = {
 const routes = (extra) => Object.assign({ 'GET /asr-profiles': () => ok(PROFILES) }, extra || {});
 
 describe('asr profiles ui', () => {
+    it.each([
+        ['runtime', 'gpu', false, 'GPU', false],
+        ['runtime', 'cpu', false, 'CPU', false],
+        ['runtime', 'cpu', true, 'CPU', true],
+        ['synthetic', null, false, 'Synthetischer Test', false],
+        ['unavailable', null, false, 'Nicht ermittelt', false],
+    ])('shows a %s job observation (%s, fallback %s)', async (status, actual, fallback, label, expectedFallback) => {
+        const data = { ...PROFILES, engine: { configured: 'gpu', status, actual, fallback } };
+        const c = createAsrProfilesController({ client: makeClient(routes({ 'GET /asr-profiles': () => ok(data) })) });
+        await c.load();
+        expect(c.view().engine).toMatchObject({ label, fallback: expectedFallback, actual });
+    });
+
     it('distinguishes a configured engine from a verified transcription path', async () => {
         const status = { ...PROFILES, engine: { configured: 'cpu', actual: 'cpu', reason: 'nicht ermittelt' },
             capabilities: { configured: ['batch', 'live'], proven: [] } };
