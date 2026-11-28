@@ -8,6 +8,7 @@ A revision conflict leaves the phrase text on screen.
 from __future__ import annotations
 
 import functools
+import json
 import http.server
 import os
 from pathlib import Path
@@ -192,6 +193,145 @@ def test_live_session_matches_server_state() -> None:
             page.get_by_role('button', name='Beenden', exact=True).click()
             expect(view).to_have_attribute('data-phase', 'stopped')
             expect(page.get_by_text('Guten Tag, der Befund ist unauffällig.')).to_be_visible()
+            assert not errors, errors
+            browser.close()
+    finally:
+        server.shutdown()
+
+
+def test_mounted_capture_renders_live_results_and_leaves_no_browser_copy() -> None:
+    ART.mkdir(parents=True, exist_ok=True)
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(ROOT))
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    vue = ROOT / 'static/vendor/js/vue.global.js'
+    vue_body = (vue if vue.is_file() else VUE_FALLBACK).read_text(encoding='utf-8')
+    position = {'session_id': 's1', 'generation': 1}
+    receipts, begins, wire_frames = [], [], []
+
+    def stream(ws):
+        phase = {'begun': False, 'partial': False}
+
+        def receive(message):
+            if not phase['begun']:
+                begin = json.loads(message)
+                begins.append(begin)
+                phase['sequence'] = begin['after_sequence'] + 1
+            sequence = phase['sequence']
+            event = {**position, 'sequence': sequence}
+            if not phase['begun']:
+                phase['begun'] = True
+                ws.send(json.dumps({**event, 'status': 'ready', 'sample_rate': 24000,
+                                    'max_frame_bytes': 4800, 'max_audio_seconds': 30}))
+            elif isinstance(message, bytes):
+                assert len(message) == 960
+                wire_frames.append(message)
+                if any(message) and not phase['partial']:
+                    phase['partial'] = True
+                    ws.send(json.dumps({**event, 'status': 'partial', 'text': f'Synthetischer Zwischentext {sequence}'}))
+            elif message == 'finish':
+                assert phase['partial']
+                receipts.append(sequence)
+                ws.send(json.dumps({**event, 'status': 'server_saved', 'text': f'Synthetischer Testsatz {sequence}',
+                                    'event_id': f'event-{sequence}', 'phrase_id': f'phrase-{sequence}'}))
+            else:
+                raise AssertionError(message)
+
+        ws.on_message(receive)
+
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(executable_path=os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE') or None)
+            page = browser.new_page(viewport={'width': 1440, 'height': 900})
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            page.add_init_script('''
+                const NativeSocket = window.WebSocket;
+                window.WebSocket = class extends NativeSocket {
+                    constructor(url, protocols) { super(url, protocols); }
+                    get protocol() { return 'clinic-live-v1'; }
+                };
+                window.inputs = [];
+                navigator.mediaDevices.getUserMedia = async () => {
+                    const context = new AudioContext();
+                    const tone = context.createOscillator();
+                    const gain = context.createGain();
+                    const output = context.createMediaStreamDestination();
+                    tone.connect(gain).connect(output);
+                    gain.gain.value = 0;
+                    tone.start();
+                    await context.resume();
+                    window.inputs.push({ context, gain, track: output.stream.getAudioTracks()[0] });
+                    return output.stream;
+                };
+            ''')
+            page.route('**/api/csrf-token', lambda route: route.fulfill(json={'csrf_token': 'synthetic'}))
+            page.route('**/vue.global.js', lambda route: route.fulfill(content_type='text/javascript', body=vue_body))
+            html = HTML.replace('const client = {', 'const client = { supportsLiveCapture: true,')
+            html = html.replace('<meta charset="utf-8">', '<meta charset="utf-8"><title>Live-Diktat</title>')
+            page.route('**/live-capture-proof', lambda route: route.fulfill(content_type='text/html', body=html))
+            page.route_web_socket('**/api/clinic/v1/live/sessions/s1/stream', stream)
+            page.goto(f'http://127.0.0.1:{server.server_port}/live-capture-proof#/live')
+            view = page.get_by_test_id('clinic-live-view')
+            expect(view).to_have_attribute('data-phase', 'idle')
+            _shots(page, 'capture-empty')
+            view.get_by_role('button', name='Starten').focus()
+            assert view.get_by_role('button', name='Starten').evaluate(
+                "button => getComputedStyle(button).outlineStyle") == 'solid'
+            for width, height in VIEWPORTS:
+                page.set_viewport_size({'width': width, 'height': height})
+                for theme in ('light', 'dark'):
+                    _theme(page, theme)
+                    assert view.get_by_role('button', name='Starten').bounding_box()['height'] >= 48
+            page.set_viewport_size({'width': 1440, 'height': 900})
+            _theme(page, 'light')
+            view.get_by_role('button', name='Starten').click()
+            expect(view).to_have_attribute('data-phase', 'live')
+            for number in (1, 2, 3):
+                page.evaluate('window.inputs.at(-1).gain.gain.value = 0.2')
+                expect(view.get_by_text(f'Synthetischer Zwischentext {number}')).to_be_visible()
+                page.evaluate('window.inputs.at(-1).gain.gain.value = 0')
+                expect(view.get_by_text(f'Synthetischer Testsatz {number}')).to_be_visible()
+                expect(view).to_have_attribute('data-phase', 'live')
+                page.evaluate('sequence => window.seq = sequence', number)
+                if number == 1:
+                    view.get_by_role('button', name='Pausieren').click()
+                    expect(view).to_have_attribute('data-phase', 'paused')
+                    assert page.evaluate('window.inputs[0].track.readyState') == 'ended'
+                    view.get_by_role('button', name='Fortsetzen').click()
+                    expect(view).to_have_attribute('data-phase', 'live')
+            assert view.locator('[data-state=server_saved]').count() == 3
+            for button in view.get_by_role('button').all():
+                bounds = button.bounding_box()
+                assert bounds['width'] >= 48 and bounds['height'] >= 48
+            page.evaluate('document.activeElement.blur()')
+            _shots(page, 'capture-rows')
+            _theme(page, 'light')
+            dom = page.evaluate('''async () => {
+                const copy = document.documentElement.cloneNode(true);
+                copy.querySelectorAll('script').forEach((node) => node.remove());
+                for (const link of copy.querySelectorAll('link[rel=stylesheet]')) {
+                    const style = document.createElement('style');
+                    style.textContent = (await (await fetch(link.href)).text()).replace(/@import[^;]*;/g, '');
+                    link.replaceWith(style);
+                }
+                return '<!doctype html>' + copy.outerHTML;
+            }''')
+            (ART / 'live-capture.html').write_text(dom, encoding='utf-8')
+            assert page.evaluate('''async () => ({ local: localStorage.length, session: sessionStorage.length,
+                databases: (await indexedDB.databases()).length, caches: (await caches.keys()).length })''') == {
+                'local': 0, 'session': 0, 'databases': 0, 'caches': 0}
+            view.get_by_role('button', name='Beenden').click()
+            expect(view).to_have_attribute('data-phase', 'stopped')
+            commands = page.evaluate('window.calls.filter(x => x.kind === "command").map(x => x.body)')
+            assert commands[-1]['expected_revision'] == 4
+            assert commands[-1]['payload']['last_sequence'] == 3
+            assert page.evaluate('window.inputs.every(x => x.track.readyState === "ended")')
+            assert begins and wire_frames and receipts == [1, 2, 3]
+            view.get_by_role('button', name='Starten').click()
+            expect(view).to_have_attribute('data-phase', 'live')
+            page.evaluate("window.dispatchEvent(new PageTransitionEvent('pagehide'))")
+            assert page.evaluate('window.inputs.every(x => x.track.readyState === "ended")')
             assert not errors, errors
             browser.close()
     finally:

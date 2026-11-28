@@ -1394,11 +1394,6 @@ def register_clinic_identity(flask_app):
     def disabled_exchange(_pending, _code):
         raise entra.EntraDisabled()
 
-    def author_pool_for(user_id):
-        # One author pool per user is the clinic rule; a user in none has no author recipient default.
-        # The model has no active-pool flag: first pool by name, then id (app_wiring.choose_author_pool).
-        return app_wiring.choose_author_pool(user_id)
-
     def allowed_for(user_id):
         # Current roles only: author = member of an author pool; typist = member of a staff pool linked
         # to an author pool. A typist gets no own author (no author context by default).
@@ -1430,7 +1425,7 @@ def register_clinic_identity(flask_app):
     flask_app.register_blueprint(routes_grants.GrantsApi().blueprint)
     flask_app.register_blueprint(create_metadata_fields_blueprint())
     flask_app.register_blueprint(routes_preferences.PreferenceRoutes(
-        allowed_for=allowed_for, author_pool_for=author_pool_for,
+        allowed_for=allowed_for, author_pool_for=app_wiring.choose_author_pool,
         selections=SelectionStore(preferences=PresetUserPreferences()), workstations=WorkstationPreferences()).blueprint)
 
 
@@ -1454,6 +1449,7 @@ def register_clinic_audio(flask_app):
     from src.clinic.admin_dictation_access import can_open_content
     from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
+    from src.clinic.live_asr_adapter import LiveAsrAdapter, get_live_asr_config
     from src.clinic.models import ClinicDictation
     from src.clinic import routes_live_drafts
 
@@ -1461,7 +1457,7 @@ def register_clinic_audio(flask_app):
     run_once = flask_app.extensions['clinic_run_once']
     # Handler action name -> central policy actions that must all be allowed.
     needs = {
-        'play': ('play',), 'edit': ('edit',), 'export': ('export',), 'import': ('edit',),
+        'play': ('play',), 'view': ('view',), 'edit': ('edit',), 'export': ('export',), 'import': ('edit',),
         'correction_read': ('view',), 'correction_edit': ('edit',), 'clipboard': ('export',),
         'audio_export': ('audio_export',),
     }
@@ -1497,6 +1493,13 @@ def register_clinic_audio(flask_app):
     def managed_client():
         return config.client_capabilities()['profiles'][config.client_profile()].get('document_export') is not False
 
+    def may_access_live(actor, action, dictation_id):
+        return (may(actor, action, db.session.get(ClinicDictation, dictation_id))
+                and routes_dictation_properties.content_unlocked(actor, dictation_id))
+
+    def may_edit_live(actor, dictation_id):
+        return may_access_live(actor, 'edit', dictation_id)
+
     def tts_load(actor, kind, object_id):
         dictation = db.session.get(ClinicDictation, object_id) if kind == routes_tts.SELECTION_KIND else None
         head = None if dictation is None else revisions.current_revision(dictation)
@@ -1507,21 +1510,23 @@ def register_clinic_audio(flask_app):
             subject=policy.build_subject(actor),
             recording=policy.build_facts(dictation.recording_id, dictation.author_user_id))
 
-    def edit_live(actor, dictation_id):
-        return may(actor, 'edit', db.session.get(ClinicDictation, dictation_id))
-
     drafts = DraftStore()
-    routes_live.register_live_commands(dispatch, edit_live)
+    routes_live.register_live_commands(dispatch, may_edit_live, stream_enabled=True)
     flask_app.register_blueprint(routes_audio.create_blueprint(
         authorize=authorize, run_once=run_once, load_sources=load_sources))
-    flask_app.register_blueprint(routes_dictation_properties.DictationPropertyRoutes(protection_store).blueprint())
+    protection = routes_dictation_properties.DictationPropertyRoutes(protection_store)
+    flask_app.extensions['clinic_dictation_protection'] = protection
+    flask_app.register_blueprint(protection.blueprint())
     flask_app.register_blueprint(routes_bundle.create_blueprint(
         bundle_load, lambda actor, dictation_id, action: may(actor, action, db.session.get(ClinicDictation, dictation_id)),
         bundle_persist, lambda scope, digest, operation: bundle_store.run_locked(scope, digest, operation, run_once, may),
         managed_client))
     flask_app.register_blueprint(routes_live.create_blueprint(
-        edit_live, IngestService(startup.originals_root(flask_app)), drafts=drafts))
-    flask_app.register_blueprint(routes_live_drafts.create_blueprint(drafts, edit_live))
+        may_edit_live, IngestService(originals_root), drafts=drafts,
+        stream_adapter=lambda: LiveAsrAdapter(get_live_asr_config()),
+        authorize_view=lambda actor, dictation_id: may_access_live(actor, 'view', dictation_id),
+        authorize_play=lambda actor, dictation_id: may_access_live(actor, 'play', dictation_id)))
+    flask_app.register_blueprint(routes_live_drafts.create_blueprint(drafts, may_edit_live))
     flask_app.register_blueprint(routes_correction.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         run_once=run_once, require_if_match=True))
