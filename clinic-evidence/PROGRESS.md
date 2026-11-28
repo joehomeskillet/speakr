@@ -1,5 +1,9 @@
 # Speakr V8: geprüfte Änderungen im Klinik-Webclient
 
+## BR-02 – Ploudrli
+
+Anmeldung, Kopfzeilen, Seitentitel und Installationsmetadaten verwenden die Ploudrli-Markenidentität. Die Anmeldung und die Markenvarianten wurden lokal in Chromium geprüft. Der Staging-Nachweis ist nach der Integration vorgesehen.
+
 ## P-062 – Versanddaten vor dem Einreichen
 
 Im lokalen Klinik-Browserlauf wurden Titel, Anmerkung, Priorität und ein Zürcher Tagesendtermin eines synthetischen P04-Entwurfs gespeichert und nach erneutem Öffnen geprüft. Die angezeigte Abnahmepflicht folgte einer separaten Admin-Änderung. Staging und Originalsystemvergleich stehen aus; die offenen Paritätslücken bleiben unverändert.
