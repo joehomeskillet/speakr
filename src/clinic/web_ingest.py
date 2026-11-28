@@ -29,20 +29,22 @@ the upload recording; ``origin_ref`` carries the upload recording id as the link
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import re
 from datetime import datetime, timezone
+from uuid import UUID
 
 from flask import current_app, jsonify
 from sqlalchemy import or_
 
 from src.clinic import pool_policy, pools, recording_type, startup
-from src.clinic.ingest import IngestError, IngestService
+from src.clinic.ingest import IngestError, IngestService, lock_original_key, storage_key_for
 from src.clinic.models import ClinicDictation, ClinicOriginal
 from src.clinic.workflow import DRAFT, ClinicWorkflowDictation
 from src.database import db
-from src.models import Recording
+from src.models import ProcessingJob, Recording
 
 logger = logging.getLogger(__name__)
 
@@ -195,9 +197,67 @@ def _refuse(recording, storage, code: str, message: str, status: int):
     return jsonify({'error': message, 'code': code}), status
 
 
+class TakeUploadError(Exception):
+    def __init__(self, code: str, status: int, message: str = MSG_FAILED):
+        super().__init__(code)
+        self.code, self.status, self.message = code, status, message
+
+
+def _take_key(author_id: int, take_id: str) -> str:
+    return f'web-take:{author_id}:{take_id}'
+
+
+def take_id_from(form) -> str | None:
+    value = form.get('clinic_take_id')
+    if value is None:
+        return None
+    if len(value) != 36:
+        raise TakeUploadError('invalid_take_id', 400)
+    try:
+        return str(UUID(value))
+    except ValueError as error:
+        raise TakeUploadError('invalid_take_id', 400) from error
+
+
+def find_take(author_id: int, take_id: str) -> ClinicOriginal | None:
+    return (ClinicOriginal.query.join(ClinicDictation)
+            .filter(ClinicOriginal.storage_key == storage_key_for(_take_key(author_id, take_id)),
+                    ClinicDictation.author_user_id == author_id).one_or_none())
+
+
+def take_receipt(original: ClinicOriginal, take_id: str, *, file_hash: str | None = None,
+                 requested_type: str | None = None) -> dict:
+    source_id = int(original.origin_ref.split(':')[2])
+    dictation = db.session.get(ClinicDictation, original.dictation_id)
+    source = Recording.query.filter_by(id=source_id, user_id=dictation.author_user_id).one_or_none()
+    if file_hash is not None and (source is None or source.file_hash != file_hash):
+        raise TakeUploadError('clinic_ingest_conflict', 409)
+    if requested_type is not None and requested_type != dictation.recording_type:
+        raise TakeUploadError('clinic_ingest_conflict', 409)
+    recording = source or db.session.get(Recording, dictation.recording_id)
+    return {'id': source_id, 'dictation_id': original.dictation_id, 'take_id': take_id, 'title': recording.title,
+            'audio_duration': recording.audio_duration_seconds, 'recording_type': dictation.recording_type,
+            'use_speech_recognition': _ASR_MARK not in original.origin_ref}
+
+
+def lock_take(author_id: int, take_id: str) -> None:
+    lock_original_key(storage_key_for(_take_key(author_id, take_id)))
+
+
+def queue_take(recording: Recording, params: dict, *, conversion_deferred: bool,
+               extracted_audio_limit_mb: float) -> None:
+    """Publish the stock queue row in the same transaction as the take receipt."""
+    job_type = 'convert' if conversion_deferred else 'transcribe'
+    if conversion_deferred:
+        params = {'transcribe': params, 'extracted_audio_limit_mb': extracted_audio_limit_mb}
+    recording.status = 'QUEUED'
+    db.session.add(ProcessingJob(user_id=recording.user_id, recording_id=recording.id, job_type=job_type,
+                                 params=json.dumps(params) if params else None, is_new_upload=True))
+
+
 def register_upload(*, owner, recording, storage, form, now: datetime,
                     meeting_date: datetime | None, processing_source: str,
-                    requested_type: str | None = None):
+                    requested_type: str | None = None, take_id: str | None = None):
     """Create the clinic dictation for a stored web upload.
 
     Returns the dictation on success, None for another upload source, or
@@ -208,6 +268,8 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
         return None
     pool_id = author_pool_for(owner.id)
     if pool_id is None:
+        if take_id:
+            raise TakeUploadError('clinic_no_author_pool', 403, MSG_NO_POOL)
         return _refuse(recording, storage, 'clinic_no_author_pool', MSG_NO_POOL, 403)
 
     from src.services.upload_cancel import client_upload_id_from
@@ -223,7 +285,7 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
             path = stored.local_path
             size = os.path.getsize(path)
             digest = _sha256(path)
-            key = f'web:{owner.id}:{client_upload_id_from(form) or digest}'
+            key = _take_key(owner.id, take_id) if take_id else f'web:{owner.id}:{client_upload_id_from(form) or digest}'
             service = IngestService(startup.originals_root(current_app))
             with open(path, 'rb') as stream:
                 receipt = service.store_original(
@@ -244,12 +306,17 @@ def register_upload(*, owner, recording, storage, form, now: datetime,
                 status=DRAFT, created_at=moment, audio_seconds=int(recording.audio_duration_seconds or 0)))
         elif requested_type is not None and requested_type != dictation.recording_type:
             raise IngestError('conflict', 'recording type differs from the original upload')
-        db.session.commit()
+        if not take_id:
+            db.session.commit()
     except IngestError as error:
         logger.warning('web ingest refused for user %s: %s', owner.id, error.code)
-        return _refuse(recording, storage, f'clinic_ingest_{error.code}', MSG_FAILED,
-                       409 if error.code == 'conflict' else 500)
+        code, status = f'clinic_ingest_{error.code}', 409 if error.code == 'conflict' else 500
+        if take_id:
+            raise TakeUploadError(code, status) from error
+        return _refuse(recording, storage, code, MSG_FAILED, status)
     except Exception:
+        if take_id:
+            raise
         logger.error('web ingest failed for user %s', owner.id, exc_info=True)
         return _refuse(recording, storage, 'clinic_ingest_failed', MSG_FAILED, 500)
     return dictation

@@ -21,6 +21,8 @@ AUTH: tuple[str, ...] = (
     'clinic_workflow.release',
     'clinic_workflow.archive',
     'clinic_workflow.send',
+    'clinic_workflow.recording_take',
+    'clinic_workflow.recording_take_preflight',
     'clinic_history.get_history',
     'clinic_history.review_lease',
     'clinic_dictation_detail.get_detail',

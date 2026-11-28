@@ -557,6 +557,8 @@ on clinic_voice_consent.revoke {"action":null,"arg":"recording_id","batch_all":f
 on clinic_workflow.archive {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_workflow.metadata {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_workflow.read_acceptance_state {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
+on clinic_workflow.recording_take {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
+on clinic_workflow.recording_take_preflight {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_workflow.release {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_workflow.send {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
 on clinic_workflow.skip_asr {"action":null,"arg":"recording_id","batch_all":false,"body_keys":[],"delete_flags":[],"feature":null,"forbid_args":[],"kind":"auth"}
