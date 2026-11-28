@@ -13,6 +13,13 @@ from test_recordings_pending import _save_rendered_dom
 from v8_browser_support import OUT_DIR, _wait_loading_overlay_gone
 
 
+@pytest.fixture(scope="module")
+def app_base(tmp_path_factory):
+    # The filter checks must start without leases left by other recordings modules.
+    with support.serve_app(tmp_path_factory.mktemp("recordings-filters"), support.SERVER) as base:
+        yield base
+
+
 def measure(page, listing, name):
     """Keep viewport evidence before any interaction can scroll the first row."""
     OUT_DIR.mkdir(parents=True, exist_ok=True)

@@ -246,7 +246,12 @@ export function createClinicApiClient() {
                 if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
             }
             if (timedOut) return finish(result('network', { code: 'NETWORK' }));
-            return finish(classify(sent.response, text));
+            const response = classify(sent.response, text);
+            if (url === ROOT + '/offline-web/capability' && response.outcome === 'ok') {
+                const expiresAt = sent.response.headers?.get('X-Offline-Grant-Expires-At');
+                if (expiresAt) response.grantExpiresAt = Number(expiresAt);
+            }
+            return finish(response);
         } finally {
             clearTimeout(timeout);
             inflight.delete(controller);

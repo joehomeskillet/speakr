@@ -21,7 +21,8 @@ def test_recording_surface_opens_its_dictation(browser, app_base, role_states, w
         source = page.request.get(app_base + "/api/clinic/v1/recordings")
         assert source.ok
         assert dictation in {str(item["dictation_id"]) for item in source.json()["items"]}
-        cell = row.get_by_text("author-v860", exact=True)
+        cell = row.locator('[data-cell="author"]')
+        expect(cell).to_have_text("author-v860")
         if mobile:
             cell.tap()
         else:

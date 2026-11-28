@@ -32,6 +32,7 @@
 import { useCorrectionPlayerPosition } from './correction-player-position.js';
 import { formatDictationReference } from './worklist-ui.js';
 import { createClinicApiClient } from './api-client.js';
+import { SessionTransportNotice } from './compose-settings.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { CorrectionAudioPanel, DictationSummary, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
@@ -1476,6 +1477,7 @@ export const CorrectionBody = {
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
             onQuery, onReplacement, onCase, onSelectionCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
+            SessionTransportNotice,
             documentMode, doc, setRunRoot, currentRun, selectedNodeIndex, canSeekRun, currentLink, historyState, historyAction,
             FORMATS, formatName, runLabel, insertParagraph, insertManualRun, moveParagraph, documentFeedback, replaceMatches, onRunSelection, onRunInput, onRunPaste, activatePassage,
             text: e.text, canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId,
@@ -1503,7 +1505,7 @@ export const CorrectionBody = {
         <h1 id="ccv-title" style="font-weight: 700; letter-spacing: -.8px; color: var(--v8-text)">{{ openMode === 'player' ? TEXT.playerPage : TEXT.page }}</h1>
         <FinishOptions v-if="finishWorkflow.state.allowed.includes('release')"
                        ref="finishOptions" :workflow="finishWorkflow" :client="c.client" :vue="vue"
-                       :disabled="dirty || loading || !!error" @finished="c.close()" />
+                       :disabled="!ready || !lease.writable || dirty || loading || !!error" @finished="c.close()" />
       </div>
       <p class="subline">{{ openMode === 'player' ? TEXT.playerSubline : TEXT.subline }}</p>
     </div>
@@ -1515,6 +1517,7 @@ export const CorrectionBody = {
       </slot>
     </div>
   </div>
+  <component :is="SessionTransportNotice" :client="c.client" :vue="vue" />
   <p v-if="closeMessage" role="alert" class="note" :style="box('error')">{{ closeMessage }}</p>
   <p class="sr-only" id="ccv-keys">{{ TEXT.keys }}</p>
 
