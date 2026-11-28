@@ -217,7 +217,7 @@ describe('compose-output', () => {
         expect(writeText).toHaveBeenCalledWith('Text');
         expect(copier.state.value.phase).toBe('copied');
         const paths = client.request.mock.calls.map((x) => x[0]);
-        expect(paths).toContain('/dictations/d1/clipboard/r1');
+        expect(paths).toContain('/dictations/d1/clipboard/r1?format=plain');
         expect(c.clipboardCopy()).toBe(copier);
     });
 

@@ -110,7 +110,7 @@ export function createClipboardCopy(options) {
         set('working');
         try {
             const key = makeKey();
-            const prepared = await opts.client.request(base(), { idempotencyKey: key });
+            const prepared = await opts.client.request(`${base()}?format=${format}`, { idempotencyKey: key });
             if (prepared.outcome !== 'ok') return set(failureFor(prepared));
             const flavors = prepared.data || {};
             const clip = clipboardApi(env);

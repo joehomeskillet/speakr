@@ -16,16 +16,16 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
-from src.clinic import revisions
-from src.clinic.config import clinic_mode_enabled
+from src.clinic import config, revisions, richtext
+from src.clinic.clipboard_ledger import AuditClipboardLedger
 from src.clinic.kis import LOOKUP_ABSENT, LOOKUP_CONFIRMED, LOOKUP_UNKNOWN
 from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
-from src.clinic.output import CHANNEL_CLIPBOARD, FORMAT_FORMATTED, record_output
+from src.clinic.output import CHANNEL_CLIPBOARD, FORMAT_FORMATTED, FORMAT_PLAIN, record_output
 from src.clinic.output_attempts import (
     OutputAttempt, OutputAttemptError, OutputSource, begin_output, freeze_output_attempts,
     record_output_result,
 )
-from src.clinic.rich_text_doc import from_plain_text, to_clipboard_flavors
+from src.clinic.rich_text_doc import RichTextError, from_plain_text, to_clipboard_flavors, to_plain_text
 from src.database import db
 from src.models import User
 
@@ -33,6 +33,7 @@ PATH = '/api/clinic/v1/dictations/<uuid:dictation_id>/clipboard/<uuid:revision_i
 TARGET = 'browser'
 MAX_FLAVOR_BYTES = 1048576
 OUTCOMES = {'copied': LOOKUP_CONFIRMED, 'denied': LOOKUP_ABSENT, 'aborted': LOOKUP_UNKNOWN}
+FORMATS = {'formatted': FORMAT_FORMATTED, 'plain': FORMAT_PLAIN}
 _PROBLEMS = {
     400: ('INVALID_PAYLOAD', 'Ungültige Anfrage'),
     401: ('UNAUTHORIZED', 'Anmeldung erforderlich'),
@@ -52,10 +53,16 @@ def _problem(status: int) -> Response:
     return response
 
 
-def _frozen(dictation: ClinicDictation, source: OutputSource, actor: int, request_id: str) -> OutputAttempt:
+def _frozen(
+    dictation: ClinicDictation, source: OutputSource, actor: int, request_id: str,
+    text_format: str = FORMAT_FORMATTED, document_version: int = 0,
+) -> OutputAttempt:
+    settings = {'format': text_format}
+    if document_version:
+        settings['document_version'] = str(document_version)
     attempts = freeze_output_attempts(
         dictation, source, source, actor_user_id=actor, request_id=request_id, allowed=True,
-        mode='working_copy', targets={(CHANNEL_CLIPBOARD, TARGET): {'format': FORMAT_FORMATTED}},
+        mode='working_copy', targets={(CHANNEL_CLIPBOARD, TARGET): settings},
     )
     return attempts[0]
 
@@ -63,9 +70,9 @@ def _frozen(dictation: ClinicDictation, source: OutputSource, actor: int, reques
 def prepare_clipboard(
     ledger: MutableMapping[str, OutputAttempt], dictation: ClinicDictation,
     revision: ClinicTranscriptRevision, source: OutputSource, *, actor: int, request_id: str,
-    allowed: bool,
+    allowed: bool, text_format: str = FORMAT_FORMATTED,
 ) -> tuple[OutputAttempt, dict[str, str]]:
-    """Claim the attempt as UNKNOWN and return it with the plain/HTML flavours.
+    """Claim the attempt as UNKNOWN and return it with the requested flavours.
 
     `source` is the server-resolved current binding. Only the head revision is
     served; a stale revision raises `OutputAttemptError`.
@@ -73,13 +80,24 @@ def prepare_clipboard(
     head = revisions.current_revision(dictation)
     if head is None or head.id != revision.id or revision.id != source.text_revision_id:
         raise OutputAttemptError('stale output revision')
-    attempt = _frozen(dictation, source, actor, request_id)
+    if allowed is not True:
+        raise OutputAttemptError('output not authorised')
+    if text_format not in FORMATS.values():
+        raise OutputAttemptError('unrecognised clipboard format')
+    version, doc = richtext.load_latest_document(revision.id)
+    attempt = _frozen(dictation, source, actor, request_id, text_format, version)
     known = ledger.get(attempt.idempotency_key)
     if known is not None and known.payload_hash != attempt.payload_hash:
         raise OutputAttemptError('request ID already used for another payload')
-    claim = begin_output({**ledger, attempt.idempotency_key: known or attempt}, attempt.idempotency_key,
+    attempts = ledger.attempts_for(dictation.id) if isinstance(ledger, AuditClipboardLedger) else ledger
+    claim = begin_output({**attempts, attempt.idempotency_key: known or attempt}, attempt.idempotency_key,
                          dictation, source, allowed=allowed)
-    flavors = to_clipboard_flavors(from_plain_text(revision.body, lambda: str(uuid4())))
+    if text_format == FORMAT_PLAIN:
+        flavors = {'text/plain': revision.body if doc is None else to_plain_text(doc)}
+    else:
+        # Legacy text revisions have no saved formatting.
+        document = doc if doc is not None else from_plain_text(revision.body, lambda: str(uuid4()))
+        flavors = to_clipboard_flavors(document)
     if any(len(value.encode('utf-8')) > MAX_FLAVOR_BYTES for value in flavors.values()):
         raise ValueError('clipboard flavour too large')
     ledger[claim.idempotency_key] = claim
@@ -94,13 +112,17 @@ def report_clipboard(
     """Apply the browser-reported outcome; a receipt is appended only for `copied`."""
     if outcome not in OUTCOMES:
         raise OutputAttemptError('unrecognised clipboard outcome')
+    # The key scopes the actor and request. The stored claim supplies format and revision evidence.
     key = _frozen(dictation, source, actor, request_id).idempotency_key
     claim = ledger.get(key)
     if claim is None:
         raise OutputAttemptError('no clipboard attempt for this request')
+    if claim.source.text_revision_id != revision.id:
+        raise OutputAttemptError('clipboard outcome names a different revision')
     result = record_output_result(claim, claim, OUTCOMES[outcome])
     if outcome == 'copied':
-        record_output(dictation, revision, actor, CHANNEL_CLIPBOARD, TARGET, text_format=FORMAT_FORMATTED)
+        record_output(dictation, revision, actor, CHANNEL_CLIPBOARD, TARGET,
+                      text_format=dict(claim.format_settings)['format'])
     ledger[key] = result
     return result
 
@@ -136,7 +158,7 @@ def create_blueprint(
 
     @bp.before_request
     def authenticate() -> None:
-        if not clinic_mode_enabled():
+        if not config.clinic_mode_enabled():
             abort(404)
         if not (current_user.is_authenticated and current_user.is_active
                 and session.get('_user_id') == current_user.get_id()):
@@ -146,6 +168,8 @@ def create_blueprint(
                 validate_csrf(request.headers.get('X-CSRFToken') or request.headers.get('X-CSRF-Token'))
             except ValidationError:
                 abort(403)
+        if config.client_capabilities()['profiles'][config.client_profile()].get('document_export') is False:
+            abort(403)
 
     @bp.errorhandler(HTTPException)
     def http_problem(error: HTTPException) -> Response | HTTPException:
@@ -162,11 +186,14 @@ def create_blueprint(
     def prepare(dictation_id: UUID, revision_id: UUID) -> Response:
         dictation, revision = objects(dictation_id, revision_id)
         key = request_id()
+        text_format = FORMATS.get(request.args.get('format', 'formatted'))
+        if text_format is None:
+            abort(400)
         try:
             claim, flavors = prepare_clipboard(
                 ledger, dictation, revision, source_for(dictation), actor=current_user.id,
-                request_id=key, allowed=True)
-        except OutputAttemptError:
+                request_id=key, allowed=True, text_format=text_format)
+        except (OutputAttemptError, RichTextError):
             return _problem(409)
         except ValueError:
             return _problem(413)

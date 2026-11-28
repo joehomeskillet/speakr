@@ -1453,6 +1453,7 @@ def register_clinic_audio(flask_app):
                             routes_correction_documents, routes_dictation_properties, routes_live,
                             routes_output, routes_tts, startup)
     from src.clinic.admin_dictation_access import can_open_content
+    from src.clinic.clipboard_ledger import AuditClipboardLedger
     from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
     from src.clinic.models import ClinicDictation
@@ -1543,7 +1544,7 @@ def register_clinic_audio(flask_app):
     flask_app.register_blueprint(routes_tts.TtsApi(tts_load, lambda: None, None).blueprint)
     flask_app.register_blueprint(routes_clipboard.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
-        source_for=routes_output.output_source, ledger={}))
+        source_for=routes_output.output_source, ledger=AuditClipboardLedger()))
     flask_app.register_blueprint(routes_output.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         adapter_for=lambda: routes_output.configured_adapter(flask_app)))
