@@ -7,7 +7,7 @@
 {% call phone_sheet('menu', "t('phone.menu')", drawer=true) %}
     <div class="ph-acct">
         <span class="ph-acct__avatar" aria-hidden="true"><i class="fas fa-user"></i></span>
-        <span class="ph-acct__name" dir="auto">{% if current_user.is_authenticated %}{{ current_user.name or current_user.username }}{% else %}Speakr{% endif %}</span>
+        <span class="ph-acct__name" dir="auto">{% if current_user.is_authenticated %}{{ current_user.name or current_user.username }}{% else %}Ploudrli{% endif %}</span>
         <button type="button" class="ph-ib" data-phone-sheet-close @click="closePhoneSheet()" :aria-label="t('buttons.close')" :title="t('buttons.close')">
             <i class="fas fa-times" aria-hidden="true"></i>
         </button>
