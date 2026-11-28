@@ -161,10 +161,14 @@ def create_blueprint(
         draft_fields = {}
         if (recording is not None and flow is not None and flow.status == workflow.DRAFT
                 and current_user.id == dictation.author_user_id and authorize(current_user, 'review', dictation)):
-            draft_fields = dict(draft_metadata=dict(
-                title=recording.title, notes=recording.notes or '', priority=flow.priority,
-                deadline_date=flow.deadline_date.isoformat() if flow.deadline_date else '',
-            ))
+            draft_fields = dict(
+                draft_metadata=dict(
+                    title=recording.title, notes=recording.notes or '', priority=flow.priority,
+                    deadline_date=flow.deadline_date.isoformat() if flow.deadline_date else '',
+                ),
+                draft_edit_actions=[action for action in ('rename', 'priority')
+                                    if authorize(current_user, action, dictation) is True],
+            )
         return jsonify(
             dictation_id=dictation.id,
             etag=snap['etag'],
@@ -173,6 +177,7 @@ def create_blueprint(
             author_pool=None if pool is None else dict(id=pool.id, name=pool.name),
             staff_pools=_staff_pools(dictation.pool_id),
             takeover=_person(None if flow is None else flow.assignee_user_id),
+            routing_target=workflow.routing_public(flow),
             recording_time=dict(at=at, source='fallback' if fallback else 'recorded'),
             duration_seconds=None if flow is None else flow.audio_seconds,
             priority=None if flow is None else flow.priority,

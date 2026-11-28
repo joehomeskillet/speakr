@@ -35,6 +35,7 @@ export const COMPOSE_RECORDING_VERSION = 1;
 
 const TOUCH = 'min-height: 2.75rem; min-block-size: max(2.75rem, 48px)';
 const LINK = `${TOUCH}; display: inline-flex; align-items: center; text-decoration: underline`;
+const DRAFT_EDIT_ACTION = { title: 'rename', notes: 'rename', priority: 'priority', deadline_date: 'priority' };
 
 export const TEXT = Object.freeze({
     title: 'Neue Aufnahme',
@@ -254,7 +255,7 @@ export function createRecordingViewController(options) {
         const id = receipt()?.dictation_id;
         if (typeof id !== 'string' || !client?.request || !allowed() || state.disposed || draft?.loading) return;
         const path = '/dictations/' + encodeURIComponent(id);
-        draft ||= { path, fields: null, etag: null, saved: false, saving: false, acceptanceRequired: null };
+        draft ||= { path, fields: null, editActions: [], etag: null, saved: false, saving: false, acceptanceRequired: null };
         opts.onDraft?.(id);
         const target = draft;
         target.loading = true;
@@ -272,14 +273,15 @@ export function createRecordingViewController(options) {
                     submitError = SEND_REFUSALS.NOT_DRAFT;
                     return;
                 }
-                if (resumedDraftId && !current.draft_metadata) {
-                    submitError = 'Die gespeicherten Versanddaten sind nicht verfügbar.';
-                    return;
-                }
                 target.etag = current.etag;
+                target.fields = null;
+                target.editActions = Array.isArray(current.draft_edit_actions) ? current.draft_edit_actions : [];
+                target.canSend = current.allowed_actions?.includes('send') === true;
                 if (current.draft_metadata) {
                     const { title, ...fields } = current.draft_metadata;
                     target.fields = { ...fields, title: title || receipt().title || machine.getState().title || state.file?.name || '' };
+                } else {
+                    submitError = 'Die gespeicherten Versanddaten sind nicht verfügbar.';
                 }
                 target.saved = false;
                 target.stale = false;
@@ -295,7 +297,7 @@ export function createRecordingViewController(options) {
     }
 
     function setDraftField(field, value) {
-        if (!editableDraft() || !Object.hasOwn(draft.fields, field) || draft.fields[field] === value) return;
+        if (!editableDraft() || !draft.editActions.includes(DRAFT_EDIT_ACTION[field]) || draft.fields[field] === value) return;
         draft.fields[field] = value;
         draft.saved = false;
         pendingMetadata = null;
@@ -304,11 +306,12 @@ export function createRecordingViewController(options) {
     }
 
     function editableDraft() {
-        return draft?.fields && !draft.saving && !draft.loading && !draft.stale && !submission && !pendingSend && !state.disposed && allowed();
+        return draft?.fields && draft.editActions.length > 0 && !draft.saving && !draft.loading
+            && !draft.stale && !submission && !pendingSend && !state.disposed && allowed();
     }
 
     async function saveDraft() {
-        if (!editableDraft() || !draft.fields.title.trim()) return denied('invalid_phase');
+        if (!editableDraft() || (draft.editActions.includes('rename') && !draft.fields.title.trim())) return denied('invalid_phase');
         const target = draft;
         const id = receipt().dictation_id;
         target.saving = true;
@@ -324,7 +327,11 @@ export function createRecordingViewController(options) {
                 submitError = 'Bearbeitung nicht verfügbar. Der Entwurf bleibt geöffnet.';
                 return denied(held.code || 'lease_unavailable');
             }
-            const fields = { ...target.fields, deadline_date: target.fields.deadline_date || null, deadline_time: null };
+            const { title, notes, priority, deadline_date } = target.fields;
+            const fields = {
+                ...(target.editActions.includes('rename') && { title, notes }),
+                ...(target.editActions.includes('priority') && { priority, deadline_date: deadline_date || null, deadline_time: null }),
+            };
             pendingMetadata ||= { ...command({ fields }), ifMatch: target.etag };
             const res = await client.request(target.path + '/metadata', pendingMetadata);
             if (state.disposed || !allowed()) return denied('cancelled');
@@ -351,8 +358,11 @@ export function createRecordingViewController(options) {
     // The numeric recording id on older upload receipts is not a workflow target.
     function canSubmit() {
         const id = receipt()?.dictation_id;
+        // A read-only draft already has a durable ETag from detail and has no local changes to save.
+        const confirmed = draft?.canSend && draft.fields && !draft.loading && !draft.stale
+            && (draft.saved || !draft.editActions.length);
         return typeof id === 'string' && !!id.trim() && typeof client?.request === 'function'
-            && allowed() && !state.disposed && !submission && (!opts.draftMetadata || draft?.saved === true);
+            && allowed() && !state.disposed && !submission && (!opts.draftMetadata || Boolean(confirmed));
     }
 
     async function submit() {
@@ -608,23 +618,24 @@ export const RECORDING_TEMPLATE = `
             <fieldset :disabled="!m.canEditDraft" style="min-width: 0">
               <legend class="sr-only">Versanddaten bearbeiten</legend>
               <label class="field"><span>Titel</span>
-                <input required maxlength="200" :value="m.draft.fields.title" @input="c.setDraftField('title', $event.target.value)" />
+                <input required maxlength="200" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.title" @input="c.setDraftField('title', $event.target.value)" />
               </label>
               <label class="field"><span>Anmerkung</span>
-                <textarea maxlength="4000" rows="2" :value="m.draft.fields.notes" @input="c.setDraftField('notes', $event.target.value)"></textarea>
+                <textarea maxlength="4000" rows="2" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.notes" @input="c.setDraftField('notes', $event.target.value)"></textarea>
               </label>
               <div class="field-grid">
                 <label class="field"><span>Priorität</span>
-                  <select :value="m.draft.fields.priority" @change="c.setDraftField('priority', Number($event.target.value))">
+                  <select :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.priority" @change="c.setDraftField('priority', Number($event.target.value))">
                     <option v-for="p in priorities" :key="p.value" :value="p.value">{{ p.label }}</option>
                   </select>
                 </label>
                 <label class="field"><span>Frist</span>
-                  <input type="date" :value="m.draft.fields.deadline_date" @input="c.setDraftField('deadline_date', $event.target.value)" />
+                  <input type="date" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.deadline_date" @input="c.setDraftField('deadline_date', $event.target.value)" />
                   <small>Tagesende (Europe/Zurich)</small>
                 </label>
               </div>
-              <button type="submit" class="button" style="${TOUCH}" :disabled="!m.draft.fields.title.trim()" data-testid="save-draft">Versanddaten speichern</button>
+              <button v-if="m.draft.editActions.length" type="submit" class="button" style="${TOUCH}"
+                      :disabled="m.draft.editActions.includes('rename') && !m.draft.fields.title.trim()" data-testid="save-draft">Versanddaten speichern</button>
             </fieldset>
             <p role="status" style="margin: var(--ui-space-2) 0">{{ m.draft.saving ? 'Versanddaten werden gespeichert …' : m.draft.saved ? 'Versanddaten gespeichert.' : '' }}</p>
             <p data-testid="draft-acceptance" style="margin: var(--ui-space-2) 0 var(--ui-space-3)">Abnahme: {{ m.draft.acceptanceRequired === null ? 'Nicht verfügbar' : m.draft.acceptanceRequired ? 'Erforderlich' : 'Nicht erforderlich' }}</p>

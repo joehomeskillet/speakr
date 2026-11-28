@@ -236,7 +236,11 @@ def test_draft_metadata_is_only_returned_to_an_author_with_edit_access(api):
     assert author.get(url).json['draft_metadata'] == dict(
         title=TITLE_MARKER, notes=TITLE_MARKER, priority=1, deadline_date='',
     )
+    assert author.get(url).json['draft_edit_actions'] == ['rename', 'priority']
     assert 'draft_metadata' not in login_as(ids['typist']).get(url).json
+    assert 'draft_edit_actions' not in login_as(ids['typist']).get(url).json
+    DENIED.add('priority')
+    assert author.get(url).json['draft_edit_actions'] == ['rename']
     DENIED.add('review')
     assert 'draft_metadata' not in author.get(url).json
 

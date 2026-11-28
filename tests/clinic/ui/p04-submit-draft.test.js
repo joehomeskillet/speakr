@@ -112,8 +112,11 @@ describe('P04 draft metadata confirmation', () => {
     const lease = { outcome: 'ok', data: { dictation_id: id, lease_id: 'lease-1', etag } };
     const confirmed = { outcome: 'ok', data: { dictation_id: id, etag: confirmedEtag } };
     const uuid = expect.stringMatching(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i);
-    const draftDetail = (processing) => ({
-        outcome: 'ok', data: { ...detail.data, draft_metadata: initialFields, status_axes: { processing } },
+    const draftDetail = (processing, editActions = ['rename', 'priority']) => ({
+        outcome: 'ok', data: {
+            ...detail.data, draft_metadata: initialFields, draft_edit_actions: editActions,
+            allowed_actions: ['send'], status_axes: { processing },
+        },
     });
     const policy = (required) => ({ outcome: 'ok', data: { acceptance_required: required } });
 
@@ -231,5 +234,37 @@ describe('P04 draft metadata confirmation', () => {
         expect((await controller.submit()).ok).toBe(false);
         expect(request.mock.calls.slice(2).map(([url]) => url)).toEqual([path + '/leases', path + '/metadata']);
         expect(upload).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        { actions: ['rename'], fields: { title: 'Neuer Titel', notes: initialFields.notes } },
+        { actions: ['priority'], fields: { priority: 128, deadline_date: '2026-12-01', deadline_time: null } },
+        { actions: [], fields: null },
+    ])('confirms a saved draft with edit actions $actions', async ({ actions, fields }) => {
+        const { controller, request } = setup();
+        request.mockImplementation((url) => ({
+            [path + '/detail']: draftDetail('pending', actions),
+            [path + '/acceptance-policy']: policy(false),
+            [path + '/leases']: lease,
+            [path + '/metadata']: confirmed,
+            [path + '/send']: sent,
+        }[url]));
+        selectFile(controller);
+        await controller.sendFile();
+        controller.setDraftField('title', 'Neuer Titel');
+        expect(controller.model().draft.fields.title).toBe(fields?.title || initialFields.title);
+        expect(controller.model().canSubmit).toBe(fields === null);
+        expect((await controller.saveDraft()).ok).toBe(fields !== null);
+        if (fields) {
+            expect(request).toHaveBeenLastCalledWith(path + '/metadata', expect.objectContaining({
+                body: { fields }, ifMatch: etag,
+            }));
+        } else {
+            expect(request).toHaveBeenCalledTimes(2);
+        }
+        expect((await controller.submit()).ok).toBe(true);
+        expect(request).toHaveBeenLastCalledWith(path + '/send', expect.objectContaining({
+            ifMatch: fields ? confirmedEtag : etag,
+        }));
     });
 });

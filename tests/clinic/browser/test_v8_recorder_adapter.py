@@ -14,6 +14,19 @@ import v8_browser_support as support
 from v8_browser_support import ROLES, login
 
 
+@pytest.fixture(scope="module")
+def app_base(tmp_path_factory):
+    # P-030 requires explicit grants for each action, including on the author's own draft.
+    seed = support.SERVER.replace(
+        "server = make_server",
+        '    pools.allow(author.id, "own", actor_id=admin.id, actions=("rename", "priority"))\n'
+        "server = make_server",
+        1,
+    )
+    with support.serve_app(tmp_path_factory.mktemp("p04"), seed) as base:
+        yield base
+
+
 def test_recorder_can_retry_and_opens_no_upload_modal(app_base):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(

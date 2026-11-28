@@ -1,6 +1,5 @@
 """Bind a synthetic Fall-ID through the staging KIS adapter."""
 
-import re
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from secrets import token_urlsafe
@@ -18,7 +17,7 @@ from src.services import audit
 
 from . import lease, live_session, release
 from .config import client_profile, clinic_mode_enabled
-from .context_grants import ContextGrantError, VerifiedContextGrant, bind_context_grant
+from .context_grants import CASE_REFERENCE, ContextGrantError, VerifiedContextGrant, bind_context_grant
 from .finalize_gates import trusted_context
 from .guard import assert_dictation_edit_allowed
 from .kis import KisAdapter, MockKisAdapter, _profile
@@ -26,7 +25,6 @@ from .models import ClinicContextRevision, ClinicDictation
 from .routes_workflow import PERM_METADATA, PERM_VIEW, Authorize
 
 _PATH = '/api/clinic/v1/dictations/<uuid:dictation_id>/context'
-_CASE = re.compile(r'SYN-[0-9]{4,8}')
 _PROBLEMS = {
     400: ('INVALID_PAYLOAD', 'Eine synthetische Fall-ID im Format SYN-0001 ist erforderlich'),
     401: ('UNAUTHORIZED', 'Anmeldung erforderlich'),
@@ -58,7 +56,7 @@ def _case_display(dictation: ClinicDictation, adapter: KisAdapter) -> str | None
     if len(heads) != 1:
         return None
     revision = db.session.get(ClinicContextRevision, next(iter(heads)))
-    if revision and _CASE.fullmatch(revision.case_ref or '') and trusted_context(revision, adapter):
+    if revision and CASE_REFERENCE.fullmatch(revision.case_ref or '') and trusted_context(revision, adapter):
         return revision.case_ref
     return None
 
@@ -122,7 +120,7 @@ def create_blueprint(*, authorize: Authorize, adapter_for: Callable[[], KisAdapt
         if not isinstance(body, dict) or body.keys() != {'case_reference'}:
             abort(400)
         case = body['case_reference']
-        if not isinstance(case, str) or not _CASE.fullmatch(case):
+        if not isinstance(case, str) or not CASE_REFERENCE.fullmatch(case):
             abort(400)
 
         connection = db.session.connection()
