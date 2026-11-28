@@ -1253,7 +1253,9 @@ export const CorrectionBody = {
             },
         };
         const vocabulary = createVocabularyStore(c.client);
-        const editorField = () => documentMode.value ? runField(currentRun.value?.run.id) : textEl.value;
+        const editorField = () => documentMode.value
+            ? runField(currentRun.value?.run.id) || runRoot.value?.querySelector('[data-run-id]')
+            : textEl.value;
         const canAddPhrase = V.computed(() => canEdit.value && props.openMode !== 'player');
         const entryModal = useVocabularyEntryDialog(V, (draft) => canAddPhrase.value
             ? vocabulary.saveEntry(draft)
@@ -1496,23 +1498,25 @@ export const CorrectionBody = {
         const toggleChoice = async (opener) => {
             if (choice.value) return closeChoice();
             if (!canEdit.value || !e.leaseController.canWrite()) return;
-            const draft = editorPort.read();
-            const run = documentMode.value ? currentRun.value || runRanges.value[0] : null;
-            const field = run && runField(run.run.id);
-            const selection = run && { runId: run.run.id, start: field?.selectionStart ?? 0,
+            const target = documentMode.value ? currentRun.value || runRanges.value[0] : null;
+            const field = target && runField(target.run.id);
+            if (documentMode.value && !target) return;
+            const selection = target && { runId: target.run.id, start: field?.selectionStart ?? 0,
                 end: field?.selectionEnd ?? 0, direction: field?.selectionDirection };
             choiceOpener = opener;
             choiceNotice.value = '';
             shortcutsOpen.value = false;
-            choice.value = { draft, run, selection, document: documentMode.value ? doc.doc.value : null,
-                revision: e.textRevisionId.value, generation: e.lease.value.generation, load: c.loadGeneration.value };
+            choice.value = { draft: target ? { text: rawDocumentText.value, start: target.start + selection.start,
+                end: target.start + selection.end } : editorPort.read(), revision: e.textRevisionId.value,
+                generation: e.lease.value.generation, load: c.loadGeneration.value,
+                document: target ? doc.doc.value : null, target, selection };
             later(() => choiceHeading.value?.focus());
             await e.loadTemplates();
         };
         const sameDraft = (current) => canEdit.value && e.leaseController.canWrite()
             && current.generation === e.lease.value.generation && current.revision === e.textRevisionId.value
-            && current.load === c.loadGeneration.value && current.draft.text === editorPort.read().text
-            && current.document === (documentMode.value ? doc.doc.value : null);
+            && current.load === c.loadGeneration.value && (documentMode.value
+                ? current.document === doc.doc.value : !current.document && current.draft.text === e.text.value);
         async function chooseSource(source) {
             const current = choice.value;
             if (!current || !sameDraft(current)) return closeChoice(staleChoice);
@@ -1559,25 +1563,25 @@ export const CorrectionBody = {
                 choice.value = { ...current, preview: null, error: 'Der Text wäre zu lang zum Speichern. Wählen Sie eine kürzere Datei oder Vorlage.' };
                 return;
             }
-            const { run, selection } = current;
+            const inserted = 'Text eingefügt. Mit «Rückgängig» stellen Sie den vorherigen Text wieder her.';
             if (current.document) {
-                if (!run) return closeChoice(staleChoice);
-                const value = run.run.text.slice(0, selection.start) + current.preview + run.run.text.slice(selection.end);
-                if (sanitizePaste(value).text !== value) {
-                    choice.value = { ...current, error: 'Der Text passt nicht unverändert in diesen Abschnitt.' };
+                const { node, run } = current.target;
+                const before = current.selection;
+                const replacement = run.text.slice(0, before.start) + current.preview + run.text.slice(before.end);
+                if (sanitizePaste(replacement).text !== replacement) {
+                    choice.value = { ...current, preview: null, error: 'Der Text kann nicht unverändert eingefügt werden. Wählen Sie eine kürzere Datei oder Vorlage.' };
                     return;
                 }
-                const caret = selection.start + current.caret;
-                const after = { ...selection, start: caret, end: caret };
-                closeChoice('Text eingefügt. Mit «Rückgängig» stellen Sie den vorherigen Text wieder her.');
-                doc.select(run.node.id, run.run.id);
-                if (doc.editRun(run.node.id, run.run.id, value, { before: selection, after })) restoreRunSelection(after);
+                const caret = before.start + current.caret;
+                const after = { runId: run.id, start: caret, end: caret };
+                closeChoice(inserted);
+                if (doc.editRun(node.id, run.id, replacement, { before, after })) restoreRunSelection(after);
                 return;
             }
-            closeChoice('Text eingefügt. Mit «Rückgängig» stellen Sie den vorherigen Text wieder her.', true);
+            closeChoice(inserted, true);
             tb.insertText(current.preview, current.draft, current.caret);
         }
-        V.watch?.([canEdit, e.text, e.textRevisionId, e.lease, c.loadGeneration, doc?.doc].filter(Boolean), () => {
+        V.watch?.([canEdit, e.text, e.textRevisionId, e.lease, c.loadGeneration, ...(doc ? [doc.doc] : [])], () => {
             if (choice.value && !sameDraft(choice.value)) closeChoice(staleChoice);
         }, { flush: 'sync' });
         V.onBeforeUnmount?.(() => { choice.value = null; });
