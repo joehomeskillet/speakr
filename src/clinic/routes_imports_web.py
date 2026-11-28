@@ -34,6 +34,9 @@ from src.services.storage.locator import local_path_from_key
 blueprint = Blueprint("clinic_imports_web", __name__, url_prefix="/api/clinic/v1/imports")
 
 
+blueprint.add_url_rule("/sources", view_func=source_routing.create_source, methods=["POST"])
+blueprint.add_url_rule("/sources", view_func=source_routing.delete_source, methods=["DELETE"])
+blueprint.add_url_rule("/sources/<config_id>", view_func=source_routing.delete_source, methods=["DELETE"])
 blueprint.add_url_rule("/sources", view_func=source_routing.list_sources, methods=["GET"])
 blueprint.add_url_rule("/sources/<config_id>", view_func=source_routing.get_source, methods=["GET"])
 blueprint.add_url_rule("/sources/<config_id>", view_func=source_routing.update_source, methods=["PUT"])

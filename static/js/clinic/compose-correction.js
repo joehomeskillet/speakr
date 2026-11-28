@@ -380,7 +380,7 @@ export function createCorrectionViewController(options) {
                 return;
             }
             switch (command) {
-            case 'play': return controller.togglePlayback();
+            case 'play': return togglePlayback();
             case 'stop': return modeAudio.pause();
             case 'rewind': return tempo?.rewind(stepSeconds);
             case 'forward': return tempo?.skip(stepSeconds);
@@ -700,7 +700,7 @@ export function createCorrectionViewController(options) {
         return handmicClosed;
     }
 
-    const controller = {
+    return {
         vue: V, api, editor, alignment, modes, saver, repeat, gain: () => gain,
         ready, loadGeneration, revisionGeneration, audioEl, gainState, closeMessage, resumeLabel,
         recordingId: () => opts.recordingId || editor.audio.value.recordingId || null,
@@ -713,8 +713,6 @@ export function createCorrectionViewController(options) {
         handmic, handmicModel,
         text: TEXT,
     };
-    controller.togglePlayback ??= () => (modeAudio.isPlaying() ? modeAudio.pause() : modeAudio.play());
-    return controller;
 }
 
 /** Icon paths of the V8 symbol set (24x24 grid, stroke icons). Static markup, never built from data. */

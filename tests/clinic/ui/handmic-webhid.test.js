@@ -127,13 +127,13 @@ describe('handmic WebHID (synthetic reports)', () => {
     });
 });
 
-function recordingFixture(hid) {
+function recordingFixture(hid, options = {}) {
     const recorder = {
         startRecording: vi.fn(async () => {}), pauseRecording: vi.fn(), resumeRecording: vi.fn(),
         stopRecording: vi.fn(async () => {}), discardRecording: vi.fn(async () => {}),
         uploadRecordedAudio: vi.fn(async () => ({ id: 'rec-1' })),
     };
-    const c = createRecordingViewController({ hid, recorder, currentUser: { id: 7 }, uploadFile: vi.fn() });
+    const c = createRecordingViewController({ hid, recorder, currentUser: { id: 7 }, uploadFile: vi.fn(), ...options });
     return { c, recorder };
 }
 
@@ -195,6 +195,34 @@ describe('P-257 compose controllers (synthetic HID reports)', () => {
             press(0x2000);
             await vi.waitFor(() => expect(c.model().phase).toBe('sent'));
             expect(recorder.uploadRecordedAudio).toHaveBeenCalledTimes(2);
+        } finally {
+            await c.dispose();
+        }
+    });
+
+    it('saves the recording draft on EOL and leaves the separate submission controls to the screen', async () => {
+        const { hid, report } = fixture({ model: 3700 });
+        const request = vi.fn(async (path) => ({ outcome: 'ok', data: path.endsWith('/detail') ? {
+            dictation_id: 'd1', etag: 'draft-1', allowed_actions: ['send'],
+            draft_metadata: { title: 'Bericht' }, status_axes: { workflow: 'neu_angelegt' },
+        } : { acceptance_required: false } }));
+        const { c, recorder } = recordingFixture(hid, { draftMetadata: true, client: { request } });
+        recorder.uploadRecordedAudio.mockResolvedValue({ dictation_id: 'd1' });
+        const eol = () => { report(0x80, 0); report(0x80, 0x2000); };
+        try {
+            await c.handmic.pair();
+            c.setTitle('Bericht');
+            await c.start();
+            await c.stop();
+            eol();
+            await vi.waitFor(() => expect(c.model()).toMatchObject({
+                canSubmit: true, draft: { fields: { title: 'Bericht' } },
+            }));
+            expect(recorder.uploadRecordedAudio).toHaveBeenCalledOnce();
+            expect(request.mock.calls).toEqual([['/dictations/d1/detail'], ['/dictations/d1/acceptance-policy']]);
+            eol();
+            expect(request).toHaveBeenCalledTimes(2);
+            expect(c.model().canSubmit).toBe(true);
         } finally {
             await c.dispose();
         }
