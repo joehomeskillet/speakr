@@ -183,6 +183,19 @@ with app.app_context():
         actor_user_id=ids["a"], recording_id=live_recording_id, event="recording.content.read").count()
     out["live_reads"] = live_reads
 
+secret = {"secret": "synthetic-live-code"}
+protected = ca.put(f"/api/clinic/v1/dictations/{live_did}/protection", headers=ha,
+                   json={**secret, "version": 1})
+locked, hl = login(ids["a"])
+blocked_resume = locked.post(live_url + "/resume", headers=hl, json={})
+blocked_history = locked.post(live_url + "/resume", headers=hl, json={"session_id": resume.json["session_id"]})
+blocked_audio = locked.get(clip_url)
+unlocked = locked.post(f"/api/clinic/v1/dictations/{live_did}/unlock", headers=hl, json=secret)
+out["live_protected"] = [protected.status_code, blocked_resume.status_code,
+                         blocked_history.status_code, blocked_audio.status_code, unlocked.status_code,
+                         locked.post(live_url + "/resume", headers=hl, json={}).status_code,
+                         locked.get(clip_url).status_code]
+
 # correction
 correction = ca.get(D + "/correction")
 out["cor_get"] = [correction.status_code, cb.get(D + "/correction").status_code]
@@ -372,6 +385,10 @@ def test_audio_is_scoped_to_the_actor_and_an_active_admin_may_open_it(on):
 def test_live_phrase_recovery_is_mounted_with_audited_playback(on):
     assert on["live_phrase"] == [200, True, "Synthetische Live-Phrase.", True, 206, True, 404]
     assert on["live_reads"] == 2
+
+
+def test_live_phrase_recovery_respects_session_content_lock(on):
+    assert on["live_protected"] == [200, 403, 403, 404, 200, 200, 200]
 
 
 def test_audio_edit_csrf_cross_user_stale_and_replay(on):
