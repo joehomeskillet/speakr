@@ -21,6 +21,7 @@ from src.clinic import lease, live_session, policy
 from src.clinic.config import clinic_mode_enabled, feature_locked, setting_ceiling
 from src.clinic.request_ids import as_id, body_flag, request_ids
 from src.clinic.route_policy import ADMIN, AUTH, DISABLED, PUBLIC, RECORDING, ROUTE_POLICY, RouteRule
+from src.clinic.route_policy_admin import TEXT_BLOCK_WRITES
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +243,13 @@ def clinic_guard():
 
     if not current_user.is_authenticated:
         return _unauthenticated()
+    if rule.kind == AUTH and request.endpoint in TEXT_BLOCK_WRITES:
+        # These strict resource payloads never address recordings. Leave their
+        # body unread and cap it before the app's CSRF hook can read any form.
+        from src.clinic.text_blocks import MAX_BODY_BYTES
+
+        request.max_content_length = min(MAX_BODY_BYTES, request.max_content_length or MAX_BODY_BYTES)
+        return None
     if rule.kind == ADMIN:
         if not current_user.is_admin:
             return _refuse(403, 'forbidden')

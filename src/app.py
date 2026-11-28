@@ -1454,8 +1454,10 @@ def register_clinic_audio(flask_app):
     from src.clinic.admin_dictation_access import can_open_content
     from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
-    from src.clinic.models import ClinicDictation
     from src.clinic import routes_live_drafts
+    from src.clinic.models import ClinicDictation
+    from src.clinic.richtext_graphics import GraphicStore
+    from src.clinic.routes_richtext_graphics import create_blueprint as create_graphics_blueprint
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
     run_once = flask_app.extensions['clinic_run_once']
@@ -1525,6 +1527,7 @@ def register_clinic_audio(flask_app):
     flask_app.register_blueprint(routes_correction.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         run_once=run_once, require_if_match=True))
+    flask_app.register_blueprint(create_graphics_blueprint(GraphicStore(startup.originals_root(flask_app))))
     flask_app.register_blueprint(routes_correction_documents.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation)))
     # V8 alignment (v8-86)
@@ -1619,6 +1622,7 @@ if _clinic_mode_enabled():
     register_clinic_voice_consent(app)  # v8-75
     # --- v8-152: managed offline capability ---
     from src.clinic import routes_offline
+    app.extensions[routes_offline.GRANT_PROVIDER] = routes_offline.staging_grant
     app.register_blueprint(routes_offline.blueprint)
     # --- end v8-152 ---
 

@@ -18,8 +18,8 @@ Die Status sind der übernommene Implementierungsstand, keine erneute Abnahme al
 | Status | Anzahl |
 |---|---|
 | implemented | 4 |
-| partial | 52 |
-| missing | 32 |
+| partial | 53 |
+| missing | 31 |
 | open-web-gap | 13 |
 | removed-by-owner | 0 |
 | Gesamt | 101 |
@@ -69,7 +69,7 @@ Gesamtbestand: 4 `implemented`, 56 `partial`, 32 `missing`, 13 `open-web-gap`, 0
 | PAR-LIVE-002 | Diktieren in allgemeine Windows-Textfenster | open-web-gap | - | Offene Web-Lücke WG-LIVE-002 (clinic-spec/planning/web-parity-gaps.json, status open): Direktdiktat in fremde native Windows-Textfelder. Bleibt offen. Unabhängig umsetzbar: Live-Diktat im Webeditor, bewusster Clipboard-/Dateiexport. |
 | PAR-LIVE-003 | Sofortige Entwurfssicherung pro Phrase | partial | `src/clinic/live_session.py`<br>`tests/clinic/test_live_session.py` | Autosave-Quittungen (streng steigend, idempotent) und Wiederaufnahme ab letzter Quittung getestet; Phrase-Granularität offen. Routen-/UI-Wiring fehlt (Wiring-Welle). |
 | PAR-LIVE-004 | Mehrere Entwürfe und bewusstes Verwerfen | missing | - | Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden. |
-| PAR-LIVE-005 | Rich-Text-Bearbeitung und Versandformat | missing | - | Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden. |
+| PAR-LIVE-005 | Rich-Text-Bearbeitung und Versandformat | partial | `src/clinic/routes_richtext_graphics.py`, `tests/clinic/test_par_graphic_object_route.py` | P-216: Geschützter Upload und Abruf lokaler PNG-Grafiken per Diktat und Inhalts-ID. Editoranschluss, Staging-Prüfung und BT-LIVE-005 bleiben offen. |
 | PAR-LIVE-006 | Diktierfokus an Fenster binden | open-web-gap | - | Offene Web-Lücke WG-LIVE-006 (clinic-spec/planning/web-parity-gaps.json, status open): SpeechLock an fremdes Windows-Fenster. Bleibt offen. |
 | PAR-LIVE-007 | Automatische Fokusbindung und immer oben | open-web-gap | - | Offene Web-Lücke WG-LIVE-007 (clinic-spec/planning/web-parity-gaps.json, status open): Automatische native Fokusbindung/Always-on-top. Bleibt offen. |
 | PAR-LIVE-008 | Text und Aussprache vorlesen | missing | - | Kein Code und kein Test unter src/clinic/ bzw. tests/clinic/ für diese Funktion gefunden. |
