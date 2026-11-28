@@ -27,10 +27,11 @@ from datetime import date, datetime, timezone
 from sys import maxsize
 from zoneinfo import ZoneInfo
 
-from src.clinic import policy, pool_policy, recognition_state, routes_worklist, web_ingest, workflow, worklist_entries
+from src.clinic import policy, pool_policy, recognition_state, routes_worklist, web_ingest, workflow
+from src.clinic import workflow_actions, worklist_entries
 from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, PolicyError
 from src.clinic.acceptance_rules import can_decide
-from src.clinic.archive_policy import ClinicArchiveEntry
+from src.clinic.archive_policy import ClinicArchiveEntry, archive_slot
 from src.clinic.dictation_roles import project_roles
 from src.clinic.models import ClinicDictation
 from src.clinic.pools import ClinicPoolRoute
@@ -128,11 +129,17 @@ def list_recordings(
     author_id: str | None = None,
     pool_id: str | None = None,
     status: str | None = None,
+    archive_month: str | None = None,
     now: datetime | None = None,
 ) -> dict:
     """One page of visible dictations, newest first: ``{"items": [...], "next_cursor": str|None}``."""
     if status is not None and status not in workflow.STATUS_ORDER:
         raise RecordingsQueryError("status")
+    if archive_month is not None:
+        if status != workflow.TO_ARCHIVE or date_from is not None or date_to is not None:
+            raise RecordingsQueryError("archive_month")
+        if archive_month != "all":
+            parse_day(f"{archive_month}-01", "archive_month")
     after = decode_cursor(cursor) if cursor is not None else None
 
     by_id = {entry.row["dictation_id"]: entry for entry in entries}
@@ -140,9 +147,13 @@ def list_recordings(
                              subject, page_size=maxsize).items
     ids = [row["dictation_id"] for row in visible]
     dictations = {}
+    archive_times = {}
     for start in range(0, len(ids), 500):
         part = ids[start:start + 500]
         dictations.update({d.id: d for d in db.session.query(ClinicDictation).filter(ClinicDictation.id.in_(part))})
+        if archive_month is not None:
+            archive_times.update(db.session.query(ClinicArchiveEntry.dictation_id, ClinicArchiveEntry.archived_at)
+                                 .filter(ClinicArchiveEntry.dictation_id.in_(part)))
 
     pools = None
     if pool_id is not None:  # a staff pool id matches the author pools routed to it
@@ -156,9 +167,8 @@ def list_recordings(
             continue
         entry = by_id[dictation_id]
         moment, source = sort_time(dictation, entry.recording)
-        key = (moment, dictation_id)
         day = day_of(moment)
-        if (after is not None and key >= after) or (status is not None and entry.row["status"] != status):
+        if status is not None and entry.row["status"] != status:
             continue
         if author_id is not None and str(dictation.author_user_id) != author_id:
             continue
@@ -167,19 +177,35 @@ def list_recordings(
         if (date_from is not None and day < date_from.isoformat()) or (
                 date_to is not None and day > date_to.isoformat()):
             continue
-        ranked.append((key, source, dictation, entry))
+        archived = None
+        month = None
+        if archive_month is not None:
+            archived = archive_times.get(dictation_id) or entry.recording.retention_archived_at
+            if archived is not None:
+                month = archive_slot(dictation.author_user_id, _aware(archived)).split('/')[1]
+            if archive_month != "all" and archive_month != month:
+                continue
+            key = (_aware(archived) if archived is not None else datetime.min.replace(tzinfo=timezone.utc),
+                   dictation_id)
+        else:
+            key = (moment, dictation_id)
+        if after is None or key < after:
+            ranked.append((key, moment, source, dictation, entry, archived, month))
     ranked.sort(key=lambda item: item[0], reverse=True)
 
     page, more = ranked[:limit], len(ranked) > limit
-    roles = project_roles([item[2] for item in page], now)
+    page_dictations = [item[3] for item in page]
+    roles = project_roles(page_dictations, now)
     assignees = {row["dictation_id"]: row.get("assignee")
-                 for row in routes_worklist._with_names([item[3].row for item in page])}
-    outcomes = recognition_state.asr_outcomes(item[2] for item in page)
-    contexts = worklist_entries.case_displays([item[2].id for item in page])
-    archive_times = dict(db.session.query(ClinicArchiveEntry.dictation_id, ClinicArchiveEntry.archived_at)
-                         .filter(ClinicArchiveEntry.dictation_id.in_([item[2].id for item in page]))) if page else {}
+                 for row in routes_worklist._with_names([item[4].row for item in page])}
+    outcomes = recognition_state.asr_outcomes(page_dictations)
+    page_ids = [item.id for item in page_dictations]
+    contexts = worklist_entries.case_displays(page_ids)
+    if archive_month is None and page_ids:
+        archive_times = dict(db.session.query(ClinicArchiveEntry.dictation_id, ClinicArchiveEntry.archived_at)
+                             .filter(ClinicArchiveEntry.dictation_id.in_(page_ids)))
     items = []
-    for (moment, dictation_id), source, dictation, entry in page:
+    for (_, dictation_id), moment, source, dictation, entry, archived, month in page:
         recording = entry.recording
         seconds = recording.audio_duration_seconds
         if seconds is None:
@@ -187,7 +213,8 @@ def list_recordings(
         recorded = recording.meeting_date
         # Keep the retention archive date when present; normal manual archiving
         # writes only ClinicArchiveEntry, without changing the retention axis.
-        archived = recording.retention_archived_at or archive_times.get(dictation_id)
+        if archive_month is None:
+            archived = recording.retention_archived_at or archive_times.get(dictation_id)
         items.append({
             "dictation_id": dictation_id,
             "recording_id": recording.id,
@@ -205,6 +232,13 @@ def list_recordings(
             "case_display": contexts.get(dictation_id),
             "own_title": (recording.title or None) if dictation.author_user_id == subject.user_id else None,
         })
+        if archive_month is not None:
+            items[-1].update(archive_author_id=str(dictation.author_user_id), archive_month=month)
+            if (pool_policy.decide(subject, 'reopen', dictation).allowed
+                    and pool_policy.decide(subject, 'view', dictation).allowed
+                    and workflow_actions.archived_reopen_available(dictation, archived)):
+                version = dictation.version_counter
+                items[-1]['archive_reopen'] = {'revision': version, 'etag': f'"{dictation_id}:{version}"'}
         if assignees[dictation_id] is not None:
             items[-1]["assignee"] = assignees[dictation_id]
         if outcomes[dictation_id] == "completed":

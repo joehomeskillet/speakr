@@ -501,7 +501,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             };
             clinicAdminHashRedirect();
             // end V8 Verwaltung views (v8-114)
-            const clinicViewFromHash = () => Object.keys(CLINIC_VIEW_HASH)
+            const clinicViewFromHash = () => window.location.hash === '#/aufnahme' ? 'clinic-recording' : Object.keys(CLINIC_VIEW_HASH)
                 .find((view) => view !== 'clinic-correction' && CLINIC_VIEW_HASH[view] === window.location.hash)
                 || (appRootElement?.dataset?.clinicCaseView ? 'clinic-worklist' : 'clinic-recordings');
             const currentView = ref(clinicWorklist ? clinicViewFromHash() : null);

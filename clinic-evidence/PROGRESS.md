@@ -8,6 +8,18 @@ Sechs Navigationspfade und die Philips-Gerätehilfe zeigen den Namen Ploudrli. D
 
 Anmeldung, Kopfzeilen, Seitentitel und Installationsmetadaten verwenden die Ploudrli-Markenidentität. Die Anmeldung und die Markenvarianten wurden lokal in Chromium geprüft. Der Staging-Nachweis ist nach der Integration vorgesehen.
 
+## FX-e862a3 – Verarbeitung eines geöffneten Diktats
+
+Beim Öffnen des Schreibplatzes werden vorhandene Wortzuordnungen gelesen. Nach dem Speichern einer neuen Textfassung kann der Schreibplatz eine fehlende Zuordnung anfordern. Alle sechs P17-Varianten zeigen im lokalen Chromium-Lauf mit synthetischen Daten genau den erwarteten abgeschlossenen Auftrag.
+
+## P-123 – Versandziel bestätigen (PAR-ADM-007)
+
+Synthetische Chromium-Tests zeigen vor dem Einreichen die benannte Vorgabe und nur die erlaubten Alternativen. Die Quittung und die erneut geladenen Diktatdetails zeigen dasselbe gespeicherte Ziel. Versanddaten und Pflichtkategorien bleiben Teil des Ablaufs. Staging und Originalsystemvergleich stehen aus.
+
+## Implementierung P-086
+
+Autoren mit Selbstkorrektur als Versandziel können ohne Schreibpool aufnehmen und einreichen. Synthetische HTTP-/DB-Tests belegen die eigene Editierlease, das Speichern von Text und den Ausschluss impliziter Pool-Sicht und Freigaberechte. Staging- und Referenznachweis für BT-ADM-007 stehen aus.
+
 ## P-254 – Web-Alternative für PAR-OPS-004
 
 Im Klinikmodus bietet das App-Manifest die Schnellzugriffe **Neue Aufnahme**, **Aufnahmen** und **Arbeitsliste**. Sie öffnen bestehende Ansichten und setzen eine gültige Anmeldung voraus. Die [Browser-App-Anleitung](../docs/de/user-guide/pwa.md) erklärt auch Lesezeichen und Browserstart. `WG-OPS-004` bleibt offen; `BT-OPS-004` wurde nicht gegen das Referenzsystem ausgeführt. Kein nativer Autostart- oder Tray-Ersatz.

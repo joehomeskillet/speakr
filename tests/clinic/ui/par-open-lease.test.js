@@ -8,7 +8,7 @@ const leases = base + '/leases';
 const ok = (data) => ({ outcome: 'ok', status: 200, data });
 const denied = { outcome: 'permission', status: 404 };
 
-function sharedCase() {
+function sharedCase({ hasAudio = false } = {}) {
     let holder = null;
     let generation = 0;
     let text = 'Letzte gespeicherte Fassung';
@@ -46,7 +46,16 @@ function sharedCase() {
                 return ok({ text_revision_id: revision, etag: '"' + revision + '.g' + generation + '"', state_version: 1 });
             }
             if (path === base + '/correction') {
-                return ok({ text, text_revision_id: revision, etag: '"' + revision + '.g' + generation + '"' });
+                return ok({ text, text_revision_id: revision, etag: '"' + revision + '.g' + generation + '"',
+                    ...(hasAudio ? { links: [] } : {}) });
+            }
+            if (hasAudio) {
+                if (path === base + '/audio-revisions/current') return ok({ revision_id: 'audio1', segments: [] });
+                if (path === base + '/transcript-revisions/' + revision + '/document') {
+                    return ok({ document_hash: 'a'.repeat(64) });
+                }
+                if (path.startsWith(base + '/alignment?')) return { ...denied, code: 'ALIGNMENT_NOT_FOUND' };
+                if (path === base + '/alignment' && method === 'POST') return ok({ state: 'pending', operation_id: 'op1' });
             }
             if (path === base + '/detail') return ok({ dictation_id: D });
             if (path === '/templates') return ok({ items: [] });
@@ -63,6 +72,15 @@ function correction(server, id, options = {}) {
     });
 }
 
+function bindReadyAudio(controller) {
+    const source = controller.editor.audioSource('audio1');
+    const url = new URL(source, 'http://localhost').href;
+    controller.bindAudio(Object.assign(new EventTarget(), {
+        currentTime: 0, duration: 60, paused: true, readyState: 1,
+        currentSrc: url, src: url, getAttribute: () => source,
+    }));
+}
+
 function writes(server) {
     return server.calls.filter(([, method]) => method === 'POST');
 }
@@ -72,6 +90,43 @@ function detail(server, id, options = {}) {
 }
 
 describe('PAR-WF-007 edit lease lifecycle', () => {
+    it('reads missing word alignment on writable open and requests it on explicit reload', async () => {
+        const server = sharedCase({ hasAudio: true });
+        const c = correction(server, 1);
+        bindReadyAudio(c);
+        try {
+            await c.start();
+            expect(c.editor.canEdit.value).toBe(true);
+            expect(server.calls).toContainEqual([1, 'GET', base + '/alignment?audio_revision_id=audio1&transcript_revision_id=r0']);
+            expect(writes(server)).toEqual([[1, 'POST', leases]]);
+
+            await c.load();
+            expect(writes(server)).toEqual([[1, 'POST', leases], [1, 'POST', base + '/alignment']]);
+        } finally {
+            c.dispose();
+        }
+    });
+
+    it('reads alignment on writable open and requests missing alignment after a save', async () => {
+        const server = sharedCase({ hasAudio: true });
+        const a = correction(server, 1);
+        bindReadyAudio(a);
+        try {
+            await a.start();
+            expect(a.editor.canEdit.value).toBe(true);
+            expect(server.calls).toContainEqual([1, 'GET', base + '/alignment?audio_revision_id=audio1&transcript_revision_id=r0']);
+            expect(writes(server)).toEqual([[1, 'POST', leases]]);
+
+            expect(a.setText('Neue gespeicherte Fassung')).toBe(true);
+            expect((await a.save()).ok).toBe(true);
+            expect(writes(server)).toEqual([
+                [1, 'POST', leases], [1, 'POST', base + '/correction/save'], [1, 'POST', base + '/alignment'],
+            ]);
+        } finally {
+            a.dispose();
+        }
+    });
+
     it('acquires on writable open, excludes another writer, and saves before releasing and closing', async () => {
         const server = sharedCase();
         const a = correction(server, 1, { onClose: () => expect(server.holder()).toBeNull() });

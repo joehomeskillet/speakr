@@ -27,9 +27,13 @@ describe('P04 speech recognition choice', () => {
         const { c, uploadFile, client } = compose();
         uploadFile.mockRejectedValueOnce(new Error('offline'));
         client.request
-            .mockResolvedValueOnce({ outcome: 'ok', data: { ...receipt, etag: '"v1"' } })
+            .mockResolvedValueOnce({ outcome: 'ok', data: {
+                ...receipt, etag: '"v1"', default_version: 1, default_label: 'Schreibteam', options: [],
+            } })
             .mockRejectedValueOnce(new Error('response lost'))
-            .mockResolvedValueOnce({ outcome: 'ok', data: { ...receipt, status: 'zu_schreiben' } });
+            .mockResolvedValueOnce({ outcome: 'ok', data: {
+                ...receipt, status: 'zu_schreiben', routing_target: { label: 'Schreibteam' },
+            } });
 
         expect(c.model().useSpeechRecognition).toBe(true);
         await c.start();
@@ -38,16 +42,20 @@ describe('P04 speech recognition choice', () => {
         expect((await c.sendRecording()).code).toBe('no_receipt');
         expect(c.model().useSpeechRecognition).toBe(false);
         expect(c.toggleSpeechRecognition().ok).toBe(false);
-        expect((await c.sendRecording()).code).toBe('unconfirmed');
-        expect(c.model().useSpeechRecognition).toBe(false);
         expect((await c.sendRecording()).ok).toBe(true);
+        expect(client.request).not.toHaveBeenCalled();
+        expect((await c.prepareSubmit()).ok).toBe(true);
+        expect((await c.submit()).code).toBe('unconfirmed');
+        expect(c.model().useSpeechRecognition).toBe(false);
+        expect((await c.submit()).ok).toBe(true);
 
         expect(uploadFile).toHaveBeenCalledTimes(2);
         const [, , firstOptions] = uploadFile.mock.calls[0];
         expect(firstOptions).toEqual({ useSpeechRecognition: false, clientUploadId: expect.any(String) });
         expect(uploadFile.mock.calls[1][2]).toEqual(firstOptions);
+        expect(client.request).toHaveBeenNthCalledWith(1, '/dictations/synthetic-draft/send-preview');
         expect(client.request).toHaveBeenNthCalledWith(2, '/dictations/synthetic-draft/send', {
-            method: 'POST', body: {}, ifMatch: '"v1"', idempotencyKey: expect.any(String),
+            method: 'POST', body: { expected_version: 1 }, ifMatch: '"v1"', idempotencyKey: expect.any(String),
         });
         expect(client.request.mock.calls[2]).toEqual(client.request.mock.calls[1]);
         expect(c.another().ok).toBe(true);

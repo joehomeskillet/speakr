@@ -91,6 +91,46 @@ describe('workflow actions ui', () => {
         expect(client.request.mock.calls[0][1].body).toEqual({ action: 'archive', confirm: true });
     });
 
+    it('request_delete sits in its own group, confirms non-destructively and shows clear request notice', async () => {
+        const { wf, client } = setup(['archive', 'request_delete']);
+        expect(wf.groups().map((g) => g.id)).toEqual(['archive', 'delete_request']);
+        expect(wf.visible().find((a) => a.id === 'request_delete').label).toBe('Löschung beantragen');
+
+        expect(wf.request('request_delete')).toBe(true);
+        expect(wf.state.confirming).toBe('request_delete');
+        expect(wf.confirmButtonLabel('request_delete')).toBe('Löschantrag erfassen');
+        expect(wf.confirmText('request_delete')).toContain('Löschantrag');
+        expect(wf.confirmText('request_delete')).toContain('nichts physisch gelöscht');
+        expect(client.request).not.toHaveBeenCalled();
+
+        wf.cancel();
+        expect(wf.state.confirming).toBeNull();
+        expect(wf.state.notice).toBeNull();
+        expect(client.request).not.toHaveBeenCalled();
+
+        wf.request('request_delete');
+        client.request.mockResolvedValueOnce(ok({
+            dictation_id: D, requested: 'delete', disposition: 'deletion_requested',
+            status: 'fertiggestellt', applied: true, physically_deleted: false,
+        }));
+        await wf.confirm();
+        const [path, opts] = client.request.mock.calls[0];
+        expect(path).toBe('/api/clinic/v1/dictations/' + D + '/archive');
+        expect(opts.body).toEqual({ action: 'delete', confirm: true });
+        expect(wf.state.deletionRequested).toBe(true);
+        expect(wf.deletionNoticeText()).toContain('Löschantrag erfasst');
+        expect(wf.deletionNoticeText()).toContain('Archivstatus bleibt unverändert');
+        expect(wf.request('request_delete')).toBe(false);
+
+        // Reloading the same dictation keeps the confirmation; switching clears it.
+        wf.load({ dictationId: D, etag: '"' + D + ':4"', revision: 5, allowedActions: ['archive', 'request_delete'], deletionRequested: true, dictationLabel: 'Fall-ID SYN-1' });
+        expect(wf.state.deletionRequested).toBe(true);
+        expect(wf.confirmText('request_delete')).toContain('Fall-ID SYN-1');
+        wf.load({ dictationId: T, etag: '"' + T + ':1"', revision: 1, allowedActions: [] });
+        expect(wf.state.notice).toBeNull();
+        expect(wf.state.deletionRequested).toBe(false);
+    });
+
     it('stale version marks stale and next attempt uses a new key', async () => {
         const { wf, client } = setup(['archive']);
         client.request.mockResolvedValueOnce(fail('conflict', 'Der Stand ist veraltet.'));
@@ -130,6 +170,8 @@ describe('workflow actions ui', () => {
         expect(WORKFLOW_ACTIONS_TEMPLATE).toContain('aria-live="polite"');
         expect(WORKFLOW_ACTIONS_TEMPLATE).toContain('role="alertdialog"');
         expect(WORKFLOW_ACTIONS_TEMPLATE).toContain('@keydown.esc');
+        expect(WORKFLOW_ACTIONS_TEMPLATE).toContain('data-testid="wf-notice"');
+        expect(WORKFLOW_ACTIONS_TEMPLATE).toContain('min-height: 3rem; min-width: 3rem');
         expect(WORKFLOW_ACTIONS_TEMPLATE).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
         expect(WORKFLOW_ACTIONS_TEMPLATE).not.toMatch(/-\[/);
     });

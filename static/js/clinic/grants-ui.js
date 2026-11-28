@@ -15,8 +15,8 @@
  * deny limited to those authors. Both are chosen by account name. The draft
  * stays on screen when the revision conflicts.
  *
- * Reads use GET, additions use POST and revocations use DELETE through the
- * shared api client. Every write carries the revision it last read; a conflict
+ * Reads use GET, additions use POST, recipient choice uses PUT and revocations
+ * use DELETE through the shared api client. Every write carries the revision it last read; a conflict
  * keeps the newer server state and never overwrites it. Grant data stays in
  * memory only (no browser storage). Colours come only from the token contract.
  */
@@ -27,6 +27,7 @@ import { createPoolsStore } from './pools-ui.js';
 export const ACTIONS = Object.freeze(['view', 'play', 'edit', 'export', 'audio_export', 'release', 'archive']);
 export const SCOPES = Object.freeze(['own', 'pool', 'all']);
 export const EFFECTS = Object.freeze(['allow', 'deny']);
+const RECIPIENT_CHOICES = Object.freeze(['default_only', 'staff_pools_only', 'open']);
 
 const LABELS = {
     'clinic.grants.title': 'Berechtigungen',
@@ -61,6 +62,12 @@ const LABELS = {
     'clinic.grants.existing': 'Bestehende Einträge',
     'clinic.grants.empty': 'Keine Einträge',
     'clinic.grants.save': 'Speichern',
+    'clinic.grants.recipientChoice': 'Empfängerwahl beim Versand',
+    'clinic.grants.recipientChoice.default_only': 'Nur der Standardempfänger',
+    'clinic.grants.recipientChoice.staff_pools_only': 'Nur Schreibteams',
+    'clinic.grants.recipientChoice.open': 'Personen und Schreibteams',
+    'clinic.grants.recipientChoice.save': 'Empfängerwahl übernehmen',
+    'clinic.grants.recipientChoice.saved': 'Empfängerwahl gespeichert.',
     'clinic.grants.revoke': 'Entziehen',
     'clinic.grants.reload': 'Aktuellen Stand laden',
     'clinic.grants.retry': 'Erneut versuchen',
@@ -203,6 +210,7 @@ export function createGrantsStore(client, onChange, options) {
         userId: null,
         revision: null,
         items: [],
+        recipientChoice: null, // no explicit grant; effective choice is open
         canEdit,
         failedWrite: null, // kept for retry with the same body and revision
         message: '',
@@ -218,7 +226,7 @@ export function createGrantsStore(client, onChange, options) {
         return res;
     }
 
-    async function load(userId) {
+    async function load(userId, message = '') {
         if (userId !== undefined) state.userId = userId;
         if (!Number.isInteger(state.userId) || state.userId < 1) return null;
         state.status = 'loading';
@@ -230,7 +238,9 @@ export function createGrantsStore(client, onChange, options) {
         const data = res.data || {};
         state.revision = Number.isInteger(data.revision) ? data.revision : 0;
         state.items = normalize(data.items);
+        state.recipientChoice = data.recipient_choice ?? null;
         state.failedWrite = null;
+        state.message = message;
         state.status = 'ready';
         emit();
         return res;
@@ -266,7 +276,7 @@ export function createGrantsStore(client, onChange, options) {
         const res = await client.request(write.path, { method: write.method, body: write.body });
         if (res.outcome === 'ok') {
             state.failedWrite = null;
-            return load();
+            return load(undefined, write.method === 'PUT' ? label('clinic.grants.recipientChoice.saved') : '');
         }
         // Network/unknown: keep the write so retry() resends the identical change.
         state.failedWrite = res.outcome === 'network' || res.outcome === 'UNKNOWN' ? write : null;
@@ -289,6 +299,13 @@ export function createGrantsStore(client, onChange, options) {
             const exceptions = draft.effect === 'allow' && draft.scope === 'pool' ? idList(draft.exceptIds) || [] : [];
             if (exceptions.length) return savePoolException(path, poolId, actions, exceptions);
             return send({ path, method: 'POST', body: changeBody(draft, state.revision, actions, poolId) });
+        },
+        saveRecipientChoice(choice) {
+            if (state.status !== 'ready' || !state.canEdit || !RECIPIENT_CHOICES.includes(choice)) return Promise.resolve(null);
+            return send({
+                path: '/identity/users/' + state.userId + '/grants', method: 'PUT',
+                body: { expected_revision: state.revision, recipient_choice: choice },
+            });
         },
         revoke(item) {
             if (!item.id || state.status !== 'ready' || !state.canEdit) return Promise.resolve(null);
@@ -325,6 +342,19 @@ export const GRANTS_TEMPLATE = `
     <span v-if="state.status === 'stale'">{{ label('clinic.grants.stale') }}</span>
     <span v-else>{{ state.message }}</span>
   </p>
+  <form v-if="state.revision !== null" class="cadm-editor" @submit.prevent="store.saveRecipientChoice(recipientChoice)">
+    <div class="cadm-form">
+      <div class="cadm-field cadm-field--wide">
+        <label for="grants-recipient-choice">{{ label('clinic.grants.recipientChoice') }}</label>
+        <select id="grants-recipient-choice" class="field" style="min-height: var(--sp-7); border-color: var(--ui-text-muted)" v-model="recipientChoice" :disabled="!state.canEdit || state.status !== 'ready'">
+          <option v-for="choice in recipientChoices" :key="choice" :value="choice">{{ label('clinic.grants.recipientChoice.' + choice) }}</option>
+        </select>
+      </div>
+      <div v-if="state.canEdit" class="cadm-form__actions">
+        <button type="submit" class="btn btn--primary" style="min-height: var(--sp-7)" :disabled="state.status !== 'ready' || recipientChoice === state.recipientChoice">{{ label('clinic.grants.recipientChoice.save') }}</button>
+      </div>
+    </div>
+  </form>
   <div class="cadm-section">
     <h3 id="grants-existing" class="cadm-subtitle">{{ label('clinic.grants.existing') }}</h3>
     <ul aria-labelledby="grants-existing" class="cadm-rows" :class="{ 'cadm-rows--empty': !state.items.length }">
@@ -408,8 +438,16 @@ export function createGrantsComponent(Vue, client, props) {
     return {
         template: GRANTS_TEMPLATE,
         setup() {
-            const state = Vue.reactive({ status: 'idle', userId: null, revision: null, items: [], canEdit: !props || props.canEdit !== false, failedWrite: null, message: '' });
-            const store = createGrantsStore(client, (next) => Object.assign(state, next), props);
+            const recipientDraft = Vue.ref(null);
+            const store = createGrantsStore(client, (next) => {
+                Object.assign(state, next);
+                if (next.status === 'ready' && recipientDraft.value === next.recipientChoice) recipientDraft.value = null;
+            }, props);
+            const state = Vue.reactive({ ...store.state });
+            const recipientChoice = Vue.computed({
+                get: () => recipientDraft.value ?? state.recipientChoice ?? 'open',
+                set: (choice) => { recipientDraft.value = choice; },
+            });
             const draft = Vue.reactive({ effect: 'allow', scope: 'own', poolId: '', actions: [], authorIds: [], exceptIds: [] });
             const authorPools = Vue.ref([]);
             const authors = Vue.ref([]);
@@ -448,6 +486,7 @@ export function createGrantsComponent(Vue, client, props) {
                 return check.ok ? store.save(draft) : null;
             }
             async function reload() {
+                recipientDraft.value = null;
                 const listed = props && props.adminClient
                     ? loadGrantUsers(props.adminClient) : Promise.resolve({ users: [], message: '' });
                 const poolsReady = pools.load();
@@ -462,6 +501,7 @@ export function createGrantsComponent(Vue, client, props) {
             return {
                 state, store, draft, errors, preview, surfaceStyle, submit, label, authorPools, poolNames, poolMessage, reload,
                 authors, authorsMessage, showAuthors, showExceptions, authorText,
+                recipientChoice, recipientChoices: RECIPIENT_CHOICES,
                 actions: ACTIONS, scopes: SCOPES, effects: EFFECTS,
             };
         },

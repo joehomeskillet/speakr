@@ -22,6 +22,7 @@ export const ACTIONS = Object.freeze({
     reopen: { group: 'correction', kind: 'command', command: 'reopen_dictation', confirm: true, reason: true, de: 'Wieder öffnen' },
     release: { group: 'release', kind: 'route', path: 'releases', confirm: true, de: 'Endgültig freigeben' },
     archive: { group: 'archive', kind: 'route', path: 'archive', confirm: true, de: 'Archivieren' },
+    request_delete: { group: 'delete_request', kind: 'route', path: 'archive', confirm: true, de: 'Löschung beantragen' },
 });
 
 export const GROUPS = Object.freeze({
@@ -29,6 +30,7 @@ export const GROUPS = Object.freeze({
     acceptance: 'Abnahme',
     release: 'Freigabe',
     archive: 'Archiv',
+    delete_request: 'Löschantrag',
 });
 
 const CONFIRM_TEXT = Object.freeze({
@@ -37,7 +39,33 @@ const CONFIRM_TEXT = Object.freeze({
     reopen: 'Das freigegebene Diktat wird wieder geöffnet.',
     release: 'Die geprüften Versionen und der Kontext werden endgültig freigegeben.',
     archive: 'Das Diktat wird archiviert. Es wird nichts gelöscht.',
+    request_delete: 'Für dieses Diktat wird ein Löschantrag erfasst. Es wird nichts physisch gelöscht und der Archivstatus bleibt unverändert.',
 });
+
+const CONFIRM_BUTTON = Object.freeze({
+    request_delete: 'Löschantrag erfassen',
+});
+
+const SUCCESS_TEXT = Object.freeze({
+    send: 'Das Diktat wurde zur Bearbeitung eingereicht.',
+    submit: 'Das Diktat wurde zur Abnahme eingereicht.',
+    accept: 'Die Abnahme wurde gespeichert.',
+    reject: 'Das Diktat wurde zur Korrektur zurückgewiesen.',
+    reopen: 'Das Diktat wurde wieder geöffnet.',
+    release: 'Das Diktat wurde endgültig freigegeben.',
+    archive: 'Das Diktat wurde archiviert.',
+    request_delete: 'Löschantrag erfasst. Keine Daten wurden physisch gelöscht und der Archivstatus bleibt unverändert.',
+});
+
+const zurichFormat = typeof Intl !== 'undefined'
+    ? new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+    : null;
+
+function formatStamp(value) {
+    if (typeof value !== 'string' || !value || !zurichFormat) return null;
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : zurichFormat.format(d);
+}
 
 function uuid() {
     return globalThis.crypto.randomUUID();
@@ -84,6 +112,10 @@ export function createWorkflowActions(options) {
         confirmedContext: false,
         busy: false,
         error: null,
+        notice: null,
+        deletionRequested: false,
+        deletionRequestedAt: null,
+        dictationLabel: null,
         stale: false,
         lastResult: null,
     });
@@ -94,7 +126,12 @@ export function createWorkflowActions(options) {
     function load(server) {
         generation += 1;
         const next = server || {};
-        state.dictationId = next.dictationId || null;
+        const nextId = next.dictationId || null;
+        if (!nextId || nextId !== state.dictationId) {
+            state.notice = null;
+            state.lastResult = null;
+        }
+        state.dictationId = nextId;
         state.etag = next.etag || null;
         state.revision = Number.isInteger(next.revision) ? next.revision : null;
         state.allowed = (next.allowedActions || []).filter((a) => Object.prototype.hasOwnProperty.call(ACTIONS, a));
@@ -102,6 +139,11 @@ export function createWorkflowActions(options) {
         state.asrStatus = next.asrStatus || null;
         state.workState = next.workState || null;
         state.binding = Object.assign({}, next.binding);
+        state.deletionRequested = Boolean(next.deletionRequested)
+            || (state.lastResult?.action === 'request_delete' && nextId === state.dictationId);
+        state.deletionRequestedAt = next.deletionRequestedAt || null;
+        state.dictationLabel = typeof next.dictationLabel === 'string' && next.dictationLabel.trim()
+            ? next.dictationLabel.trim() : null;
         state.stale = false;
         cancel();
     }
@@ -139,6 +181,7 @@ export function createWorkflowActions(options) {
         if (!state.allowed.includes(id) || state.busy) return false;
         const blocked = blockedReason(id);
         if (blocked) { state.error = blocked; return false; }
+        state.notice = null;
         if (ACTIONS[id].confirm) {
             state.confirming = id;
             state.error = null;
@@ -169,6 +212,7 @@ export function createWorkflowActions(options) {
         if (spec.kind === 'route') {
             if (id === 'send') return {};
             if (id === 'archive') return { action: 'archive', confirm: true };
+            if (id === 'request_delete') return { action: 'delete', confirm: true };
             return Object.assign({}, b.release, { confirmed_content: true, confirmed_context: true });
         }
         const payload = { dictation_id: state.dictationId };
@@ -187,6 +231,9 @@ export function createWorkflowActions(options) {
     function blockedReason(id) {
         if (state.stale || !state.dictationId || !state.etag || !Number.isInteger(state.revision)) {
             return 'Der Arbeitsstand ist nicht aktuell. Bitte neu laden.';
+        }
+        if (id === 'request_delete' && state.deletionRequested) {
+            return 'Für dieses Diktat liegt bereits ein Löschantrag vor.';
         }
         const b = state.binding;
         if (id === 'submit' && (!b.audioRevisionId || !b.textRevisionId || !b.contextRevisionId || !b.acceptanceRuleId)) {
@@ -210,6 +257,7 @@ export function createWorkflowActions(options) {
         if (!pending || pending.sig !== sig) pending = { sig: sig, key: uuid() };
         state.busy = true;
         state.error = null;
+        state.notice = null;
         let res;
         try {
             if (spec.kind === 'command') {
@@ -237,6 +285,12 @@ export function createWorkflowActions(options) {
         if (res.outcome === 'ok') {
             pending = null;
             state.lastResult = { action: id, data: res.data };
+            if (id === 'request_delete' && res.data?.applied !== false) {
+                state.deletionRequested = true;
+            }
+            state.notice = res.data?.applied === false
+                ? null
+                : translate('clinic.workflow.success.' + id, SUCCESS_TEXT[id] || '');
             state.confirming = null;
             state.reason = '';
             return res;
@@ -253,7 +307,26 @@ export function createWorkflowActions(options) {
         return res;
     }
 
-    return { state, load, visible, groups, statuses, request, confirm, cancel, blockedReason, confirmText: (id) => translate('clinic.workflow.confirm.' + id, CONFIRM_TEXT[id] || '') };
+    function confirmText(id) {
+        const base = translate('clinic.workflow.confirm.' + id, CONFIRM_TEXT[id] || '');
+        if (id === 'request_delete' && state.dictationLabel) {
+            return 'Für «' + state.dictationLabel + '» wird ein Löschantrag erfasst. Es wird nichts physisch gelöscht und der Archivstatus bleibt unverändert.';
+        }
+        return base;
+    }
+
+    function confirmButtonLabel(id) {
+        return translate('clinic.workflow.confirm_button.' + id, CONFIRM_BUTTON[id] || 'Bestätigen');
+    }
+
+    function deletionNoticeText() {
+        if (!state.deletionRequested) return null;
+        const when = formatStamp(state.deletionRequestedAt);
+        return (when ? 'Löschantrag erfasst (' + when + '). ' : 'Löschantrag erfasst. ')
+            + 'Keine Daten wurden physisch gelöscht und der Archivstatus bleibt unverändert.';
+    }
+
+    return { state, load, visible, groups, statuses, request, confirm, cancel, blockedReason, confirmText, confirmButtonLabel, deletionNoticeText };
 }
 
 // Vue template for the panel. Native buttons, labelled controls, live region.
@@ -267,11 +340,15 @@ export const WORKFLOW_ACTIONS_TEMPLATE = `
   <div v-for="g in wf.groups()" :key="g.id" role="group" :aria-label="g.label" class="stack">
     <h3 class="hint">{{ g.label }}</h3>
     <div class="actions">
-    <button v-for="a in g.actions" :key="a.id" type="button" class="button" style="min-height: 2.75rem"
-            :disabled="wf.state.busy" :aria-describedby="a.target ? 'wf-target-' + a.id : null" @click="wf.request(a.id)">
+    <button v-for="a in g.actions" :key="a.id" type="button" class="button" style="min-height: 3rem; min-width: 3rem"
+            :disabled="wf.state.busy || (a.id === 'request_delete' && wf.state.deletionRequested)"
+            :data-action="a.id" :aria-describedby="a.target ? 'wf-target-' + a.id : null" @click="wf.request(a.id)">
       {{ a.label }}
     </button>
     </div>
+    <p v-if="g.id === 'delete_request' && wf.deletionNoticeText()" role="status" aria-live="polite" class="note" data-testid="wf-deletion-requested">
+      {{ wf.deletionNoticeText() }}
+    </p>
     <template v-for="a in g.actions" :key="'t-' + a.id">
       <span v-if="a.target" :id="'wf-target-' + a.id" class="sr-only">Ziel: {{ a.target }}</span>
     </template>
@@ -287,9 +364,10 @@ export const WORKFLOW_ACTIONS_TEMPLATE = `
       <label class="inline-label"><input type="checkbox" v-model="wf.state.confirmedContext"> Kontext geprüft</label>
     </template>
     <div class="actions">
-    <button type="submit" class="button" style="min-height: 2.75rem" :disabled="wf.state.busy">Bestätigen</button>
-    <button type="button" class="button" style="min-height: 2.75rem" @click="wf.cancel()">Abbrechen</button>
+    <button type="submit" class="button" style="min-height: 3rem; min-width: 3rem" :disabled="wf.state.busy">{{ wf.confirmButtonLabel(wf.state.confirming) }}</button>
+    <button type="button" class="button" style="min-height: 3rem; min-width: 3rem" @click="wf.cancel()">Abbrechen</button>
     </div>
   </form>
+  <p v-if="wf.state.notice && !wf.state.deletionRequested" role="status" aria-live="polite" class="note" data-testid="wf-notice">{{ wf.state.notice }}</p>
   <p role="status" aria-live="polite" class="hint" style="color: var(--text-danger-strong)">{{ wf.state.error }}<span v-if="wf.state.stale"> Bitte neu laden.</span></p>
 </section>`;

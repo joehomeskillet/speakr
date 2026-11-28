@@ -60,8 +60,9 @@ describe('recording view controller', () => {
         expect(m.authorId).toBe('4');
         expect(Object.keys(c)).not.toContain('setAuthor');
         expect(Object.keys(c)).not.toContain('setPool');
+        const sendTarget = /<select id="crv-send-target"[^>]*>[\s\S]*?<\/select>/;
         const draftForm = RECORDING_TEMPLATE.match(/<form\b[^>]*data-testid="draft-metadata"[^>]*>[\s\S]*?<\/form>/)?.[0] || '';
-        const recordingControls = draftForm ? RECORDING_TEMPLATE.replace(draftForm, '') : RECORDING_TEMPLATE;
+        const recordingControls = RECORDING_TEMPLATE.replace(draftForm, '').replace(sendTarget, '');
         expect(recordingControls).not.toMatch(/<select\b|author-picker|pool/i);
         expect(draftForm.match(/<select\b[^>]*>/gi) || []).toEqual(draftForm ? [
             expect.stringContaining(':value="m.draft.fields.priority"'),
@@ -242,7 +243,7 @@ describe('recording view controller', () => {
         });
     });
 
-    it('offers Zur Arbeitsliste and Öffnen only after success', async () => {
+    it('offers Zur Arbeitsliste and Diktat öffnen only after success', async () => {
         const { c, onOpen, onWorklist } = make();
         expect(c.openCreated()).toBe(false);
         expect(c.toWorklist()).toBe(false);
@@ -253,7 +254,7 @@ describe('recording view controller', () => {
         expect(c.openCreated()).toBe(true);
         expect(onOpen).toHaveBeenCalledWith({ dictationId: 'rec-1' });
         expect(TEXT.toWorklist).toBe('Zur Arbeitsliste');
-        expect(TEXT.open).toBe('Öffnen');
+        expect(TEXT.open).toBe('Diktat öffnen');
     });
 
     it('exposes the clinic ID after saving a take without submitting it', async () => {
@@ -265,8 +266,12 @@ describe('recording view controller', () => {
         expect((await c.saveRecording()).ok).toBe(true);
         expect(c.model()).toMatchObject({ editableDraftId: 'draft-7', canSubmit: true, message: TEXT.sent });
         expect(request).not.toHaveBeenCalled();
-        request.mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'draft-7', etag: 'version' } })
-            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'draft-7', status: 'vorbereitung_online' } });
+        request.mockResolvedValueOnce({ outcome: 'ok', data: {
+            dictation_id: 'draft-7', etag: 'version', default_version: 1, default_label: 'Schreibdienst', options: [],
+        } }).mockResolvedValueOnce({ outcome: 'ok', data: {
+            dictation_id: 'draft-7', status: 'vorbereitung_online', routing_target: { label: 'Schreibdienst' },
+        } });
+        expect((await c.prepareSubmit()).ok).toBe(true);
         expect((await c.submit()).ok).toBe(true);
         expect(c.model().editableDraftId).toBeNull();
         expect(rec.uploadRecordedAudio).toHaveBeenCalledOnce();
@@ -286,7 +291,7 @@ describe('recording view controller', () => {
             editableDraftId: 'draft-7',
             categories: [{ ...set, value: '' }],
         });
-        expect((await c.submit()).code).toBe('missing_category');
+        expect((await c.prepareSubmit()).code).toBe('missing_category');
         expect(request.mock.calls).toEqual([['/categories']]);
     });
 

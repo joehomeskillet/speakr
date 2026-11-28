@@ -20,6 +20,7 @@ AUTH: tuple[str, ...] = (
     'clinic_workflow.metadata',
     'clinic_workflow.release',
     'clinic_workflow.archive',
+    'clinic_workflow.send_preview',
     'clinic_workflow.send',
     'clinic_history.get_history',
     'clinic_history.review_lease',
