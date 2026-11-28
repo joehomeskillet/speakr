@@ -98,11 +98,12 @@ function scopeKey(row) {
 }
 
 /**
- * @param {{client?: object, reactive?: Function, scopeQuery?: string}} [options]
+ * @param {{client?: object, reactive?: Function, listQuery?: string, scopeQuery?: string}} [options]
  */
 export function createTemplatesManager(options) {
     const client = (options && options.client) || createClinicApiClient();
     const scopeQuery = options?.scopeQuery || '';
+    const listQuery = options?.listQuery || scopeQuery;
     const wrap = (options && options.reactive) || ((value) => value);
     const state = wrap({
         loaded: false,
@@ -171,7 +172,7 @@ export function createTemplatesManager(options) {
 
     async function load() {
         setStatus('processing');
-        const row = await client.request(TEMPLATES + scopeQuery);
+        const row = await client.request(TEMPLATES + listQuery);
         if (row.outcome !== 'ok') return failure(row, 'permission');
         const rows = (row.data && row.data.items) || [];
         for (const item of state.items) if (!rows.some((next) => next.id === item.id)) item.active = false;
