@@ -160,7 +160,9 @@ def _close_finished(page: Page, dialog: Locator, mount: str) -> None:
     expect(dialog).not_to_be_visible()
     expect(page.get_by_test_id(f"clinic-{mount}-view")).not_to_be_visible()
     expect(page).to_have_url(re.compile(r"/#/aufnahmen$"))
-    expect(_recording(page).locator(".status")).to_have_text("Arbeitsstand: Fertiggestellt")
+    status = _recording(page).get_by_test_id("recording-next-step")
+    expect(status).to_have_text("Fertig – Sie müssen nichts tun")
+    expect(status).to_have_attribute("data-action-needed", "false")
 
 
 @pytest.mark.parametrize(("mount", "output"), [("review", False), ("correction", True)])

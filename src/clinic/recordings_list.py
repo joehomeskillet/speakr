@@ -29,6 +29,8 @@ from zoneinfo import ZoneInfo
 
 from src.clinic import policy, pool_policy, recognition_state, routes_worklist, web_ingest, workflow
 from src.clinic import workflow_actions, worklist_entries
+from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, PolicyError
+from src.clinic.acceptance_rules import can_decide
 from src.clinic.archive_policy import ClinicArchiveEntry, archive_slot
 from src.clinic.dictation_roles import project_roles
 from src.clinic.models import ClinicDictation
@@ -96,6 +98,24 @@ def sort_time(dictation: ClinicDictation, recording) -> tuple[datetime, str]:
     if recording.meeting_date is not None:
         return _aware(recording.meeting_date), "recorded"
     return _aware(dictation.created_at), "created"
+
+
+def _viewer_review_turn(subject, dictation, status, assignee, holder) -> bool:
+    if status not in (workflow.TO_ACCEPT, workflow.ACCEPTED):
+        return False
+    viewer = str(subject.user_id)
+    if holder is not None and holder['id'] != viewer:
+        return False
+    if status == workflow.ACCEPTED:
+        owner = holder or assignee
+        return owner is not None and owner['id'] == viewer and pool_policy.decide(subject, 'release', dictation).allowed
+    if not pool_policy.decide(subject, 'release', dictation).allowed:
+        return False
+    try:
+        rule = AcceptanceLedger().current(SCOPE_DICTATION, dictation.id).as_rule()
+    except PolicyError:
+        return False
+    return can_decide(rule, subject.user_id, pool_policy.author_pool_ids(subject.user_id))
 
 
 def list_recordings(
@@ -176,6 +196,8 @@ def list_recordings(
     page, more = ranked[:limit], len(ranked) > limit
     page_dictations = [item[3] for item in page]
     roles = project_roles(page_dictations, now)
+    assignees = {row["dictation_id"]: row.get("assignee")
+                 for row in routes_worklist._with_names([item[4].row for item in page])}
     outcomes = recognition_state.asr_outcomes(page_dictations)
     page_ids = [item.id for item in page_dictations]
     contexts = worklist_entries.case_displays(page_ids)
@@ -217,6 +239,13 @@ def list_recordings(
                     and workflow_actions.archived_reopen_available(dictation, archived)):
                 version = dictation.version_counter
                 items[-1]['archive_reopen'] = {'revision': version, 'etag': f'"{dictation_id}:{version}"'}
+        if assignees[dictation_id] is not None:
+            items[-1]["assignee"] = assignees[dictation_id]
+        if outcomes[dictation_id] == "completed":
+            items[-1]["text_created"] = True
+        if _viewer_review_turn(subject, dictation, entry.row['status'], assignees[dictation_id],
+                               roles[dictation_id]['lease_holder']):
+            items[-1]['viewer_review_turn'] = True
         if (entry.row.get("source_label") == routes_worklist.ORIGIN_LABELS["web-recorder"]
                 and (label := web_ingest.generated_recorder_title(recording.title))):
             items[-1]["capture_label"] = label

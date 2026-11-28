@@ -165,7 +165,10 @@ describe('recordings review fixes (V8 P01)', () => {
         expect(toViewRow(item(1, { workflow_status: 'unbekannt' })).statusClass).toBe('neu');
         const row = toViewRow(item(1));
         expect(row.ariaLabel.startsWith('Fall-ID F-77, Diktiert von Dr. Zeller, Schreibkräfte-Pool Radiologie, Freitag, 20. November 2026')).toBe(true);
-        expect(row.ariaLabel).toMatch(/Zu schreiben, 01:05$/);
+        expect(row.ariaLabel).toMatch(/09:30, 01:05$/);
+        expect(row.ariaLabel).not.toContain('Zu schreiben');
+        expect(row.nextStep).toBe('Beim Schreibdienst Radiologie – Sie müssen nichts tun');
+        expect(tpl).toContain("'crv-next-' + r.key");
         expect(row.datetime).toBe('2026-11-20T08:30:00Z');
         expect(tpl).toContain(':datetime="r.datetime || null"');
         expect(tpl).toContain(':aria-label="r.ariaLabel"');
