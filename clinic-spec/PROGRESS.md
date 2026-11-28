@@ -2,6 +2,9 @@
 ## P-144: Browser-Aufnahmepegel (PAR-REC-005)
 Die Aufnahmeansicht `#/neu` zeigt den Pegel des vom Browser erfassten Mikrofons an. Synthetische Chromium-Eingabe belegt Ausschlag bei Testton, Null bei digitaler Stille und beim Pausieren sowie keine Pegelübertragung. Die Prüfung mit zwei physischen Audiogeräten und der Referenzvergleich `BT-REC-005` bleiben `not_run`.
 
+## P-159 – Recovery-API für PAR-LIVE-003
+Die Klinik-API liefert bestätigte Phrasen seitenweise mit separatem Cursor, gebundenem Text und autorisiertem WAV-Abruf. Beendete Sitzungen sind lesbar, ohne ihren Sprecherlock zu reaktivieren. Synthetische HTTP-/DB-Tests decken 121 Phrasen und Wiedergabe per Range-Request ab. UI-Anschluss, Staging und der unveränderte BT-LIVE-003 stehen noch aus.
+
 ## Tatsächlich erledigt in der V4-Spezifikationslieferung
 Spezifikationen konsolidiert, 101 Funktionen und Original-BT übernommen, Web-only-Grenze und 13 offene Teilkonflikte dokumentiert; Originalartefakte inventarisiert. Paketprüfungen separat unter evidence/package-checks.json.
 ## In der V4-Spezifikationslieferung nicht erledigt

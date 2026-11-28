@@ -126,8 +126,10 @@ function headersFor(method, token, options) {
     if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
     if (options.ifMatch) headers['If-Match'] = options.ifMatch;
     if (options.caseView) headers['X-Clinic-Case-View'] = options.caseView;
-    if (options.body !== undefined && method !== 'GET' && method !== 'HEAD') {
-        headers['Content-Type'] = 'application/json';
+    if (options.liveClientId) headers['X-Live-Client-Id'] = options.liveClientId;
+    if (method !== 'GET' && method !== 'HEAD') {
+        if (options.png !== undefined) headers['Content-Type'] = 'image/png';
+        else if (options.body !== undefined) headers['Content-Type'] = 'application/json';
     }
     return headers;
 }
@@ -191,7 +193,11 @@ export function createClinicApiClient() {
         try {
             const token = unsafe ? await getUploadCsrfToken() : null;
             if (seen !== generation || controller.signal.aborted) return result('cancelled', { code: 'CANCELLED' });
-            let body = unsafe ? opts.formData : undefined;
+            if (opts.png !== undefined && (!unsafe || !(opts.png instanceof Blob)
+                || opts.png.type !== 'image/png' || opts.body !== undefined || opts.formData !== undefined)) {
+                return result('validation', { code: 'INVALID_PAYLOAD' });
+            }
+            let body = unsafe ? (opts.png ?? opts.formData) : undefined;
             if (unsafe && opts.body !== undefined) {
                 try {
                     body = JSON.stringify(opts.body);
@@ -252,6 +258,7 @@ export function createClinicApiClient() {
             body: body,
             idempotencyKey: key,
             ifMatch: opts.ifMatch,
+            liveClientId: opts.liveClientId,
         });
     }
 
@@ -259,6 +266,7 @@ export function createClinicApiClient() {
         request: request,
         command: command,
         switchContext: switchContext,
+        supportsLiveCapture: true,
         get dictationChanges() { return dictationChanges; },
     };
 }
