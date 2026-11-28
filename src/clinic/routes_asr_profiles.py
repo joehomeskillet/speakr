@@ -4,11 +4,10 @@ A thin layer over ``asr_profiles``, ``audio_format_choice``, ``asr_wait_policy``
 ``asr_capabilities`` and ``asr_fallback``; no rule is re-implemented. The actor is
 always ``current_user`` and only the caller's own profile is ever read or changed:
 a body never names an actor, user or role. Writes need the CSRF token.
-Mounting the blueprint is left to the consumer package (x22).
 
 Contract (fixed by static/js/clinic/asr-profiles-ui.js):
 
-* ``GET  /api/clinic/v1/asr-profiles``
+* ``GET  /api/clinic/v1/asr-profiles`` with optional ``job_id`` for an owned ASR job
 * ``PUT  /api/clinic/v1/asr-profiles/selection`` with ``expected_version``
   Optional ``skip_wait_minutes`` (positive int, minutes) and ``wait_disabled``
   (bool) are stored on the caller's own profile. GET ``wait`` then reports
@@ -26,7 +25,9 @@ shortcut: the version check and ``set_profile`` are not one atomic compare-and-s
 from __future__ import annotations
 
 import dataclasses
+import json
 from collections.abc import Callable
+from datetime import timezone
 from typing import Any
 
 from flask import Blueprint, abort, jsonify, request, session
@@ -36,11 +37,12 @@ from wtforms.validators import ValidationError
 
 from src.clinic import asr_fallback, asr_profiles
 from src.clinic.asr_capabilities import AsrCapability, AsrCapabilityRegistry, CapabilityEvidence
-from src.clinic.asr_job_profile import PROMPTS_ENABLED, asr_capability_target
+from src.clinic.asr_job_profile import CLINIC_ASR_PARAM, PROMPTS_ENABLED, asr_capability_target
 from src.clinic.asr_wait_policy import profile_wait_view
 from src.clinic.audio_format_choice import FormatError, choose_upload_format, sample_rate_for
 from src.clinic.config import clinic_mode_enabled
 from src.database import db
+from src.models import ProcessingJob
 
 PREFIX = "/api/clinic/v1/asr-profiles"
 MAX_BODY_BYTES = 4 * 1024
@@ -62,7 +64,8 @@ _STATUS = {
 _TITLES = {400: "Ungültige Anfrage", 401: "Anmeldung erforderlich", 403: "Zugriff verweigert",
            404: "Nicht gefunden", 409: "Versionskonflikt"}
 
-RegistryProvider = Callable[[], AsrCapabilityRegistry]
+RegistryProvider = Callable[[], AsrCapabilityRegistry | None]
+EngineProvider = Callable[[int, int | None], dict[str, Any]]
 
 
 class ApiError(Exception):
@@ -128,6 +131,38 @@ def _proven(registry: AsrCapabilityRegistry | None, target: Any, names: list[str
     return [name for name in names if isinstance(registry.check(name, target), CapabilityEvidence)]
 
 
+def local_engine_receipt(user_id: int, job_id: int | None) -> dict[str, Any]:
+    """Read the caller's requested (or newest submitted) ASR job without probing an engine."""
+    query = ProcessingJob.query.filter(
+        ProcessingJob.user_id == user_id,
+        ProcessingJob.job_type.in_(("transcribe", "reprocess_transcription")),
+    )
+    if job_id is not None:
+        query = query.filter(ProcessingJob.id == job_id)
+    job = query.order_by(ProcessingJob.id.desc()).first()
+    unavailable = dict(status="unavailable", actual=None, fallback=False, reason=UNDETERMINED,
+                       job_id=job.id if job else None, observed_at=None)
+    if job is None or job.status != "completed" or job.completed_at is None:
+        return unavailable
+    try:
+        engine = json.loads(job.params or "{}")[CLINIC_ASR_PARAM]["engine"]
+    except (ValueError, KeyError, TypeError):
+        return unavailable
+    if not isinstance(engine, dict):
+        return unavailable
+
+    status, actual = engine.get("observation"), engine.get("actual")
+    if status == "synthetic":
+        reason, actual, fallback = "Synthetischer Test", None, False
+    elif status == "runtime" and actual in ("gpu", "cpu"):
+        fallback = engine.get("selected") == "gpu" and engine.get("fallback") == actual == "cpu"
+        reason = "Ausweichlösung: CPU statt GPU" if fallback else "Für den Auftrag beobachtet"
+    else:
+        return unavailable
+    return dict(status=status, actual=actual, fallback=fallback, reason=reason, job_id=job.id,
+                observed_at=job.completed_at.replace(tzinfo=timezone.utc).isoformat())
+
+
 def _engine_and_capabilities(profile: asr_profiles.ClinicAsrProfile | None,
                              registry: AsrCapabilityRegistry | None) -> tuple[dict[str, str], dict[str, list[str]]]:
     gpu_url = asr_fallback.gpu_base_url()
@@ -163,9 +198,12 @@ def _output_format(formats: list[str]) -> dict[str, Any]:
         raise ApiError("invalid_payload")
 
 
-def _view(registry: AsrCapabilityRegistry | None, formats: list[str]) -> dict[str, Any]:
+def _view(registry: AsrCapabilityRegistry | None, formats: list[str],
+          observation: dict[str, Any] | None) -> dict[str, Any]:
     profile = asr_profiles.ClinicAsrProfile.query.filter_by(user_id=current_user.id).first()
     engine, caps = _engine_and_capabilities(profile, registry)
+    if observation is not None:
+        engine = {**engine, **observation}
     entry = ({"id": profile.id, "name": profile.model or "Serverprofil", "version": profile.version}
              if profile is not None else None)
     options = profile.options if profile is not None else {}
@@ -193,14 +231,18 @@ def _view(registry: AsrCapabilityRegistry | None, formats: list[str]) -> dict[st
     }
 
 
-def create_asr_profiles_blueprint(registry: RegistryProvider | None = None) -> Blueprint:
-    """Blueprint ``clinic_asr_profiles``. ``registry()`` returns the current capability evidence snapshot."""
+def create_asr_profiles_blueprint(registry: RegistryProvider | None = None, *,
+                                  observe_engine: EngineProvider | None = None) -> Blueprint:
+    """Build the profile endpoints with request-time capability and engine providers."""
     bp = Blueprint("clinic_asr_profiles", __name__)
     bp.before_request(_guard)
     bp.register_error_handler(CSRFError, lambda _e: _problem("unauthorized"))
 
     def snapshot() -> AsrCapabilityRegistry | None:
         return registry() if registry is not None else None
+
+    def observation(job_id: int | None = None) -> dict[str, Any] | None:
+        return observe_engine(current_user.id, job_id) if observe_engine is not None else None
 
     def wrap(view: Callable[[], Any]) -> Callable[[], Any]:
         def run():
@@ -216,7 +258,10 @@ def create_asr_profiles_blueprint(registry: RegistryProvider | None = None) -> B
         return run
 
     def show():
-        return jsonify(_view(snapshot(), request.args.getlist("supported")))
+        job_id = request.args.get("job_id", type=int)
+        if "job_id" in request.args and (job_id is None or not 0 < job_id <= 2**31 - 1):
+            raise ApiError("invalid_payload")
+        return jsonify(_view(snapshot(), request.args.getlist("supported"), observation(job_id)))
 
     def select():
         body = _body()
@@ -253,7 +298,7 @@ def create_asr_profiles_blueprint(registry: RegistryProvider | None = None) -> B
         options["source"] = source
         options.update(updates)
         asr_profiles.set_profile(current_user.id, actor_id=current_user.id, options=options)
-        return jsonify(_view(snapshot(), []))
+        return jsonify(_view(snapshot(), [], observation()))
 
     bp.add_url_rule(PREFIX, "show", wrap(show), methods=["GET"])
     bp.add_url_rule(PREFIX + "/selection", "select", wrap(select), methods=["PUT"])
