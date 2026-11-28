@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { fitPlayer } from '../../../static/js/clinic/correction-player-position.js';
 
@@ -10,6 +11,12 @@ function visible(width, height, top = 60) {
 }
 
 describe('correction player placement', () => {
+    it('wires the player placement composable exactly once', () => {
+        const source = readFileSync(new URL('../../../static/js/clinic/compose-correction.js', import.meta.url), 'utf8');
+        expect(source.match(/from '\.\/correction-player-position\.js'/g)).toHaveLength(1);
+        expect(source).toContain('...useCorrectionPlayerPosition(V)');
+    });
+
     it('preserves free movement inside the visible workspace', () => {
         expect(fitPlayer({ x: 160, y: 240 }, dock, player, editor, visible(1440, 900)))
             .toEqual({ x: 160, y: 240 });

@@ -29,6 +29,7 @@
  *   createCorrectionViewController(options)  the controller behind the view.
  */
 
+import { useCorrectionPlayerPosition } from './correction-player-position.js';
 import { formatDictationReference } from './worklist-ui.js';
 import { createClinicApiClient } from './api-client.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
@@ -40,7 +41,6 @@ import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
 import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
-import { useCorrectionPlayerPosition } from './correction-player-position.js';
 
 export const COMPOSE_CORRECTION_VERSION = 1;
 
