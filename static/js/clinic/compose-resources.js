@@ -141,7 +141,14 @@ const ASR_STATUS_ROWS = `
 
 const ASR_TECHNICAL_ROWS = `
   <div><dt>{{ view.labels.prompts }}</dt><dd>{{ view.prompts.label }}</dd></div>
-  <div v-if="view.output"><dt>{{ view.labels.format }}</dt><dd>{{ [view.output.container, view.output.codec, view.output.sampleRate + ' Hz'].join(adminLayout ? ' · ' : ', ') }}</dd></div>
+  <div v-if="view.output">
+    <dt>{{ view.labels.format }}</dt>
+    <dd class="actions" style="min-width:0;gap:var(--sp-1) var(--sp-3);overflow-wrap:anywhere">
+      <span v-if="view.output.container">{{ view.output.container }}{{ (view.output.codec || view.output.sampleRate != null) ? (adminLayout ? ' · ' : ' ') : '' }}</span>
+      <span v-if="view.output.codec">{{ view.output.codec }}{{ view.output.sampleRate != null ? (adminLayout ? ' · ' : ' ') : '' }}</span>
+      <span v-if="view.output.sampleRate != null" style="white-space:nowrap">{{ view.output.sampleRate }}&nbsp;Hz</span>
+    </dd>
+  </div>
   <div><dt>Cloudumleitung</dt><dd>Nicht vorgesehen</dd></div>`;
 
 const ASR_TRAINING_NOTE = 'Eine Wortliste ersetzt kein Akustiktraining. Korrekturtexte benötigen eine bewusste Freigabe und einen geprüften Audioabgleich.';

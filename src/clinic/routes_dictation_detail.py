@@ -125,6 +125,8 @@ def create_blueprint(
     header exactly when the history is readable. A dictation the caller may not
     see answers 404 like an unknown one.
     """
+    from src.clinic.routes_dictation_properties import content_unlocked
+
     bp = Blueprint('clinic_dictation_detail', __name__)
 
     @bp.before_request
@@ -151,6 +153,10 @@ def create_blueprint(
             abort(404)
         snap = dictation_snapshot(dictation)
         flow = db.session.get(workflow.ClinicWorkflowDictation, dictation.id)
+        if not content_unlocked(current_user.id, dictation.id):
+            if not authorize(current_user, 'listen', dictation):
+                abort(404)
+            return jsonify(dictation_id=dictation.id, etag=snap['etag'], protection_required=True)
         recording = db.session.get(Recording, dictation.recording_id)
         recorded = None if recording is None else recording.meeting_date
         fallback = recorded is None

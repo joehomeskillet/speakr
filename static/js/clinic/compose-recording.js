@@ -26,6 +26,7 @@
  * dictation_id); it is supplied by the mount package together with the recorder.
  */
 
+import { DictationProtectionComponent } from './dictation-protection-ui.js';
 import { createRecorderPhases, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
 import { createPedalController } from './pedal-ui.js';
 import { CATEGORIES, RequiredCategories } from './categories-ui.js';
@@ -669,7 +670,7 @@ export function createRecordingViewController(options) {
             editableDraftId: editableDraftId(),
             canSaveRecording: !opts.draftMetadata && !routing && state.mode === 'record' && !separateSubmit
                 && !s.receipt && ['review', 'failed'].includes(s.phase),
-            message: message(),
+            message: message() || (created() && s.phase === 'sent' ? TEXT.sent : ''),
             surface: surface(),
         };
     }
@@ -777,7 +778,7 @@ const DraftSendFields = {
     <h2 style="margin: 0 0 var(--ui-space-3); font-size: 1.25rem">Versanddaten</h2>
     <p role="status" v-if="m.draft.loading">Entwurfsdaten werden geladen …</p>
     <button v-else-if="!m.draft.fields" type="button" class="button" style="${TOUCH}" @click="c.loadDraft()">Erneut laden</button>
-    <form v-else data-testid="draft-metadata" style="text-align: left" @submit.prevent="c.saveDraft()">
+    <form v-else class="draft-metadata" data-testid="draft-metadata" style="text-align: left" @submit.prevent="c.saveDraft()">
       <fieldset :disabled="!m.canEditDraft" style="min-width: 0">
         <legend class="sr-only">Versanddaten bearbeiten</legend>
         <label style="${DRAFT_FIELD}"><span>Titel</span>
@@ -874,6 +875,17 @@ export const RECORDING_TEMPLATE = `
                  @loadedmetadata="loadReview" @durationchange="c.machine.syncPlayback()" @seeked="finishDurationProbe"
                  @play="c.machine.syncPlayback()" @pause="c.machine.syncPlayback()" @ended="c.machine.syncPlayback()"
                  @error="c.machine.playbackFailed()" style="width: 100%; min-height: 3rem"></audio>
+          <div v-if="!m.created && previewUrl" style="display: grid; gap: var(--ui-space-1); width: 100%; text-align: left; font-size: .875rem">
+            <span id="crv-output-label">Wiedergabegerät</span>
+            <div role="group" aria-labelledby="crv-output-label" data-testid="rec-output" style="display: grid; gap: var(--ui-space-1)">
+              <button type="button" class="button" :class="{ accent: outputSupported && outputId === '' }" :aria-pressed="outputId === ''"
+                      :disabled="!outputSupported" data-testid="rec-output-default" @click="chooseOutput('')" style="${TOUCH}; justify-content: flex-start">Systemstandard</button>
+              <button v-for="(d, i) in outputs" :key="d.deviceId" type="button" class="button" :class="{ accent: outputId === d.deviceId }"
+                      :aria-pressed="outputId === d.deviceId" :disabled="!outputSupported" data-testid="rec-output-device" @click="chooseOutput(d.deviceId)"
+                      style="${TOUCH}; justify-content: flex-start; min-width: 0; overflow-wrap: anywhere">{{ d.label || ('Ausgabegerät ' + (i + 1)) }}</button>
+            </div>
+            <p v-if="!outputSupported" data-testid="rec-output-note" style="margin: 0; color: var(--ui-text-muted, var(--ui-text))">Dieser Browser verwendet für die Wiedergabe immer den Systemausgang.</p>
+          </div>
           <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.sendRecording()">
             {{ m.recordActionLabel }}
           </button>
@@ -895,14 +907,19 @@ export const RECORDING_TEMPLATE = `
         <draft-send-fields v-if="m.draft && !['submitted', 'notDraft'].includes(m.phase)" :m="m" :c="c" @reload="reloadDraft" />
         <required-categories v-if="m.categories.length && (m.canSubmit || m.phase === 'submitting')"
                              :items="m.categories" :disabled="!m.canSelectCategory" @select="c.selectCategory" />
+        <details v-if="m.canSubmit" class="draft-protection" style="margin-bottom: var(--ui-space-3); text-align: left">
+          <summary style="${TOUCH}; cursor: pointer; align-content: center">Diktat-Schutz (optional)</summary>
+          <component :is="Protection" ref="protection" :key="m.created.dictationId"
+                     :client="client" :dictation-id="m.created.dictationId" />
+        </details>
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
-        <div class="actions" style="justify-content: center">
+        <fieldset class="actions" :disabled="protecting()" style="justify-content: center; border: 0; padding: 0; margin: 0; min-inline-size: 0">
           <button v-if="!['submitted', 'notDraft'].includes(m.phase)" type="button" class="button primary" style="${TOUCH}"
                   :disabled="!m.canSubmit || m.categoriesLoading" data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
           <a href="#/diktat" data-testid="open-created" style="${LINK}" @click.prevent="c.openCreated()">{{ m.mode === 'file' ? c.text.open : 'Diktat öffnen' }}</a>
           <button v-if="m.mode === 'file'" type="button" class="button" style="${TOUCH}" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
           <button type="button" class="button" style="${TOUCH}" data-testid="another" :disabled="m.draft?.saving || m.draft?.loading || m.phase === 'submitting'" @click="c.another()">{{ c.text.title }}</button>
-        </div>
+        </fieldset>
       </div>
     </template>
     <div v-if="m.canSaveRecording" style="margin-top: var(--ui-space-3)">
@@ -957,6 +974,9 @@ export const RecordingView = {
         const off = c.subscribe(() => { tick.value += 1; });
         const m = V.computed(() => (tick.value, c.model()));
         const root = V.ref(null);
+        const protection = V.ref(null);
+        const Protection = { ...DictationProtectionComponent(V), mounted() { void this.model.load(); } };
+        const protecting = () => protection.value?.model.state.status === 'busy';
         const editingDraft = V.ref(null);
         const audioEditButton = V.ref(null);
         function openAudioEdits() {
@@ -968,8 +988,47 @@ export const RecordingView = {
         }
         const reviewSource = () => props.player ? null : props.recorder.reviewSource?.();
         let probingDuration = false;
+        const outputSupported = V.ref(false);
+        const outputs = V.ref([]);
+        const outputId = V.ref('');
+        let reviewMedia = null;
+        let switchingMedia = null;
+        async function chooseOutput(deviceId) {
+            const media = reviewMedia;
+            if (!outputSupported.value || switchingMedia === media) return;
+            switchingMedia = media;
+            try {
+                await media.setSinkId(deviceId);
+                if (reviewMedia === media) outputId.value = deviceId;
+            } catch {
+                if (reviewMedia !== media) return;
+                if (media.sinkId && deviceId) {
+                    try { await media.setSinkId(''); } catch { /* Keep the actual sink if fallback fails. */ }
+                }
+                if (reviewMedia === media) outputId.value = media.sinkId || '';
+            } finally {
+                if (switchingMedia === media) switchingMedia = null;
+            }
+        }
+        async function listOutputs(media) {
+            try {
+                const all = await globalThis.navigator?.mediaDevices?.enumerateDevices?.();
+                if (reviewMedia === media) {
+                    outputs.value = (all || []).filter((d) => d.kind === 'audiooutput' && d.deviceId && d.deviceId !== 'default');
+                }
+            } catch {
+                // The system output stays available when the browser cannot list devices.
+            }
+        }
         function bindReview(media) {
-            if (!media) {
+            if (reviewMedia === media) return;
+            reviewMedia = media;
+            outputs.value = [];
+            outputSupported.value = !!media && typeof media.setSinkId === 'function';
+            if (outputSupported.value) {
+                void listOutputs(media);
+                if (outputId.value) void chooseOutput(outputId.value);
+            } else if (!media) {
                 probingDuration = false;
                 c.machine.setPlayer(null);
             }
@@ -1064,9 +1123,11 @@ export const RecordingView = {
             c,
             m,
             root,
+            Protection, protection, protecting,
             editingDraft, audioEditButton, openAudioEdits, closeAudioEdits,
             reviewSource,
             bindReview,
+            outputSupported, outputs, outputId, chooseOutput,
             loadReview,
             finishDurationProbe,
             shortcuts,

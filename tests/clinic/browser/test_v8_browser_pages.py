@@ -210,6 +210,11 @@ def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
         expect(details.get_by_text("Eingabehinweise (Prompts)", exact=True)).to_be_visible()
         if state == "populated":
             expect(details.get_by_text("webm · opus · 48000 Hz", exact=True)).to_be_visible()
+            output = details.get_by_text("webm · opus · 48000 Hz", exact=True)
+            expect(output).to_have_css("flex-wrap", "wrap")
+            expect(output.get_by_text("48000 Hz", exact=True)).to_have_css("white-space", "nowrap")
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            details.screenshot(path=proof.with_name(proof.name + "-details").with_suffix(".png"), animations="disabled")
 
 
 def test_p15_first_profile_uses_existing_save_and_vocabulary_link(browser, app_base, role_states):
