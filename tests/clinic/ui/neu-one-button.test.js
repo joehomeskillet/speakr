@@ -48,7 +48,11 @@ describe('Neue Aufnahme', () => {
         expect(controller.model().phase).not.toBe('submitted');
         expect((await controller.submit()).ok).toBe(true);
         expect(controller.model().phase).toBe('submitted');
-        expect(recorder.uploadRecordedAudio.mock.calls).toEqual([[{ title: 'Diktat 27.11.2026 09:03' }]]);
+        expect(recorder.uploadRecordedAudio.mock.calls).toEqual([[{
+            title: 'Diktat 27.11.2026 09:03',
+            useSpeechRecognition: true,
+            clientUploadId: expect.stringMatching(/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i),
+        }]]);
         expect(request.mock.calls[1]).toEqual([path + '/send', {
             method: 'POST', body: { expected_version: 0 }, ifMatch: '"1"', idempotencyKey: expect.any(String),
         }]);
