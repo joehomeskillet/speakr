@@ -3149,6 +3149,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
             }
             const clinicRecorder = clinicMenu?.createClinicRecorder(audioComposable, state, clinicUploadFile, () => clinicOffline.value);
+            const clinicMicrophone = clinicRecorder ? {
+                get inputs() { return inputAudioDevices.value; },
+                get deviceId() { return selectedMicDeviceId.value; },
+                select: (deviceId) => { selectedMicDeviceId.value = deviceId; },
+                requestAccess: audioComposable.requestMicrophonePermission,
+            } : null;
             // Live-Diktat runs on an existing dictation: ?dictation=<id> or the id typed into the picker.
             const clinicLiveChoices = clinicWorklist ? clinicWorklist.createDictationChoices({ client: clinicWorklist.client, makeState: reactive, authorId: clinicWorklist.user.id }) : null;
             const clinicInitialLiveId = new URLSearchParams(window.location.search).get('dictation');
@@ -5506,7 +5512,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 openClinicDictationView, closeClinicDictationView, openClinicEditorFromView,
                 // end V8 dictation views (v8-70)
                 // V8 menu views (v8-71)
-                clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile, clinicOffline,
+                clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile, clinicMicrophone, clinicOffline,
                 clinicLiveId, clinicLiveDraft, clinicLiveChoices, openClinicLive, openClinicMenuDictation,
                 // end V8 menu views (v8-71)
                 // V8 Verwaltung views (v8-114)
