@@ -196,6 +196,12 @@ export function statusBadge(status) {
     }
 }
 
+const PROCESSING_DETAIL = Object.freeze({
+    QUEUED: 'Transkription wartet', PENDING: 'Transkription wartet',
+    PROCESSING: 'Transkription läuft', RUNNING: 'Transkription läuft',
+    FAILED: 'Transkription fehlgeschlagen',
+});
+
 function nextStep(item, pools, userId) {
     const mine = (person) => userId != null && person?.id != null && String(person.id) === String(userId);
     const wait = (label) => ({ label: label + ' – Sie müssen nichts tun', needsAction: false });
@@ -250,7 +256,8 @@ export function toViewRow(item, userId) {
     const pools = (Array.isArray(item.staff_pools) ? item.staff_pools : []).map((p) => p && p.name).filter(Boolean);
     const badge = statusBadge(item.workflow_status);
     const next = nextStep(item, pools, userId);
-    const processingActive = ['QUEUED', 'PENDING', 'PROCESSING', 'RUNNING'].includes(String(item.processing_status || '').toUpperCase());
+    const processingStatus = String(item.processing_status || '').toUpperCase();
+    const processingActive = ['QUEUED', 'PENDING', 'PROCESSING', 'RUNNING'].includes(processingStatus);
     const seconds = Number.isFinite(item.duration_ms) ? Math.round(item.duration_ms / 1000) : null;
     const time = formatTime(item.sort_time || item.recorded_at);
     const heading = item.case_display ? TEXT.caseId + ' ' + item.case_display : item.capture_label || TEXT.dictation;
@@ -280,6 +287,7 @@ export function toViewRow(item, userId) {
         nextStep: next.label,
         needsAction: next.needsAction,
         processing: item.text_created === true ? 'Text erstellt' : (processingActive ? 'Text wird erstellt' : ''),
+        processingDetail: PROCESSING_DETAIL[processingStatus] || '',
         processingActive,
         duration: seconds === null ? TEXT.none : formatAudioDuration(seconds),
         caseDisplay: item.case_display || '',
