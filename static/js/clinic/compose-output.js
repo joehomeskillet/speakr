@@ -68,6 +68,8 @@ export const TARGET_LABELS = Object.freeze({
 
 export const REASONS = Object.freeze({
     not_released: 'Keine freigegebene Version.',
+    forbidden: 'Keine Berechtigung für diese Ausgabe.',
+    profile: 'Auf diesem Gerät ist die Ausgabe nicht erlaubt.',
     kis_unavailable: 'nicht verfügbar',
 });
 
@@ -113,6 +115,7 @@ export function targetView(target, releasedRevisionId) {
 
 /**
  * Framework-neutral controller. Options: client, dictationId, vue, includeAllFileFormats,
+ * requireRelease (binds requests to a release ID), isCurrent (view is still mounted),
  * newKey / clipboard / ClipboardItem (test seams).
  */
 export function createOutputViewController(options) {
@@ -127,26 +130,36 @@ export function createOutputViewController(options) {
 
     const phase = ref('loading'); // loading | ready | failed
     const releasedRevisionId = ref(null);
+    let releaseId = null;
+    let loadVersion = 0;
     const targets = ref([]);
     const results = ref({}); // format -> { phase, label, surface, job }
-    const keys = new Map(); // revision|format -> Idempotency-Key
+    const keys = new Map(); // release or revision|format -> Idempotency-Key
     const inflight = new Set();
     let clipboard = null;
 
+    const isCurrent = (version) => version === loadVersion && (!opts.isCurrent || opts.isCurrent());
+    const isReady = (version = loadVersion) => isCurrent(version) && phase.value === 'ready';
     const surfaceOf = (name) => surfaceFor(name);
     const setResult = (format, status, label, surface, job) => {
         results.value = { ...results.value, [format]: { phase: status, label, tone: surface, surface: surfaceOf(surface), job: job || null } };
     };
 
     async function load() {
+        const version = ++loadVersion;
         phase.value = 'loading';
-        const query = opts.includeAllFileFormats ? '?file_formats=all' : '';
+        const params = new URLSearchParams();
+        if (opts.includeAllFileFormats) params.set('file_formats', 'all');
+        if (opts.requireRelease) params.set('mode', 'accepted');
+        const query = params.size ? '?' + params : '';
         const res = await client.request(base + '/output-targets' + query);
-        if (res.outcome !== 'ok' || !res.data) {
+        if (!isCurrent(version)) return false;
+        if (res.outcome !== 'ok' || !res.data || (opts.requireRelease && res.data.dictation_id !== dictationId)) {
             phase.value = 'failed';
             return false;
         }
-        releasedRevisionId.value = res.data.released_revision_id || null;
+        releaseId = res.data.release_id || null;
+        releasedRevisionId.value = opts.requireRelease && !releaseId ? null : res.data.released_revision_id || null;
         const offered = res.data.targets || [];
         targets.value = offered.map((t) => targetView(t, releasedRevisionId.value));
         results.value = {};
@@ -167,14 +180,16 @@ export function createOutputViewController(options) {
     /** True when the export of this target may be requested now. */
     function canExport(format) {
         const t = find(format);
-        return Boolean(t) && t.channel !== 'clipboard' && t.available && !inflight.has(format)
-            && !(t.channel === 'file' && results.value[format]?.phase === 'ready');
+        const result = results.value[format];
+        return isReady() && Boolean(t) && t.channel !== 'clipboard' && t.available
+            && !inflight.has(loadVersion + '|' + format)
+            && !(t.channel === 'file' && result?.phase === 'ready');
     }
 
     function downloadUrl(format) {
         const target = find(format);
         const result = results.value[format];
-        if (!target?.available || target.channel !== 'file' || result?.phase !== 'ready'
+        if (!isReady() || !target?.available || target.channel !== 'file' || result?.phase !== 'ready'
                 || result.job?.kind !== 'file' || !result.job.id) return null;
         return '/api/clinic/v1' + base + '/exports/' + encodeURIComponent(result.job.id) + '/download';
     }
@@ -194,15 +209,19 @@ export function createOutputViewController(options) {
 
     async function exportTo(format) {
         if (!canExport(format)) return results.value[format] || null;
+        const version = loadVersion;
+        const inflightId = version + '|' + format;
         const revisionId = releasedRevisionId.value;
-        const keyId = revisionId + '|' + format;
+        const binding = opts.requireRelease ? { release_id: releaseId } : {};
+        const keyId = (binding.release_id || revisionId) + '|' + format;
         if (!keys.has(keyId)) keys.set(keyId, makeKey());
-        inflight.add(format);
+        inflight.add(inflightId);
         setResult(format, 'working', 'Wird ausgegeben …', 'processing');
         try {
             const res = await client.request(base + '/exports', {
-                method: 'POST', body: { revision_id: revisionId, format }, idempotencyKey: keys.get(keyId),
+                method: 'POST', body: { revision_id: revisionId, format, ...binding }, idempotencyKey: keys.get(keyId),
             });
+            if (!isReady(version)) return null;
             if (res.outcome === 'ok' && res.data) {
                 if (res.data.status === 'failed') keys.delete(keyId);
                 applyJob(format, res.data);
@@ -215,28 +234,35 @@ export function createOutputViewController(options) {
                 setResult(format, res.outcome, f.label, f.surface);
             }
         } finally {
-            inflight.delete(format);
+            inflight.delete(inflightId);
         }
         return results.value[format];
     }
 
     /** Reads the status of a started export (reconciliation); never sends a new one. */
     async function refreshStatus(format) {
+        const version = loadVersion;
         const job = results.value[format] && results.value[format].job;
-        if (!job || !job.id) return null;
+        if (!isReady() || !job || !job.id) return null;
         const res = await client.request(base + '/exports/' + encodeURIComponent(job.id));
+        if (!isReady(version)) return null;
         if (res.outcome === 'ok' && res.data) applyJob(format, res.data);
         return results.value[format];
     }
 
     /** Clipboard controller of the existing module, bound to the released revision. */
     function clipboardCopy() {
-        if (!releasedRevisionId.value) return null;
+        if (!isReady() || !releasedRevisionId.value
+                || (opts.requireRelease && (!releaseId || !find('clipboard')?.available))) return null;
         if (!clipboard || clipboard.revisionId !== releasedRevisionId.value) {
+            const version = loadVersion;
             clipboard = {
                 revisionId: releasedRevisionId.value,
                 copier: createClipboardCopy({
                     client, dictationId, revisionId: releasedRevisionId.value, ref,
+                    releaseId: opts.requireRelease ? releaseId : undefined,
+                    authorized: () => isReady(version)
+                        && (!opts.requireRelease || find('clipboard')?.available === true),
                     clipboard: opts.clipboard, ClipboardItem: opts.ClipboardItem,
                 }),
             };

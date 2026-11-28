@@ -60,7 +60,7 @@ def _prepare(c, req=None, **kw):
 
 def _report(c, req, outcome, **kw):
     d = c["dictation"]
-    return rc.report_clipboard(c["ledger"], d, c["text"], c["source"](d),
+    return rc.report_clipboard(c["ledger"], d, c["text"],
                                **dict(actor=c["actor"], request_id=req, outcome=outcome) | kw)
 
 

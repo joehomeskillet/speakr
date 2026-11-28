@@ -3,6 +3,7 @@
 import hashlib
 import wave
 from dataclasses import replace
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
@@ -11,9 +12,11 @@ from flask_login import LoginManager, login_user
 from flask_wtf.csrf import generate_csrf
 
 from src.app import app as real_app, register_clinic_audio
-from src.clinic import config, parity_receipts, revisions, richtext_formats
+from src.clinic import config, parity_receipts, release, revisions, richtext_formats, routes_output
 from src.clinic.audio_revisions import init_audio_revision
-from src.clinic.models import ClinicContextRevision, ClinicDictation, ClinicOriginal, ClinicTranscriptRevision
+from src.clinic.models import (
+    ClinicAudioRevision, ClinicContextRevision, ClinicDictation, ClinicOriginal, ClinicTranscriptRevision,
+)
 from src.clinic.output import FORMAT_FORMATTED, FORMAT_PLAIN, list_outputs
 from src.clinic.output_attempts import FAILED, SUCCEEDED, UNKNOWN
 from src.clinic.parity_dispatch import ParityDispatch
@@ -187,3 +190,82 @@ def test_output_permissions_and_version_gates(output_case, client_for, world, mo
     monkeypatch.setattr(config, 'client_profile', lambda: 'byod_internal')
     assert owner.get(bundle).status_code == 403
     assert owner.get(clipboard, headers=key).status_code == 403
+
+
+def test_live_output_is_bound_to_an_active_release(output_case, client_for, world, monkeypatch):
+    dictation_id, revision_id, snapshot, _ = output_case
+    owner, csrf = client_for(world['user_a'])
+    other, other_csrf = client_for(world['user_b'])
+    worker, worker_csrf = client_for(world['user_a'])
+    base = f'/api/clinic/v1/dictations/{dictation_id}'
+    targets = base + '/output-targets?file_formats=all&mode=accepted'
+    clipboard = f'{base}/clipboard/{revision_id}'
+    key = {'Idempotency-Key': str(uuid4())}
+    wrong_id = str(uuid4())
+    assert not any(target['available'] for target in owner.get(targets).json['targets'])
+    assert owner.get(clipboard, query_string={'format': 'plain', 'release_id': wrong_id}, headers=key).status_code == 409
+
+    dictation = db.session.get(ClinicDictation, dictation_id)
+    head = db.session.get(ClinicTranscriptRevision, revision_id)
+    source = routes_output.output_source(dictation)
+    released = release.create_release(
+        dictation, db.session.get(ClinicAudioRevision, source.audio_revision_id), head,
+        db.session.get(ClinicContextRevision, source.context_revision_id), source.text_hash,
+        world['user_a'], {'allowed': True}, datetime.now(timezone.utc),
+        document_type='report', release_type='clinical',
+    )
+    db.session.commit()
+    query = {'format': 'plain', 'release_id': released.id}
+    offered = owner.get(targets).json
+    assert offered['release_id'] == released.id
+    assert offered['released_revision_id'] == revision_id
+    assert all(target['available'] for target in offered['targets'] if target['channel'] in ('file', 'clipboard'))
+    assert all(target['channel'] in ('file', 'clipboard') for target in offered['targets'])
+    assert other.get(clipboard, query_string=query, headers=key).status_code == 404
+    db.session.add(ClinicVisibilityGrant(user_id=world['user_b'], created_by=world['user_admin'],
+                                         effect='allow', scope='all', actions='view'))
+    db.session.commit()
+    read_only = other.get(targets)
+    assert read_only.status_code == 200
+    assert read_only.json['release_id'] is None
+    assert all(target['available'] is False and target['reason'] == 'forbidden'
+               for target in read_only.json['targets'])
+    assert other.get(clipboard, query_string=query, headers=key).status_code == 404
+    assert owner.get(clipboard, query_string=query | {'format': 'formatted'}, headers=key).status_code == 409
+    assert owner.get(clipboard, query_string=query | {'release_id': wrong_id}, headers=key).status_code == 409
+    modified = CanonicalDocument((replace(snapshot.nodes[0], runs=(
+        replace(snapshot.nodes[0].runs[0], text='Späterer Arbeitsstand'),)),))
+    db.session.add(ClinicRichTextSnapshot(revision_id=revision_id, version=3, payload=modified.to_payload()))
+    db.session.commit()
+    copied = owner.get(clipboard, query_string=query, headers=key)
+    assert copied.status_code == 200
+    assert copied.json['text/plain'] == 'Befund & Verlauf'
+    assert 'text/html' not in copied.json
+
+    payload = {'revision_id': revision_id, 'release_id': released.id, 'format': 'txt'}
+    assert other.post(base + '/exports', json=payload, headers=other_csrf | key).status_code == 404
+    assert owner.post(base + '/exports', json=payload | {'release_id': wrong_id}, headers=csrf | key).status_code == 409
+    rendered = owner.post(base + '/exports', json=payload, headers=csrf | key)
+    assert rendered.status_code == 201
+    download = f'{base}/exports/{rendered.json["id"]}/download'
+    assert b'Befund & Verlauf' in owner.get(download).data
+    assert other.get(download).status_code == 404
+    with monkeypatch.context() as profile:
+        profile.setattr(config, 'client_profile', lambda: 'byod_internal')
+        assert not any(target['available'] for target in owner.get(targets).json['targets'])
+        assert owner.get(download).status_code == 403
+        assert owner.post(base + '/exports', json=payload, headers=csrf | key).status_code == 403
+        assert owner.get(clipboard, query_string=query, headers=key).status_code == 403
+
+    revisions.add_human_revision(dictation, head, 'Neuer Text', world['user_a'],
+                                 original_version=db.session.get(ClinicOriginal, head.original_version_id))
+    db.session.commit()
+    assert owner.get(download).status_code == 404
+    assert owner.get(clipboard, query_string=query, headers={'Idempotency-Key': str(uuid4())}).status_code == 409
+    outcome = clipboard + '/outcome'
+    assert worker.post(outcome, headers=worker_csrf | key, json={'outcome': 'copied'}).status_code == 409
+    for expected in (200, 409):
+        done = worker.post(outcome, query_string=query, headers=worker_csrf | key, json={'outcome': 'copied'})
+        assert done.status_code == expected
+    assert [(row.transcript_revision_id, row.text_format) for row in list_outputs(dictation)] == [
+        (revision_id, FORMAT_PLAIN)]

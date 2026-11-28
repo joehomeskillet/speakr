@@ -58,6 +58,7 @@ from src.clinic.models import (
 from src.clinic.parity_dispatch import JSON, CommandProblem, ParityDispatch, RunOnce
 from src.clinic.pool_policy import author_pool_ids
 from src.clinic.release import _heads as release_heads, current_audio_id
+from src.clinic.richtext import ClinicRichTextSnapshot
 from src.database import db
 from src.models import Recording
 from src.services import audit
@@ -72,6 +73,7 @@ Authorize = Callable[[int, str, ClinicDictation], bool]
 _CONFLICT = frozenset({'stale_version', 'stale_revision'})
 _SEND_CONFLICTS = {
     'not_draft': 'Nur neu angelegte Diktate können eingereicht werden.',
+    'live_session_active': 'Bitte beenden Sie die Aufnahme vor dem Einreichen.',
     'audio_required': 'Keine Audiorevision vorhanden.',
     'no_staff_pool': 'Kein Schreibkräfte-Pool zugeordnet.',
 }
@@ -507,9 +509,20 @@ def create_blueprint(
     @bp.post(f'{PATH}/send')
     def send(dictation_id: UUID):
         body = request.get_json(silent=True)
-        if not isinstance(body, dict) or set(body) - {'categories'}:
+        if not isinstance(body, dict) or set(body) - {'categories', 'live_revision'}:
             abort(400)
         selections = body.get('categories', [])
+        binding = body.get('live_revision')
+        if 'live_revision' in body and (
+            not isinstance(binding, dict)
+            or binding.keys() != {'text_revision_id', 'document_version', 'audio_revision_id', 'lease_generation'}
+            or not isinstance(binding['text_revision_id'], str)
+            or not isinstance(binding['audio_revision_id'], str)
+            or type(binding['document_version']) is not int or binding['document_version'] < 0
+            or (binding['lease_generation'] is not None
+                and (type(binding['lease_generation']) is not int or binding['lease_generation'] < 1))
+        ):
+            abort(400)
 
         def apply(row, expected, _key, now):
             if row.version_counter != expected:
@@ -517,6 +530,19 @@ def create_blueprint(
             item = db.session.get(workflow.ClinicWorkflowDictation, row.id, with_for_update=True)
             if item is None or item.status != workflow.DRAFT:
                 raise workflow.WorkflowError('not_draft')
+            if live_session._open(row.id) is not None:
+                raise workflow.WorkflowError('live_session_active')
+            if binding is not None:
+                if binding['lease_generation'] is not None:
+                    lease.assert_current(row.id, current_user.id, binding['lease_generation'], now)
+                head = revisions.current_revision(row)
+                if (head is None or binding['text_revision_id'] != head.id
+                        or binding['audio_revision_id'] != current_audio_id(row.id)):
+                    raise workflow.WorkflowError('stale_revision')
+                version = (db.session.query(ClinicRichTextSnapshot.version).filter_by(revision_id=head.id)
+                           .order_by(ClinicRichTextSnapshot.version.desc()).limit(1).scalar())
+                if binding['document_version'] != (version or 0):
+                    raise workflow.WorkflowError('stale_revision')
             if db.session.query(ClinicAudioRevision.id).filter_by(dictation_id=row.id).first() is None:
                 raise workflow.WorkflowError('audio_required')
             if not pools.routable_staff_pool_ids(row.pool_id, now):

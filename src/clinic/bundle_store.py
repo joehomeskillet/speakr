@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.clinic import audio_render, audio_revisions, audio_segments, decoder, lease, live_session, release, revisions, workflow
 from src.clinic.models import ClinicDictation, ClinicOriginal, ClinicTranscriptRevision
 from src.clinic.parity_dispatch import CommandProblem
+from src.clinic.rich_text_doc import RichTextError
 from src.clinic.richtext import CanonicalDocument, load_latest_document, to_plain_text
 from src.clinic.routes_bundle import BundleSession, StaleVersion, text_to_document
 from src.database import db
@@ -56,19 +57,22 @@ def load(dictation, root, load_sources):
     version = text_version(dictation)
     head = revisions.current_revision(dictation)
     audio = audio_revisions.current_audio_revision(dictation)
-    if version != text_version(dictation):
-        raise StaleVersion()
     if head is None and audio is None:
         return None
     saved = db.session.get(ClinicBundleDocument, head.id) if head else None
     synced = audio_synced(saved, audio)
-    _, document = load_latest_document(head.id) if head else (0, None)
-    if document is None:
-        document = (CanonicalDocument.from_payload(saved.payload) if saved else
-                    text_to_document((head.body if head else '').encode('utf-8')))
-        if saved and saved.audio_revision_id and not synced:
-            document = CanonicalDocument(tuple(replace(node, runs=tuple(
-                replace(run, audio_anchor_id=None) for run in node.runs)) for node in document.nodes))
+    try:
+        _, document = load_latest_document(head.id) if head else (0, None)
+        if document is None:
+            document = (CanonicalDocument.from_payload(saved.payload) if saved else
+                        text_to_document((head.body if head else '').encode('utf-8')))
+            if saved and saved.audio_revision_id and not synced:
+                document = CanonicalDocument(tuple(replace(node, runs=tuple(
+                    replace(run, audio_anchor_id=None) for run in node.runs)) for node in document.nodes))
+    except RichTextError as error:
+        raise StaleVersion() from error
+    if version != text_version(dictation):
+        raise StaleVersion()
     wav = b''
     try:
         if synced:

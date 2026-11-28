@@ -42,7 +42,7 @@ from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
 from src.clinic import docx_template, export as export_service, odt_output
-from src.clinic import kis, parity_receipts, presets, release
+from src.clinic import config, kis, parity_receipts, presets, release
 from src.clinic import routes_templates
 from src.clinic.parity_dispatch import CommandProblem
 from src.clinic.config import FALLBACK_CLIENT_PROFILE, clinic_mode_enabled, config_dir, kis_delivery_enabled
@@ -118,7 +118,9 @@ def _leaf(model, dictation: ClinicDictation):
 
 def output_source(dictation: ClinicDictation) -> OutputSource:
     """Server-resolved current binding of a dictation; fails closed without a single head."""
-    rows = (_leaf(ClinicAudioRevision, dictation), _leaf(ClinicTranscriptRevision, dictation),
+    audio_id = release.current_audio_id(dictation.id)
+    audio = db.session.get(ClinicAudioRevision, audio_id) if audio_id else None
+    rows = (audio, _leaf(ClinicTranscriptRevision, dictation),
             _leaf(ClinicContextRevision, dictation))
     if any(row is None for row in rows):
         raise OutputAttemptError('dictation has no single current revision')
@@ -381,6 +383,9 @@ def create_blueprint(
             abort(404)
         return dictation
 
+    def document_export_allowed() -> bool:
+        return config.client_capabilities()['profiles'][config.client_profile()].get('document_export') is not False
+
     def request_id() -> str:
         value = request.headers.get('Idempotency-Key', '')
         try:
@@ -430,12 +435,14 @@ def create_blueprint(
             gate = 'forbidden'
         elif active is None:
             gate = 'not_released'
-        known = _latest_file_results(current_user.id, active.id) if active is not None else {}
+        file_gate = 'profile' if can_export and not document_export_allowed() else gate
+        known = _latest_file_results(current_user.id, active.id) if active is not None and file_gate is None else {}
         listed = []
+        released_only = request.args.get('mode') == 'accepted'
         include_all = request.args.get('file_formats') == 'all'
         formats = file_formats() if include_all else FILE_FORMATS
         for fmt in formats:
-            item = {'id': fmt, 'channel': 'file', 'available': gate is None, 'reason': gate}
+            item = {'id': fmt, 'channel': 'file', 'available': file_gate is None, 'reason': file_gate}
             if fmt in known:
                 job = known[fmt]
                 status = job.get('status')
@@ -444,16 +451,18 @@ def create_blueprint(
                     status = 'stale'
                 item.update(status=status, job_id=job.get('id'))
             listed.append(item)
-        if kis_delivery_enabled():
+        if not released_only and kis_delivery_enabled():
             adapter = adapter_for()
             kis_reason = gate or (None if adapter.enabled and adapter.is_mock else 'kis_unavailable')
             listed.append({'id': KIS_FORMAT, 'channel': 'kis', 'available': kis_reason is None,
                            'reason': kis_reason})
-        listed.append({'id': 'clipboard', 'channel': 'clipboard', 'available': can_export,
-                       'reason': None if can_export else gate})
+        clipboard_gate = file_gate if released_only or file_gate == 'profile' else ('forbidden' if not can_export else None)
+        listed.append({'id': 'clipboard', 'channel': 'clipboard', 'available': clipboard_gate is None,
+                       'reason': clipboard_gate})
+        binding = {'release_id': None if active is None else active.id} if released_only else {}
         return jsonify(dictation_id=dictation.id,
                        released_revision_id=None if active is None else active.transcript_revision_id,
-                       targets=listed)
+                       targets=listed, **binding)
 
     @bp.get(BASE + '/output-destinations')
     def destinations(dictation_id: UUID) -> Response:
@@ -476,6 +485,8 @@ def create_blueprint(
         if not isinstance(body, dict) or not isinstance(body.get('revision_id'), str):
             abort(400)
         extra = set(body) - {'revision_id', 'format'}
+        if body.get('format') != KIS_FORMAT:
+            extra.discard('release_id')
         if extra - (_OPTIONAL_EXPORT_KEYS | _OPTIONAL_FIELDS) or body.get('format') not in offered:
             abort(400)
         placing = bool(extra & _OPTIONAL_EXPORT_KEYS)
@@ -492,10 +503,13 @@ def create_blueprint(
         if revision is None or revision.dictation_id != dictation.id:
             abort(404)
         active = release.active_release(dictation)
-        if active is None or active.transcript_revision_id != revision.id:
+        if (active is None or active.transcript_revision_id != revision.id
+                or ('release_id' in body and body['release_id'] != active.id)):
             return _problem(409, 'NOT_RELEASED', detail='Nur die freigegebene Version kann ausgegeben werden')
         if body['format'] == KIS_FORMAT:
             return _kis_export(dictation, active)
+        if not document_export_allowed():
+            abort(403)
         placed = _file_export(dictation, active, body['format'], key, template)
         if not placing or placed.status_code not in (200, 201):
             return placed
@@ -633,14 +647,16 @@ def create_blueprint(
         proof that the file was stored on the client.
         """
         dictation = dictation_of(dictation_id)
+        if not document_export_allowed():
+            abort(403)
         scope = (current_user.id, 'file_export', dictation.id, str(job_id))
         receipt = db.session.get(parity_receipts.ClinicParityReceipt, parity_receipts.scope_key(scope))
         job = receipt.result if receipt is not None and isinstance(receipt.result, dict) else None
         if (job is None or job.get('kind') != 'file' or job.get('status') != 'ready'
                 or job.get('actor_id') != current_user.id or job.get('format') not in file_formats()):
             abort(404)
-        active = db.session.get(ClinicRelease, job.get('release_id'))
-        if (active is None or active.dictation_id != dictation.id
+        active = release.active_release(dictation)
+        if (active is None or active.id != job.get('release_id')
                 or active.transcript_revision_id != job.get('revision_id')):
             abort(404)
         try:

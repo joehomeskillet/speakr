@@ -72,6 +72,7 @@ export function createClipboardCopy(options) {
     const ref = opts.ref || ((value) => ({ value }));
     const state = ref(view('idle'));
     const base = () => `/dictations/${encodeURIComponent(opts.dictationId)}/clipboard/${encodeURIComponent(opts.revisionId)}`;
+    const binding = opts.releaseId ? `release_id=${encodeURIComponent(opts.releaseId)}` : '';
     const makeKey = opts.newKey || newKey;
     let pending = null;
     let busy = false;
@@ -93,7 +94,7 @@ export function createClipboardCopy(options) {
     }
 
     async function report(key, outcome) {
-        const res = await opts.client.request(`${base()}/outcome`, {
+        const res = await opts.client.request(`${base()}/outcome${binding ? '?' + binding : ''}`, {
             method: 'POST', body: { outcome }, idempotencyKey: key,
         });
         return res.outcome === 'ok';
@@ -110,8 +111,13 @@ export function createClipboardCopy(options) {
         set('working');
         try {
             const key = makeKey();
-            const prepared = await opts.client.request(`${base()}?format=${format}`, { idempotencyKey: key });
+            const prepared = await opts.client.request(`${base()}?format=${format}${binding ? '&' + binding : ''}`, { idempotencyKey: key });
             if (prepared.outcome !== 'ok') return set(failureFor(prepared));
+            if (binding && (!allowed() || prepared.data?.revision_id !== opts.revisionId
+                    || typeof prepared.data?.['text/plain'] !== 'string')) {
+                await report(key, 'denied');
+                return set('stale');
+            }
             const flavors = prepared.data || {};
             const clip = clipboardApi(env);
             const Item = itemClass(env);

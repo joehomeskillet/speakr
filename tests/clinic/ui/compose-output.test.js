@@ -142,6 +142,70 @@ describe('compose-output', () => {
         expect(c.results.value.docx.phase).toBe('ready');
     });
 
+    it('ignores an old file response after reloading for a different release', async () => {
+        let finishOldExport;
+        const previous = new Promise((resolve) => { finishOldExport = resolve; });
+        const client = fakeClient({ targets: ok(TARGETS('r1')) });
+        let data = { ...TARGETS('r1'), release_id: 'rel-1' };
+        client.request.mockImplementation(async (path, options) => {
+            if (path.includes('/output-targets')) return ok(data);
+            if (options.body.release_id === 'rel-1') return previous;
+            return ok(job({ id: 'current-job' }));
+        });
+        const c = await loaded(client, { requireRelease: true });
+        const oldExport = c.exportTo('docx');
+        data = { ...data, release_id: 'rel-2' };
+        await c.load();
+        finishOldExport(ok(job({ id: 'old-job' })));
+        await oldExport;
+        expect(c.downloadUrl('docx')).toBeNull();
+        expect(c.canExport('docx')).toBe(true);
+        await c.exportTo('docx');
+        expect(c.downloadUrl('docx')).toContain('/current-job/download');
+    });
+
+    it('keeps a previous clipboard response out of the clipboard after leaving the dictation', async () => {
+        let finishPrepare;
+        const prepared = new Promise((resolve) => { finishPrepare = resolve; });
+        const data = { ...TARGETS('r1'), release_id: 'rel-1' };
+        const client = fakeClient({ targets: ok(data) });
+        client.request.mockImplementation(async (path) => {
+            if (path.includes('/output-targets')) return ok(data);
+            if (path.includes('/outcome')) return ok({ status: 'FAILED' });
+            return prepared;
+        });
+        let current = true;
+        const writeText = vi.fn();
+        const c = await loaded(client, {
+            requireRelease: true, isCurrent: () => current, clipboard: { writeText },
+        });
+        const copying = c.clipboardCopy().copy('plain');
+        current = false;
+        expect(c.canExport('txt')).toBe(false);
+        expect(c.clipboardCopy()).toBeNull();
+        finishPrepare(ok({ revision_id: 'r1', 'text/plain': 'Alter Text' }));
+        expect((await copying).phase).toBe('stale');
+        expect(writeText).not.toHaveBeenCalled();
+        expect(client.request).toHaveBeenLastCalledWith(
+            '/dictations/d1/clipboard/r1/outcome?release_id=rel-1',
+            expect.objectContaining({ body: { outcome: 'denied' } }),
+        );
+    });
+
+    it('disables released actions and ready links when reloading the targets fails', async () => {
+        const data = { ...TARGETS('r1'), release_id: 'rel-1' };
+        Object.assign(data.targets[0], { status: 'ready', job_id: 'previous-job' });
+        const client = fakeClient({ targets: ok(data) });
+        const c = await loaded(client, { requireRelease: true });
+        expect(c.downloadUrl('txt')).toContain('/previous-job/download');
+        expect(c.clipboardCopy()).not.toBeNull();
+        client.request.mockResolvedValueOnce(fail('network', null));
+        expect(await c.load()).toBe(false);
+        expect(c.canExport('docx')).toBe(false);
+        expect(c.downloadUrl('txt')).toBeNull();
+        expect(c.clipboardCopy()).toBeNull();
+    });
+
     it('the same click twice sends one idempotency key', async () => {
         let release;
         const gate = new Promise((r) => { release = r; });

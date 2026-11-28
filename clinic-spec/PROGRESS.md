@@ -1,4 +1,11 @@
 # Fortschritt V4
+## P-238 – Bewusste Ausgabe aus Live (PAR-LIVE-002 / PAR-EXP-007)
+Aus Live kann die freigegebene Textfassung ausdrücklich kopiert oder als Datei heruntergeladen werden. Arbeitsstand, interne Übergabe und Freigabe bleiben getrennt. Der Empfang in einer anderen Anwendung bleibt unbekannt; WG-LIVE-002 und WG-EXP-007 bleiben offen. Native Abnahme und Staging bleiben ausstehend.
+
+## P-159 – Recovery-API für PAR-LIVE-003
+Die Klinik-API liefert bestätigte Phrasen seitenweise mit separatem Cursor, gebundenem Text und autorisiertem WAV-Abruf. Beendete Sitzungen sind lesbar, ohne ihren Sprecherlock zu reaktivieren. Synthetische HTTP-/DB-Tests decken 121 Phrasen und Wiedergabe per Range-Request ab. UI-Anschluss, Staging und der unveränderte BT-LIVE-003 stehen noch aus.
+
+## Ursprünglicher Paketstand
 ## Tatsächlich erledigt in dieser Lieferung
 Spezifikationen konsolidiert, 101 Funktionen und Original-BT übernommen, Web-only-Grenze und 13 offene Teilkonflikte dokumentiert; Originalartefakte inventarisiert. Paketprüfungen separat unter evidence/package-checks.json.
 ## Nicht erledigt

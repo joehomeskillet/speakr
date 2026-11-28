@@ -16,14 +16,14 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from werkzeug.exceptions import HTTPException
 from wtforms.validators import ValidationError
 
-from src.clinic import config, revisions, richtext
+from src.clinic import config, release, revisions, richtext
 from src.clinic.clipboard_ledger import AuditClipboardLedger
 from src.clinic.kis import LOOKUP_ABSENT, LOOKUP_CONFIRMED, LOOKUP_UNKNOWN
 from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
 from src.clinic.output import CHANNEL_CLIPBOARD, FORMAT_FORMATTED, FORMAT_PLAIN, record_output
 from src.clinic.output_attempts import (
     OutputAttempt, OutputAttemptError, OutputSource, begin_output, freeze_output_attempts,
-    record_output_result,
+    output_attempt_key, record_output_result,
 )
 from src.clinic.rich_text_doc import RichTextError, from_plain_text, to_clipboard_flavors, to_plain_text
 from src.database import db
@@ -55,14 +55,15 @@ def _problem(status: int) -> Response:
 
 def _frozen(
     dictation: ClinicDictation, source: OutputSource, actor: int, request_id: str,
-    text_format: str = FORMAT_FORMATTED, document_version: int = 0,
+    text_format: str, document_version: int, release_id: str | None,
 ) -> OutputAttempt:
     settings = {'format': text_format}
     if document_version:
         settings['document_version'] = str(document_version)
     attempts = freeze_output_attempts(
         dictation, source, source, actor_user_id=actor, request_id=request_id, allowed=True,
-        mode='working_copy', targets={(CHANNEL_CLIPBOARD, TARGET): settings},
+        mode='accepted' if release_id else 'working_copy', release_id=release_id,
+        targets={(CHANNEL_CLIPBOARD, TARGET): settings},
     )
     return attempts[0]
 
@@ -70,7 +71,7 @@ def _frozen(
 def prepare_clipboard(
     ledger: MutableMapping[str, OutputAttempt], dictation: ClinicDictation,
     revision: ClinicTranscriptRevision, source: OutputSource, *, actor: int, request_id: str,
-    allowed: bool, text_format: str = FORMAT_FORMATTED,
+    allowed: bool, text_format: str = FORMAT_FORMATTED, release_id: str | None = None,
 ) -> tuple[OutputAttempt, dict[str, str]]:
     """Claim the attempt as UNKNOWN and return it with the requested flavours.
 
@@ -84,8 +85,10 @@ def prepare_clipboard(
         raise OutputAttemptError('output not authorised')
     if text_format not in FORMATS.values():
         raise OutputAttemptError('unrecognised clipboard format')
-    version, doc = richtext.load_latest_document(revision.id)
-    attempt = _frozen(dictation, source, actor, request_id, text_format, version)
+    if release_id is not None and text_format != FORMAT_PLAIN:
+        raise OutputAttemptError('released clipboard requires plain text')
+    version, doc = (0, None) if release_id else richtext.load_latest_document(revision.id)
+    attempt = _frozen(dictation, source, actor, request_id, text_format, version, release_id)
     known = ledger.get(attempt.idempotency_key)
     if known is not None and known.payload_hash != attempt.payload_hash:
         raise OutputAttemptError('request ID already used for another payload')
@@ -106,19 +109,19 @@ def prepare_clipboard(
 
 def report_clipboard(
     ledger: MutableMapping[str, OutputAttempt], dictation: ClinicDictation,
-    revision: ClinicTranscriptRevision, source: OutputSource, *, actor: int, request_id: str,
-    outcome: str,
+    revision: ClinicTranscriptRevision, *, actor: int, request_id: str,
+    outcome: str, release_id: str | None = None,
 ) -> OutputAttempt:
     """Apply the browser-reported outcome; a receipt is appended only for `copied`."""
     if outcome not in OUTCOMES:
         raise OutputAttemptError('unrecognised clipboard outcome')
     # The key scopes the actor and request. The stored claim supplies format and revision evidence.
-    key = _frozen(dictation, source, actor, request_id).idempotency_key
+    key = output_attempt_key(actor, request_id, dictation.id, CHANNEL_CLIPBOARD, TARGET)
     claim = ledger.get(key)
     if claim is None:
         raise OutputAttemptError('no clipboard attempt for this request')
-    if claim.source.text_revision_id != revision.id:
-        raise OutputAttemptError('clipboard outcome names a different revision')
+    if claim.source.text_revision_id != revision.id or claim.release_id != release_id:
+        raise OutputAttemptError('clipboard outcome names a different revision or release')
     result = record_output_result(claim, claim, OUTCOMES[outcome])
     if outcome == 'copied':
         record_output(dictation, revision, actor, CHANNEL_CLIPBOARD, TARGET,
@@ -182,6 +185,16 @@ def create_blueprint(
         response.headers['Cache-Control'] = 'no-store'
         return response
 
+    def requested_release() -> str | None:
+        value = request.args.get('release_id')
+        if value is not None:
+            try:
+                if str(UUID(value)) != value:
+                    raise ValueError
+            except ValueError:
+                abort(400)
+        return value
+
     @bp.get(PATH)
     def prepare(dictation_id: UUID, revision_id: UUID) -> Response:
         dictation, revision = objects(dictation_id, revision_id)
@@ -192,7 +205,12 @@ def create_blueprint(
         try:
             claim, flavors = prepare_clipboard(
                 ledger, dictation, revision, source_for(dictation), actor=current_user.id,
-                request_id=key, allowed=True, text_format=text_format)
+                request_id=key, allowed=True, text_format=text_format, release_id=requested_release())
+            if claim.release_id:
+                active = release.active_release(dictation)
+                if active is None or active.id != claim.release_id:
+                    db.session.rollback()
+                    return _problem(409)
         except (OutputAttemptError, RichTextError):
             return _problem(409)
         except ValueError:
@@ -210,8 +228,8 @@ def create_blueprint(
             abort(400)
         try:
             result = report_clipboard(
-                ledger, dictation, revision, source_for(dictation), actor=current_user.id,
-                request_id=key, outcome=body['outcome'])
+                ledger, dictation, revision, actor=current_user.id,
+                request_id=key, outcome=body['outcome'], release_id=requested_release())
         except OutputAttemptError:
             return _problem(409)
         db.session.commit()
