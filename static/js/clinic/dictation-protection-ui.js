@@ -187,16 +187,24 @@ export function createDictationProtectionModel(client, dictationId, options) {
 export function DictationProtectionComponent(Vue) {
     return {
         name: 'DictationProtection',
+        emits: ['unlocked'],
         props: {
             client: { type: Object, required: true },
             dictationId: { type: String, required: true },
+            unlockOnly: { type: Boolean, default: false },
         },
-        setup(props) {
+        setup(props, ctx) {
             const model = createDictationProtectionModel(props.client, props.dictationId, {
                 reactive: Vue.reactive,
             });
             return {
                 model,
+                async submit() {
+                    if (model.state.status === 'busy' || (!props.unlockOnly && model.state.protected === null)) return;
+                    if (!props.unlockOnly && !model.state.protected) return model.enable();
+                    const result = await model.unlock();
+                    if (result.status === 'done') ctx?.emit('unlocked');
+                },
                 text: TEXT,
                 stateText: Vue.computed(() => (model.state.protected === null ? TEXT.stateUnknown
                     : model.state.protected ? TEXT.stateProtected : TEXT.stateOpen)),
@@ -210,20 +218,20 @@ export function DictationProtectionComponent(Vue) {
 <section class="clinic-dictation-protection v8-page panel stack" aria-labelledby="dpr-title">
   <h2 id="dpr-title">{{ text.title }}</h2>
   <p id="dpr-notice" class="hint">{{ text.notice }}</p>
-  <p class="tag" aria-live="polite">{{ stateText }}</p>
+  <p class="tag" aria-live="polite">{{ unlockOnly ? text.stateProtected : stateText }}</p>
   <form class="stack" novalidate autocomplete="off" aria-describedby="dpr-notice"
-        @submit.prevent="model.state.protected ? model.unlock() : model.enable()">
+        @submit.prevent="submit">
     <div class="protection-code"><label>{{ text.code }}
       <input type="password" v-model="model.state.secret" autocomplete="off"
              :aria-invalid="model.state.status === 'invalid'" aria-describedby="dpr-status">
     </label></div>
-    <label v-if="!model.state.protected" class="inline-label">
+    <label v-if="!unlockOnly && !model.state.protected" class="inline-label">
       <input type="checkbox" v-model="model.state.confirmed"> {{ text.confirmEnable }}
     </label>
-    <button class="button" v-if="model.state.protected" type="submit" :disabled="model.state.status === 'busy'">{{ text.unlock }}</button>
-    <button class="button" v-else type="submit" :disabled="model.state.status === 'busy'">{{ text.enable }}</button>
+    <button class="button" v-if="unlockOnly || model.state.protected" type="submit" :disabled="model.state.status === 'busy'">{{ text.unlock }}</button>
+    <button class="button" v-else type="submit" :disabled="model.state.status === 'busy' || model.state.protected === null">{{ text.enable }}</button>
   </form>
-  <div v-if="model.state.protected" class="stack">
+  <div v-if="!unlockOnly && model.state.protected" class="stack">
     <label class="inline-label">
       <input type="checkbox" v-model="model.state.confirmed"> {{ text.confirmDisable }}
     </label>

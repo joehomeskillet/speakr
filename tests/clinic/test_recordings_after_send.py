@@ -22,7 +22,9 @@ def test_p01_refreshes_submitted_row_in_same_tab(unsubmitted_draft, return_link)
         try:
             page = mount._login(browser, base, "author213@local.test")
             row = page.get_by_test_id("clinic-recordings-view").locator(f'[data-row][data-id="{did}"]')
-            expect(row).to_contain_text("Neu angelegt", ignore_case=True)
+            next_step = row.get_by_test_id("recording-next-step")
+            expect(next_step).to_have_text("Sie sind dran: Diktat an den Schreibdienst senden")
+            expect(next_step).to_have_attribute("data-action-needed", "true")
             page.get_by_test_id("nav-clinic-worklist").click()
             work_row = page.get_by_test_id("clinic-worklist-view").locator(f'[data-row][data-id="{did}"]')
             expect(work_row).to_contain_text("Neu angelegt", ignore_case=True)
@@ -42,7 +44,8 @@ def test_p01_refreshes_submitted_row_in_same_tab(unsubmitted_draft, return_link)
             assert sent.value.status == 200
             assert sent.value.json()["status"] == "zu_schreiben"
             page.get_by_test_id(return_link).click()
-            expect(row).to_contain_text("Zu schreiben", ignore_case=True)
+            expect(next_step).to_have_text("Bei t213 – Sie müssen nichts tun")
+            expect(next_step).to_have_attribute("data-action-needed", "false")
             assert list_reads() == 2
             page.get_by_test_id("nav-clinic-worklist").click()
             expect(work_row).to_contain_text("Zu schreiben", ignore_case=True)
