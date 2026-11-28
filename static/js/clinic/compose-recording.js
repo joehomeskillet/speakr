@@ -10,8 +10,8 @@
  *   - Audio and title stay in memory. This module never touches IndexedDB,
  *     localStorage or sessionStorage; a failed upload says so explicitly.
  *   - A dictation counts as created only when the upload resolves with a server
- *     receipt (an object carrying an id). The view shows the dictation id only
- *     (W16: no patient name, no title).
+ *     receipt (an object carrying an id). The microphone receipt displays the
+ *     generated timestamp title and duration. It does not display patient data.
  *   - Leaving the view (dispose) discards an unsent recording; an upload in
  *     flight is not cancelled and its late result is ignored.
  *
@@ -671,6 +671,7 @@ export function createRecordingViewController(options) {
                 arrived: confirmedServices.length === 1 ? 'Beim ' + singleService(confirmedServices[0]) + ' angekommen'
                     : confirmedServices.length ? 'Bei den Schreibdiensten ' + confirmedServices.join(', ') + ' angekommen' : '',
             } : null,
+            showStatusBySend: Boolean(saved && submitError && !submission),
             titleLocked: !isTitleEditable(s.phase),
             microphoneOptions: microphoneOptions(),
             selectedMicrophoneId: opts.microphone?.deviceId === 'default' ? '' : opts.microphone?.deviceId || '',
@@ -789,6 +790,7 @@ const REVIEW_SKIP_SECONDS = 5;
 const CAPTURE_TOGGLE = { title: 'start', ready: 'start', recording: 'pause', paused: 'resume' };
 
 const DRAFT_FIELD = 'display: grid; gap: var(--ui-space-1); margin-bottom: var(--ui-space-3); min-width: 0';
+const DRAFT_INPUT = `${TOUCH}; border-color: var(--ui-text-muted)`;
 
 const DraftSendFields = {
     props: ['m', 'c'],
@@ -803,19 +805,19 @@ const DraftSendFields = {
       <fieldset :disabled="!m.canEditDraft" style="min-width: 0">
         <legend class="sr-only">Versanddaten bearbeiten</legend>
         <label style="${DRAFT_FIELD}"><span>Titel</span>
-          <input required maxlength="200" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.title" @input="c.setDraftField('title', $event.target.value)" />
+          <input required maxlength="200" style="${DRAFT_INPUT}" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.title" @input="c.setDraftField('title', $event.target.value)" />
         </label>
         <label style="${DRAFT_FIELD}"><span>Anmerkung</span>
-          <textarea maxlength="4000" rows="2" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.notes" @input="c.setDraftField('notes', $event.target.value)"></textarea>
+          <textarea maxlength="4000" rows="2" style="${DRAFT_INPUT}" :disabled="!m.draft.editActions.includes('rename')" :value="m.draft.fields.notes" @input="c.setDraftField('notes', $event.target.value)"></textarea>
         </label>
         <div class="field-grid">
           <label style="${DRAFT_FIELD}"><span>Priorität</span>
-            <select :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.priority" @change="c.setDraftField('priority', Number($event.target.value))">
+            <select style="${DRAFT_INPUT}" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.priority" @change="c.setDraftField('priority', Number($event.target.value))">
               <option v-for="p in priorities" :key="p.value" :value="p.value">{{ p.label }}</option>
             </select>
           </label>
           <label style="${DRAFT_FIELD}"><span>Frist</span>
-            <input type="date" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.deadline_date" @input="c.setDraftField('deadline_date', $event.target.value)" />
+            <input type="date" style="${DRAFT_INPUT}" :disabled="!m.draft.editActions.includes('priority')" :value="m.draft.fields.deadline_date" @input="c.setDraftField('deadline_date', $event.target.value)" />
             <small>Tagesende (Europe/Zurich)</small>
           </label>
         </div>
@@ -926,7 +928,8 @@ export const RECORDING_TEMPLATE = `
         <required-categories v-if="m.categories.length && (m.canSubmit || m.phase === 'submitting')"
                              :items="m.categories" :disabled="!m.canSelectCategory" @select="c.selectCategory" />
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
-        <p v-if="m.phase !== 'submitted'" v-show="m.message" role="status" aria-live="polite"
+        <p v-if="m.showStatusBySend" role="alert" data-testid="status" style="margin: 0 0 var(--ui-space-2)">{{ m.message }}</p>
+        <p v-else-if="m.phase !== 'submitted'" v-show="m.message" role="status" aria-live="polite"
            data-testid="status" style="margin: 0 0 var(--ui-space-2)">{{ m.message }}</p>
         <p v-if="m.plannedDestination" data-testid="send-destination" style="margin: 0; overflow-wrap: anywhere">{{ m.plannedDestination }}</p>
         <div v-if="m.mode === 'record' && m.phase === 'submitted'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">

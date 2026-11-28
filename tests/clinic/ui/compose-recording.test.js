@@ -73,11 +73,16 @@ describe('recording view controller', () => {
 
         expect(await c.sendRecording()).toEqual({ ok: false, code: 'NO_STAFF_POOL' });
         expect(c.model().recordingReceipt).toEqual({ title: saved.title, duration: '01:05', arrived: '' });
+        expect(c.model()).toMatchObject({
+            showStatusBySend: true,
+            plannedDestination: '',
+        });
 
         expect(await c.sendRecording()).toEqual({ ok: true });
         expect(c.model().recordingReceipt).toEqual({
             title: saved.title, duration: '01:05', arrived: 'Beim Schreibdienst Nord angekommen',
         });
+        expect(c.model()).toMatchObject({ showStatusBySend: false, plannedDestination: '' });
         expect(rec.uploadRecordedAudio).toHaveBeenCalledTimes(2);
         c.another();
         expect(c.model().recordingReceipt).toBeNull();
