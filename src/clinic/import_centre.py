@@ -370,6 +370,8 @@ def _find_intent(item, now, author_user_id=None, *, target_pool_id=None, source_
     query = ClinicImportIntent.query.filter_by(status="OPEN").filter(
         ~ClinicImportIntent.id.in_(db.select(ClinicAutosendIntent.import_intent_id)),
     )
+    if clinic_mode_enabled():
+        query = query.filter(~agent_channel.ClinicAgentIntent.query.filter_by(id=ClinicImportIntent.id).exists())
     if author_user_id is not None:
         query = query.filter_by(target_author_user_id=author_user_id)
     if target_pool_id is not None:
@@ -446,6 +448,10 @@ def _claim_unassigned(*, actor_user_id: int, delivery_id: str, intent_id: str, n
         raise AgentChannelError("conflict", "delivery is already assigned")
     if intent.status != "OPEN" or aware(intent.expires_at) <= now:
         raise AgentChannelError("conflict", "intent is not open")
+    if clinic_mode_enabled() and db.session.get(agent_channel.ClinicAgentIntent, intent.id) is not None:
+        ingest = db.session.get(ClinicAgentIngest, delivery.ingest_id)
+        if ingest is None or ingest.intent_id != intent.id:
+            raise AgentChannelError("forbidden", "intent does not match the snapshot")
     claimed = ClinicImportDelivery.query.filter_by(id=delivery_id, status="UNASSIGNED").update({
         "intent_id": intent.id, "status": "MATCHED", "assigned_at": now,
         "language_id": intent.language_id,
@@ -543,6 +549,17 @@ def _clinic_delivery_intent(item, session_row, now, device_map, alias_map, embed
                 and (intent.target_author_user_id, intent.target_pool_id, intent.source_kind)
                 == (author, config["target_pool_id"], config["source_kind"])):
             return intent
+        return None
+    paired = db.session.get(ClinicImportIntent, session_row.intent_id)
+    if paired is not None:
+        from .identity import ClinicAccountPolicy
+
+        account = db.session.get(ClinicAccountPolicy, author)
+        if (config and account is not None and account.status == "active" and paired.status == "OPEN" and aware(paired.expires_at) > now
+                and paired.target_author_user_id == author and paired.target_pool_id == config["target_pool_id"]
+                and paired.source_kind == config["source_kind"] and paired.source_ref == item.source_id
+                and _fits(paired, item.root_id, item.source_id, item.relative_path)):
+            return paired
         return None
     return _find_intent(item, now, author, target_pool_id=config.get("target_pool_id"),
                         source_kind=config.get("source_kind"))
