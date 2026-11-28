@@ -33,6 +33,7 @@ import { CATEGORIES, RequiredCategories } from './categories-ui.js';
 import { PRIORITY_OPTIONS } from './dictation-properties-ui.js';
 import { surfaceFor } from './tokens.js';
 import { CorrectionView } from './compose-correction.js';
+import { SessionTransportNotice } from './compose-settings.js';
 
 function microphoneChoices(microphone) {
     return (microphone?.inputs || []).filter(({ deviceId }) => deviceId && deviceId !== 'default')
@@ -868,6 +869,7 @@ export const RECORDING_TEMPLATE = `
          style="display: grid; place-items: center; min-height: min(56dvh, 30rem); padding: var(--ui-space-6) var(--ui-space-4); color: var(--ui-text)">
   <h1 id="crv-title" class="sr-only">{{ c.text.title }}</h1>
   <div style="width: 100%; max-width: 28rem; text-align: center">
+    <component :is="SessionTransportNotice" :client="client" :vue="vue" class="mb-3" />
     <button v-if="m.canChangeSpeechRecognition" type="button" role="switch" data-testid="recognition-switch"
             class="button quiet focus-visible:outline focus-visible:outline-2 focus-visible:outline-ui-text"
             :aria-checked="m.useSpeechRecognition" @click="c.toggleSpeechRecognition()"
@@ -1178,6 +1180,7 @@ export const RecordingView = {
             return c.dispose();
         });
         return {
+            SessionTransportNotice,
             c,
             m,
             root,
