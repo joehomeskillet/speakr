@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from uuid import NAMESPACE_URL, uuid5
 
 from src.clinic import correction, revisions
 from src.clinic.correction import ClinicMarker, CorrectionError
@@ -31,7 +32,7 @@ _SEP = "|"
 
 @dataclass(frozen=True)
 class CautionRuleSet:
-    pool_id: str
+    pool_id: str | None
     version: str
     words: tuple[str, ...]
     authorized: bool = False
@@ -112,15 +113,33 @@ def is_review_marker(marker: ClinicMarker) -> bool:
     return len(parts) == 5 and bool(parts[1] and parts[3]) and parts[4] == str(marker.anchor_offset)
 
 
-def open_review_hits(dictation: ClinicDictation, head: ClinicTranscriptRevision | None) -> list[CautionHit]:
-    """Open hits already materialized on this revision for the dictation's pool."""
-    return [_hit(marker) for marker in _open_review_rows(dictation, head)]
+def open_review_hits(dictation: ClinicDictation, head: ClinicTranscriptRevision | None,
+                     rules: CautionRuleSet | None = None) -> list[CautionHit]:
+    """Read existing markers and current rule hits without changing the dictation."""
+    hits = [_hit(marker) for marker in _open_review_rows(dictation, head)]
+    if head is not None and rules is not None and rules.authorized and _same_pool(dictation, rules):
+        known = {marker.label for marker in _rows(dictation, head, rules)}
+        for word, offset in find_hits(head.body, rules.words):
+            label = _label(rules, word, offset)
+            if label not in known:
+                marker_id = uuid5(NAMESPACE_URL, f"speakr:w11:{head.id}:{label}")
+                hits.append(CautionHit(word, offset, str(marker_id)))
+    return hits
 
 
 def confirm_review_hit(dictation: ClinicDictation, head: ClinicTranscriptRevision, marker_id: str,
-                       actor_user_id: int, *, lease_generation: int) -> None:
-    """Confirm a materialized hit after the caller locks the dictation and checks its head."""
+                       actor_user_id: int, *, lease_generation: int,
+                       rules: CautionRuleSet | None = None, audio_revision_id: str | None = None) -> None:
+    """Confirm one hit after the caller locks the dictation and checks its head."""
     marker = next((row for row in _open_review_rows(dictation, head) if row.id == marker_id), None)
+    if marker is None and rules is not None:
+        hit = next((hit for hit in open_review_hits(dictation, head, rules) if hit.marker_id == marker_id), None)
+        if hit is not None:
+            marker = correction.add_marker(
+                dictation, 0, actor_user_id, marker_type=correction.MARKER_INDEX,
+                label=_label(rules, hit.word, hit.offset), anchor_revision=head, anchor_offset=hit.offset,
+                audio_revision_id=audio_revision_id, lease_generation=lease_generation,
+            )
     if marker is None:
         raise correction.CorrectionConflict("no open caution hit for this revision and pool")
     _confirm_marker(marker, actor_user_id, lease_generation)
@@ -154,15 +173,15 @@ def _confirm_marker(marker: ClinicMarker, actor_user_id: int, lease_generation: 
 
 
 def _same_pool(dictation: ClinicDictation, rules: CautionRuleSet) -> bool:
-    return bool(rules.pool_id) and dictation.pool_id == rules.pool_id
+    return dictation.pool_id == rules.pool_id
 
 
 def _label(rules: CautionRuleSet, word: str, offset: int) -> str:
-    return _SEP.join((PREFIX, rules.pool_id, rules.version, word, str(offset)))
+    return _SEP.join((PREFIX, rules.pool_id or "global", rules.version, word, str(offset)))
 
 
 def _open_review_rows(dictation: ClinicDictation, head: ClinicTranscriptRevision | None) -> list[ClinicMarker]:
-    if head is None or not dictation.pool_id:
+    if head is None:
         return []
     return [marker for marker in _rows(dictation, head)
             if marker.deleted_at is None and is_review_marker(marker)]
@@ -172,7 +191,8 @@ def _rows(
     dictation: ClinicDictation, head: ClinicTranscriptRevision, rules: CautionRuleSet | None = None,
 ) -> list[ClinicMarker]:
     """Caution markers anchored to ``head``, optionally bound to a specific rule set."""
-    scope = (rules.pool_id, rules.version) if rules is not None else (dictation.pool_id,)
+    pool = dictation.pool_id or "global"
+    scope = (pool, rules.version) if rules is not None else (pool,)
     stem = _SEP.join((PREFIX, *scope, ""))
     rows = db.session.query(ClinicMarker).filter(
         ClinicMarker.dictation_id == dictation.id,

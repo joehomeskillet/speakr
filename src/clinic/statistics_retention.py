@@ -5,17 +5,19 @@ other. The security audit is a different store: an audit row is refused
 here and is never written. A period whose switch was off is uncollected.
 Its count is None, which is not zero activity.
 
-Samples carry the retention limit that was in force when they were
-accepted. Expiry only reclassifies those samples. This module does not
-delete a dictation, a recording or an audit row.
-
-shortcut: in-memory store, replace it when samples must survive a restart.
+Samples carry the retention limit that was in force when they were accepted.
+The staging database stores only the sample kind and timestamps. Cleanup
+deletes disposable samples from their own table.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import delete, func, select
+
+from src.database import db
 
 USAGE = "usage"
 HISTORY = "history"
@@ -63,6 +65,27 @@ class _Switch:
     enabled: bool
     retention_days: int
     at: datetime
+
+
+class ClinicStatisticsSwitch(db.Model):
+    __tablename__ = 'clinic_statistics_switch'
+    id = db.Column(db.Integer, primary_key=True)
+    kind = db.Column(db.String(7), nullable=False)
+    enabled = db.Column(db.Boolean, nullable=False)
+    retention_days = db.Column(db.Integer, nullable=False)
+    at = db.Column(db.DateTime, nullable=False)
+
+    __table_args__ = (db.Index('ix_clinic_statistics_switch_kind_at', 'kind', 'at'),)
+
+
+class ClinicStatisticsSample(db.Model):
+    __tablename__ = 'clinic_statistics_sample'
+    id = db.Column(db.Integer, primary_key=True)
+    kind = db.Column(db.String(7), nullable=False)
+    at = db.Column(db.DateTime, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+
+    __table_args__ = (db.Index('ix_clinic_statistics_sample_kind_at', 'kind', 'at'),)
 
 
 @dataclass(frozen=True)
@@ -185,37 +208,92 @@ class RetentionStore:
 
     def _coverage(self, kind: str, start: datetime, end: datetime) -> str:
         """On, off, or both inside the half-open window. A zero-length slice does not count."""
-        enabled = False
-        current = self._switch_at(kind, start)
-        if current is not None:
-            enabled = current.enabled
-        saw_on = False
-        saw_off = False
-        cursor = start
-        interior = [
-            (index, switch)
-            for index, switch in enumerate(self._switches)
-            if switch.kind == kind and start < switch.at < end
-        ]
-        interior.sort(key=lambda item: (item[1].at, item[0]))
-        for _index, switch in interior:
-            if switch.at > cursor:
-                if enabled:
-                    saw_on = True
-                else:
-                    saw_off = True
-                cursor = switch.at
-            enabled = switch.enabled
-        if cursor < end:
-            if enabled:
-                saw_on = True
-            else:
-                saw_off = True
-        if saw_on and saw_off:
-            return PARTIAL
-        if saw_on:
-            return COLLECTED
-        return UNCOLLECTED
+        switches = sorted((s for s in self._switches if s.kind == kind), key=lambda s: s.at)
+        return _coverage(_spans(switches, start, end))
+
+
+def _spans(switches, start, end):
+    """Yield the start and policy of each non-empty span in [start, end)."""
+    cursor, current = start, None
+    for switch in switches:
+        if switch.at >= end:
+            break
+        if switch.at > cursor:
+            yield cursor, current
+            cursor = switch.at
+        current = switch
+    yield cursor, current
+
+
+def _coverage(spans):
+    states = {bool(switch and switch.enabled) for _, switch in spans}
+    if len(states) == 2:
+        return PARTIAL
+    return COLLECTED if True in states else UNCOLLECTED
+
+
+def lock_collection(session):
+    """Serialize changes and sampling before either chooses its effective timestamp."""
+    connection = session.connection()
+    if connection.dialect.name == 'sqlite':
+        connection.exec_driver_sql('BEGIN IMMEDIATE')
+    else:
+        connection.exec_driver_sql('LOCK TABLE clinic_statistics_switch IN SHARE ROW EXCLUSIVE MODE')
+
+
+def current_switch(session, kind):
+    model = ClinicStatisticsSwitch
+    return session.scalar(select(model).where(model.kind == kind).order_by(model.at.desc(), model.id.desc()).limit(1))
+
+
+def change_switch(session, kind, enabled, retention_days, now):
+    switch = current_switch(session, kind)
+    if switch is None or (switch.enabled, switch.retention_days) != (enabled, retention_days):
+        session.add(ClinicStatisticsSwitch(kind=kind, enabled=enabled, retention_days=retention_days,
+                                          at=now.replace(tzinfo=None)))
+
+
+def collect_sample(session, kind, now):
+    switch = current_switch(session, kind)
+    if switch is not None and switch.enabled:
+        at = now.replace(tzinfo=None)
+        session.add(ClinicStatisticsSample(kind=kind, at=at, expires_at=at + timedelta(days=switch.retention_days)))
+
+
+def collected_period(session, kind, start, end, now):
+    start, end = _aware_utc(start), _aware_utc(end)
+    if start >= end or end > now:
+        raise CollectionError('bad_period')
+    model = ClinicStatisticsSwitch
+    switches = session.scalars(select(model).where(model.kind == kind, model.at < end.replace(tzinfo=None))
+                              .order_by(model.at, model.id))
+    timeline = (_Switch(row.kind, row.enabled, row.retention_days, row.at.replace(tzinfo=timezone.utc))
+                for row in switches)
+    spans = list(_spans(timeline, start, end))
+    coverage = _coverage(spans)
+    count, expired = None, 0
+    limited = any(switch and switch.enabled and now - at >= timedelta(days=switch.retention_days)
+                  for at, switch in spans)
+    if coverage != UNCOLLECTED:
+        sample = ClinicStatisticsSample
+        valid = sample.expires_at > now.replace(tzinfo=None)
+        count, expired = session.execute(select(func.count().filter(valid), func.count().filter(~valid)).where(
+            sample.kind == kind, sample.at >= start.replace(tzinfo=None), sample.at < end.replace(tzinfo=None),
+        )).one()
+    result = _period_dict(Period(kind, start, end, coverage, count, expired))
+    return dict(result, retention_limited=limited, zero_activity=result['zero_activity'] and not limited)
+
+
+def expire_samples(session, now, *, apply):
+    model = ClinicStatisticsSample
+    result = {}
+    for kind in sorted(KINDS):
+        expired = (model.kind == kind, model.expires_at <= now.replace(tzinfo=None))
+        if apply:
+            result[kind] = session.execute(delete(model).where(*expired)).rowcount
+        else:
+            result[kind] = session.scalar(select(func.count()).select_from(model).where(*expired))
+    return result
 
 
 def compare_periods(left: Period, right: Period) -> PeriodComparison:
