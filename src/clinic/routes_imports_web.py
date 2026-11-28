@@ -1,22 +1,33 @@
 """Session-authenticated import centre and clarification routes."""
 
+import json
+from hashlib import sha256
 from tempfile import TemporaryDirectory
+from uuid import UUID, uuid4
 
-from flask import Blueprint, abort, jsonify, request, session
+from flask import Blueprint, Response, abort, jsonify, request, session
 from flask_login import current_user
+from flask_wtf.csrf import validate_csrf
+from sqlalchemy import and_, or_
+from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
+from wtforms.validators import ValidationError
 
 from src.clinic import (
     agent_channel, author_suggestion, decoder, import_centre, import_source_config, import_visibility,
-    pools, speaker_client, speaker_pipeline, worklist_entries,
+    pools, recipient_defaults, speaker_client, speaker_pipeline, worklist_entries,
 )
 from src.clinic import routes_import_sources_web as source_routing
 from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.ingest import IngestError
-from src.clinic.parity_dispatch import _problem
+from src.clinic.migration_import_intent_metadata import interpret
+from src.clinic.parity_dispatch import MAX_BODY_BYTES, CommandProblem, _problem, _unique_object
+from src.clinic.parity_receipts import ClinicParityReceipt, run_once, scope_key
+from src.clinic.pool_policy import author_pool_ids
 from src.database import db
 from src.models import VoiceEmbeddingSpace
+from src.services import audit
 from src.services.storage.locator import local_path_from_key
 
 
@@ -81,7 +92,212 @@ def intents():
     if not _can_import(actor):
         return _problem("FORBIDDEN")
     items = import_centre.list_import_intents(actor_user_id=actor)
+    channel = agent_channel.ClinicAgentIntent
+    failed = {row.id for row in channel.query.filter_by(created_by_user_id=actor, status="DONE")}
+    for item in items:
+        if item["status"] == "OPEN" and item["id"] in failed:
+            item["status"] = "FAILED"
     return jsonify(items=items, count=len(items))
+
+
+def _import_write(target, operation):
+    actor = current_user.id
+    if not _can_import(actor):
+        return _problem("FORBIDDEN")
+    try:
+        validate_csrf(request.headers.get("X-CSRF-Token") or request.headers.get("X-CSRFToken"))
+    except ValidationError:
+        return _problem("FORBIDDEN")
+    key = request.headers.get("Idempotency-Key", "")
+    if not 8 <= len(key) <= 128 or any(not 33 <= ord(char) <= 126 for char in key):
+        return _problem("INVALID_PAYLOAD")
+    request.max_content_length = min(MAX_BODY_BYTES, request.max_content_length or MAX_BODY_BYTES)
+    try:
+        body = json.loads(request.get_data().decode("utf-8"), object_pairs_hook=_unique_object) if request.is_json else None
+    except (BadRequest, RequestEntityTooLarge, ValueError, RecursionError):
+        return _problem("INVALID_PAYLOAD")
+    if not isinstance(body, dict):
+        return _problem("INVALID_PAYLOAD")
+    digest = sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    scope = (actor, request.endpoint, target, key)
+
+    connection = db.session.connection()
+    if connection.dialect.name == "sqlite" and not connection.connection.driver_connection.in_transaction:
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+
+    def apply():
+        return operation(actor, body)
+
+    try:
+        try:
+            return jsonify(run_once(scope, digest, apply))
+        except CommandProblem as error:
+            if str(error) != "REVISION_CONFLICT" or db.session.get(ClinicParityReceipt, scope_key(scope)) is None:
+                raise
+            return jsonify(run_once(scope, digest, apply))
+    except CommandProblem as error:
+        return _problem(str(error))
+    except agent_channel.AgentChannelError as error:
+        return _assignment_error(error)
+
+
+def _route_snapshot(item, actor, owners, now):
+    scope = import_visibility.ImportScope(item.agent_id, item.root_id, item.source_id, item.snapshot_version)
+    config = _source_config(scope, item.relative_path, owners)
+    if config is None:
+        raise agent_channel.AgentChannelError("not_found", "snapshot")
+    author = config["target_author_user_id"]
+    if author != actor and not _is_active_site_admin(db.session, current_user):
+        raise agent_channel.AgentChannelError("not_found", "snapshot")
+    account = db.session.get(ClinicAccountPolicy, author)
+    if account is None or account.status != "active":
+        raise agent_channel.AgentChannelError("forbidden", "inactive author")
+    eligible_pools = {
+        pool_id for pool_id in author_pool_ids(author)
+        if (pool := db.session.get(pools.ClinicAuthorPool, pool_id)) is not None and pools.is_routable(pool, now)
+    }
+    pool_id = config["target_pool_id"]
+    if pool_id is not None and pool_id not in eligible_pools:
+        raise agent_channel.AgentChannelError("forbidden", "inactive pool")
+    return config, eligible_pools
+
+
+def _metadata(overrides, pool_id, eligible_pools):
+    pool_override = overrides.get("pool_id")
+    if isinstance(pool_override, dict) and pool_override.get("op") == "set":
+        pool_id = pool_override.get("value")
+        if not isinstance(pool_id, str) or pool_id not in eligible_pools:
+            raise agent_channel.AgentChannelError("forbidden", "ineligible pool")
+    pool_id = pool_id or (next(iter(eligible_pools)) if len(eligible_pools) == 1 else None)
+    approved = recipient_defaults.eligible_user_ids(pool_id) if pool_id else ()
+    return import_centre._stored_metadata(overrides, approved)
+
+
+def _intent_audit(intent, action):
+    if audit.record_in_tx(
+        "recording.edited", actor_user_id=intent.created_by_user_id, target_user_id=intent.target_author_user_id,
+        force=True, details={"fields": {"import_intent_id": intent.id, "import_action": action}},
+    ) is None:
+        raise CommandProblem("DEPENDENCY_UNAVAILABLE")
+
+
+def _queue_snapshot(item, actor, owners, author_id, overrides, now, device_only):
+    config, eligible_pools = _route_snapshot(item, actor, owners, now)
+    author, pool_id, kind = (config[key] for key in ("target_author_user_id", "target_pool_id", "source_kind"))
+    if author_id not in (None, author) or (device_only and kind != "device"):
+        raise agent_channel.AgentChannelError("forbidden", "source route")
+    channel = agent_channel.ClinicAgentIntent
+    if channel.query.filter_by(agent_id=item.agent_id, source_id=item.source_id,
+                               snapshot_version=item.snapshot_version).filter(or_(
+        agent_channel.ClinicAgentIngest.query.filter_by(intent_id=channel.id).exists(),
+        and_(channel.status != "CANCELLED", or_(
+            channel.expires_at > now, import_centre.ClinicImportIntent.query.filter_by(id=channel.id).exists(),
+        )),
+    )).first() is not None:
+        raise agent_channel.AgentChannelError("conflict", "snapshot already queued")
+    version, metadata = _metadata(overrides, pool_id, eligible_pools)
+    if item.size <= 0:
+        raise agent_channel.AgentChannelError("invalid", "empty snapshot")
+    filename = import_centre._file_name(item.relative_path)
+    intent = import_centre.ClinicImportIntent(
+        id=str(uuid4()), created_by_user_id=actor, source_kind=kind, source_ref=item.source_id,
+        expected_files=json.dumps(import_centre._clean_files([filename])), target_author_user_id=author,
+        target_pool_id=pool_id, language_id=config["language_id"], metadata_version=version, metadata_json=metadata,
+        created_at=now, expires_at=now + import_centre.INTENT_TTL,
+    )
+    db.session.add_all([intent, agent_channel.ClinicAgentIntent(
+        id=intent.id, created_by_user_id=actor, agent_id=item.agent_id, source_id=item.source_id,
+        snapshot_version=item.snapshot_version, created_at=now, expires_at=intent.expires_at.replace(microsecond=0),
+    )])
+    _intent_audit(intent, "queue")
+    return intent.id
+
+
+def _queue(actor, body, *, device_only):
+    if (not {"agent_id", "source_snapshot_ids"} <= body.keys()
+            or body.keys() - {"agent_id", "source_snapshot_ids", "author_user_id", "overrides"}
+            or not isinstance(body["source_snapshot_ids"], list) or not 1 <= len(body["source_snapshot_ids"]) <= 1000
+            or ("author_user_id" in body and (type(body["author_user_id"]) is not int or body["author_user_id"] < 1))
+            or not isinstance(body.get("overrides", {}), dict)):
+        raise CommandProblem("INVALID_PAYLOAD")
+    try:
+        agent_id = str(UUID(body["agent_id"]))
+        ids = [str(UUID(value)) for value in body["source_snapshot_ids"]]
+    except (ValueError, TypeError, AttributeError):
+        raise CommandProblem("INVALID_PAYLOAD") from None
+    if len(set(ids)) != len(ids):
+        raise CommandProblem("INVALID_PAYLOAD")
+    inventory_model = agent_channel.ClinicAgentInventory
+    selection = inventory_model.query.filter(inventory_model.agent_id == agent_id, inventory_model.id.in_(ids))
+    snapshots = {row.id: row for row in selection.order_by(inventory_model.id).with_for_update()}
+    owners = agent_channel.unique_root_owners(agent_channel.registered_agent_roots())
+    now = agent_channel.utcnow()
+    items = []
+    for snapshot_id in ids:
+        outcome = {"snapshot_id": snapshot_id}
+        try:
+            item = snapshots.get(snapshot_id)
+            if item is None:
+                raise agent_channel.AgentChannelError("not_found", "snapshot")
+            outcome["intent_id"] = _queue_snapshot(item, actor, owners, body.get("author_user_id"),
+                                                    body.get("overrides", {}), now, device_only)
+        except agent_channel.AgentChannelError as error:
+            outcome.update(status="REJECTED", code=error.code.upper())
+        else:
+            outcome["status"] = "OPEN"
+        items.append(outcome)
+    return {"items": items, "count": len(items)}
+
+
+@blueprint.post("/device-send")
+def device_send() -> Response | tuple[Response, int]:
+    return _import_write("batch", lambda actor, body: _queue(actor, body, device_only=True))
+
+
+@blueprint.post("/intents")
+def create_intents() -> Response | tuple[Response, int]:
+    return _import_write("batch", lambda actor, body: _queue(actor, body, device_only=False))
+
+
+@blueprint.post("/intents/<uuid:intent_id>/retry")
+def retry_intent(intent_id: UUID) -> Response | tuple[Response, int]:
+    def retry(actor, body):
+        if body:
+            raise CommandProblem("INVALID_PAYLOAD")
+        channel = agent_channel.ClinicAgentIntent
+        owned = channel.query.filter_by(id=str(intent_id), created_by_user_id=actor)
+        agent_intent = owned.with_for_update().first()
+        if agent_intent is None:
+            raise agent_channel.AgentChannelError("not_found", "paired import intent")
+        intent = db.session.get(import_centre.ClinicImportIntent, agent_intent.id, with_for_update=True)
+        if intent is None or intent.created_by_user_id != actor:
+            raise agent_channel.AgentChannelError("not_found", "paired import intent")
+        item = agent_channel.inventory_row(agent_intent.agent_id, agent_intent.source_id, agent_intent.snapshot_version)
+        if item is None:
+            raise agent_channel.AgentChannelError("not_found", "snapshot")
+        now = agent_channel.utcnow()
+        owners = agent_channel.unique_root_owners(agent_channel.registered_agent_roots())
+        config, eligible_pools = _route_snapshot(item, actor, owners, now)
+        if ((intent.source_kind, intent.target_author_user_id, intent.target_pool_id) !=
+                (config["source_kind"], config["target_author_user_id"], config["target_pool_id"])):
+            raise CommandProblem("REVISION_CONFLICT")
+        overrides = interpret(intent)
+        _metadata({name: value for name, value in overrides.items() if name != "schema_version"},
+                  intent.target_pool_id, eligible_pools)
+        sessions = agent_channel.ClinicAgentIngest.query.filter_by(intent_id=intent.id).with_for_update().all()
+        if (intent.status not in ("OPEN", "EXPIRED") or agent_intent.status in ("CANCELLED", "STORED")
+                or (agent_channel.aware(agent_intent.expires_at) > now and agent_intent.status != "DONE")
+                or any(row.state != "RECEIVING" for row in sessions)):
+            raise CommandProblem("REVISION_CONFLICT")
+        intent.status, intent.expires_at = "OPEN", now + import_centre.INTENT_TTL
+        agent_intent.status = "IN_PROGRESS" if sessions else "OPEN"
+        agent_intent.expires_at = intent.expires_at.replace(microsecond=0)
+        for row in sessions:
+            row.expires_at = intent.expires_at
+        _intent_audit(intent, "retry")
+        return {"intent_id": intent.id, "status": intent.status}
+
+    return _import_write(str(intent_id), retry)
 
 
 @blueprint.get("/inventory")
@@ -116,7 +332,12 @@ def inventory():
     items = []
     for agent_id in roots_by_agent:
         body = import_visibility.list_inventory(visibility, channel_policy, actor_user_id=actor, agent_id=agent_id)
-        items.extend(body["items"])
+        snapshots = {
+            (row.source_id, row.snapshot_version): row.id
+            for row in agent_channel.ClinicAgentInventory.query.filter_by(agent_id=agent_id)
+        }
+        items.extend(row | {"agent_id": agent_id, "snapshot_id": snapshots[row["source_id"], row["snapshot_version"]]}
+                     for row in body["items"] if (row["source_id"], row["snapshot_version"]) in snapshots)
     return jsonify(items=items, count=len(items), can_clarify=bool(admin or led_pools))
 
 
