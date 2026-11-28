@@ -5404,6 +5404,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 getStatusClass,
                 formatTime,
                 formatDuration,
+                globalError,
                 setGlobalError,
                 showToast,
                 loadTokenBudget,
