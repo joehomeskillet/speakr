@@ -549,7 +549,7 @@ export const IMPORT_TEMPLATE = `
                 <div v-if="c.canSendDevice(item)" role="status" data-testid="device-result">{{ c.state.deviceResults[item.snapshot_id] }}</div>
               </td>
               <td class="max-md:hidden">{{ item.source_id }}</td>
-              <td><span class="tag dot" :class="c.completionView(item.completion_source).tag" :style="c.completionView(item.completion_source).style">{{ c.completionView(item.completion_source).label }}</span></td>
+              <td><span class="tag dot max-md:!whitespace-normal" :class="c.completionView(item.completion_source).tag" :style="c.completionView(item.completion_source).style">{{ c.completionView(item.completion_source).label }}</span></td>
               <td class="max-md:hidden" :title="item.size">{{ c.size(item.size) }}</td>
               <td class="max-md:hidden">{{ c.when(item.mtime_utc) }}</td><td class="max-md:hidden">{{ item.snapshot_version }}</td>
             </tr>
