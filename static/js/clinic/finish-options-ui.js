@@ -49,7 +49,7 @@ export function createFinishOptionsController({ workflow, client, vue, newKey })
             state.step = 'done';
             if (!withOutput) return;
             state.step = 'output';
-            output = createOutputViewController({ client, dictationId, vue, newKey, loadPreferences: false });
+            output = createOutputViewController({ client, dictationId, vue, newKey });
             if (!await output.load()) {
                 state.error = 'Die Ausgabeziele konnten nicht geladen werden.';
             } else if (result.data?.transcript_revision_id !== revision || output.releasedRevisionId.value !== revision) {

@@ -26,6 +26,7 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from wtforms.validators import ValidationError
 
 from src.clinic import policy, pool_policy, presets
+from src.clinic.app_wiring import active_author_pool, choose_author_pool
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
 from src.clinic.workflow import ClinicWorkflowDictation
@@ -110,11 +111,11 @@ def validate_marker(marker: str | None) -> None:
 
 
 def visible_templates(user_id: int, include_system: bool = True) -> list[presets.ClinicTemplate]:
-    """Active templates the user may read: system, own author pools, own user templates."""
-    pool_ids = list(pool_policy.author_pool_ids(user_id))
+    """Active system, personal, and selected author-pool templates."""
+    pool_id = choose_author_pool(user_id)
     return presets.list_templates(
         user_id=str(user_id),
-        pool_ids=pool_ids,
+        pool_ids=[pool_id] if pool_id else None,
         include_system=include_system,
         session=db.session,
     )
@@ -179,12 +180,10 @@ def _can_read_template(actor_id: int, row: presets.ClinicTemplate) -> bool:
     user = db.session.get(User, actor_id)
     if user is None or not user.is_active:
         return False
-    if user.is_admin:
-        return True
-    if row.scope == "system":
-        return True
     if row.scope == "user":
         return row.scope_id == str(actor_id)
+    if user.is_admin or row.scope == "system":
+        return True
     if row.scope == "pool":
         allowed_pools = {str(p) for p in pool_policy.author_pool_ids(actor_id)}
         return str(row.scope_id) in allowed_pools
@@ -226,7 +225,11 @@ def _authorized_dictation_scope(actor_id: int, dictation_id: str) -> tuple[int, 
         ))
     if not pool_policy.decide(subject, "view", row).allowed:
         raise TemplateError("not_found", 404)
-    return row.author_user_id, row.pool_id
+    pool_id = row.pool_id
+    if row.author_user_id == actor_id and pool_id is not None:
+        if not any(pool.id == pool_id for pool in active_author_pool(actor_id).pools):
+            pool_id = None
+    return row.author_user_id, pool_id
 
 
 def _belongs_to_dictation_author(
@@ -255,11 +258,17 @@ def templates_for_dictation(actor_id: int, dictation_id: str) -> list[presets.Cl
     )
 
 
+def _can_read_active_template(actor_id: int, row: presets.ClinicTemplate) -> bool:
+    if row.scope == "pool" and row.scope_id != choose_author_pool(actor_id):
+        return False
+    return _can_read_template(actor_id, row)
+
+
 def _can_read_requested(actor_id: int, row: presets.ClinicTemplate) -> bool:
     """Own-scope read, or the author's template while the caller holds that case."""
     dictation_id = _requested_dictation_id()
     if dictation_id is None:
-        return _can_read_template(actor_id, row)
+        return _can_read_active_template(actor_id, row)
     try:
         author_id, pool_id = _authorized_dictation_scope(actor_id, dictation_id)
     except TemplateError:
@@ -280,7 +289,7 @@ def assign_template(
     source = s.get(presets.ClinicTemplate, str(template_id))
     if source is None or not source.is_active:
         raise TemplateError("unknown_template", 404)
-    if not _can_read_template(actor_id, source):
+    if not _can_read_active_template(actor_id, source):
         raise TemplateError("unknown_template", 404)
 
     target_sid = _check_scope_permission(actor_id, target_scope, str(target_scope_id) if target_scope_id else None)
@@ -582,10 +591,8 @@ def delete_template(template_id: uuid.UUID):
         return _problem("not_found", 404)
 
     # Permission check for deactivation
-    if not _can_read_template(current_user.id, row):
+    if not _can_read_active_template(current_user.id, row):
         return _problem("not_found", 404)
-    if row.scope == "user" and row.scope_id != str(current_user.id):
-        return _problem("unauthorized", 403)
     if row.scope == "system":
         user = db.session.get(User, current_user.id)
         if not (user and getattr(user, "is_admin", False)):
