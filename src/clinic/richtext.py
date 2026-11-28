@@ -181,6 +181,12 @@ def load_document(revision_id: str, version: int) -> CanonicalDocument | None:
     return None if row is None else CanonicalDocument.from_payload(row.payload)
 
 
+def load_latest_document(revision_id: str) -> tuple[int, CanonicalDocument | None]:
+    """Read the latest version and document together for an already authorized revision."""
+    row = _latest_snapshot(revision_id)
+    return (0, None) if row is None else (row.version, CanonicalDocument.from_payload(row.payload))
+
+
 def save_document(
     dictation: ClinicDictation, revision: ClinicTranscriptRevision, document: CanonicalDocument,
     *, expected_version: int, actor_user_id: int, lease_generation: int, now: datetime,

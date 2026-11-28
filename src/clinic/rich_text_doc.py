@@ -199,6 +199,7 @@ def to_html(doc: Document) -> str:
 
     Only emits <p>, <h1>..<h3>, <ul>, <li>, <strong>, <em>, <u>, <br>
     and <img> for an authorized local graphic. Text and alt text are escaped.
+    Inline styles come from the bounded layout fields of validated nodes and runs.
     """
     if not isinstance(doc, Document):
         raise RichTextError("invalid_type", "doc must be a Document")
@@ -207,6 +208,7 @@ def to_html(doc: Document) -> str:
     in_list = False
 
     for node in doc.nodes:
+        style = _style_attr({'text-align': node.text_align, 'line-height': node.line_spacing})
         if node.kind == "graphic":
             if in_list:
                 parts.append("</ul>")
@@ -218,7 +220,7 @@ def to_html(doc: Document) -> str:
             if not in_list:
                 parts.append("<ul>")
                 in_list = True
-            parts.append("<li>")
+            parts.append(f"<li{style}>")
             parts.append(_runs_to_html(node.runs))
             parts.append("</li>")
         else:
@@ -227,11 +229,11 @@ def to_html(doc: Document) -> str:
                 in_list = False
             if node.kind == "heading":
                 tag = f"h{node.level}"
-                parts.append(f"<{tag}>")
+                parts.append(f"<{tag}{style}>")
                 parts.append(_runs_to_html(node.runs))
                 parts.append(f"</{tag}>")
             else:  # paragraph
-                parts.append("<p>")
+                parts.append(f"<p{style}>")
                 parts.append(_runs_to_html(node.runs))
                 parts.append("</p>")
 
@@ -239,6 +241,11 @@ def to_html(doc: Document) -> str:
         parts.append("</ul>")
 
     return "".join(parts)
+
+
+def _style_attr(declarations: dict[str, str | float | None]) -> str:
+    style = ";".join(f"{name}:{value}" for name, value in declarations.items() if value is not None)
+    return f' style="{style}"' if style else ""
 
 
 def _runs_to_html(runs: tuple[Run, ...]) -> str:
@@ -251,6 +258,10 @@ def _runs_to_html(runs: tuple[Run, ...]) -> str:
             text = f"<em>{text}</em>"
         if run.underline:
             text = f"<u>{text}</u>"
+        size = None if run.font_size_pt is None else f"{run.font_size_pt}pt"
+        style = _style_attr({'font-family': run.font_family, 'font-size': size})
+        if style:
+            text = f"<span{style}>{text}</span>"
         parts.append(text)
     return "".join(parts)
 

@@ -1447,14 +1447,17 @@ def register_clinic_audio(flask_app):
     durable (clinic_dictation_protection). The mounted sdict export uses that same current
     revision. A source that cannot be read stays empty and is never replaced by synthetic audio.
     """
+    from flask import abort
     from src.clinic import (app_wiring, bundle_store, config, local_tts, policy, pool_policy,
-                            revisions, routes_audio, routes_bundle, routes_clipboard, routes_correction,
+                            revisions, richtext, routes_audio, routes_bundle, routes_clipboard, routes_correction,
                             routes_correction_documents, routes_dictation_properties, routes_live,
                             routes_output, routes_tts, startup)
     from src.clinic.admin_dictation_access import can_open_content
+    from src.clinic.clipboard_ledger import AuditClipboardLedger
     from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
     from src.clinic.models import ClinicDictation
+    from src.clinic.rich_text_doc import RichTextError
     from src.clinic import routes_live_drafts
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
@@ -1488,7 +1491,21 @@ def register_clinic_audio(flask_app):
 
     def bundle_load(_actor, dictation_id):
         dictation = db.session.get(ClinicDictation, dictation_id)
-        return None if dictation is None else bundle_store.load(dictation, originals_root, load_sources)
+        if dictation is None:
+            return None
+        loaded = bundle_store.load(dictation, originals_root, load_sources)
+        if loaded is None:
+            return None
+        head = revisions.current_revision(dictation)
+        if head is not None and db.session.get(bundle_store.ClinicBundleDocument, head.id) is None:
+            try:
+                _, doc = richtext.load_latest_document(head.id)
+            except RichTextError:
+                abort(409)
+            if doc is not None:
+                return routes_bundle.BundleSession(
+                    doc=doc, audio=loaded.audio, version=loaded.version, audio_synced=loaded.audio_synced)
+        return loaded
 
     def bundle_persist(actor, dictation_id, doc, audio, expected):
         return bundle_store.persist(db.session.get(ClinicDictation, dictation_id), actor, doc, audio,
@@ -1536,7 +1553,7 @@ def register_clinic_audio(flask_app):
     flask_app.register_blueprint(routes_tts.TtsApi(tts_load, lambda: None, None).blueprint)
     flask_app.register_blueprint(routes_clipboard.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
-        source_for=routes_output.output_source, ledger={}))
+        source_for=routes_output.output_source, ledger=AuditClipboardLedger()))
     flask_app.register_blueprint(routes_output.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         adapter_for=lambda: routes_output.configured_adapter(flask_app)))
