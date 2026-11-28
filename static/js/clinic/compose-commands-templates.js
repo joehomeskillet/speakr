@@ -34,7 +34,6 @@ export const KINDS = Object.freeze([
 ]);
 
 export const TEXT = Object.freeze({
-    eyebrow: 'Verwaltung',
     title: 'Befehle und Vorlagen',
     subline: 'Erlaubte Webbefehle und editierbare Textbausteine. Schutzbedürftige Aktionen erfordern eine bewusste Bestätigung.',
     kinds: 'Ressourcenwahl',
@@ -163,7 +162,6 @@ export const COMMANDS_TEMPLATES_TEMPLATE = `
 <section class="v8-page clinic-commands-templates-view" data-testid="clinic-commands-templates-view" aria-labelledby="cct-title">
   <div class="pagehead">
     <div>
-      <div class="eyebrow">${TEXT.eyebrow}</div>
       <h1 id="cct-title">${TEXT.title}</h1>
       <p class="subline">${TEXT.subline}</p>
     </div>

@@ -191,12 +191,13 @@ describe('V8 prototype markup', () => {
 
     it('follows the DOM of the prototype Arbeitsliste page', () => {
         for (const part of [
-            'class="page-head"', 'class="eyebrow"', 'class="count-pill"', 'class="subtitle"', 'class="last-update"', 'class="icon-btn"',
+            'class="page-head"', 'class="count-pill"', 'class="subtitle"', 'class="last-update"', 'class="icon-btn"',
             'class="metrics"', 'class="metric"', 'class="workspace"', 'class="listbody"', 'class="table-container"',
             'class="worktable"', 'class="titlecell"', 'class="mini-rec"', 'class="pool-pill"', 'class="entity-name"',
             'class="filter-pill"', 'class="num-circle"', 'class="tablefooter"', 'class="detailhead"', 'class="detail-line"',
             'data-testid="refresh-button"', 'data-testid="last-update"', 'data-testid="detail-panel"', 'data-testid="open-dictation"',
         ]) expect(tpl).toContain(part);
+        expect(tpl).not.toContain('class="eyebrow"');
         expect(tpl).toContain('c.text.refresh');
         expect(tpl).toContain('v8-page');
     });
