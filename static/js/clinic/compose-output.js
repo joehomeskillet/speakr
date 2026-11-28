@@ -62,6 +62,7 @@ export const TEXT = Object.freeze({
     defaultsChanged: 'Die Standardziele wurden bereits geändert. Bitte laden Sie die Seite neu.',
     kisUnavailable: 'Ausgabe ans KIS nicht verfügbar.',
     download: 'Laden',
+    downloadLabel: 'Herunterladen',
     downloadStarted: 'Download gestartet',
     downloadHint: 'Ob die Datei auf diesem Gerät gespeichert wurde, bestätigt der Browser nicht.',
     status: 'Status prüfen',
@@ -417,7 +418,7 @@ export const OutputView = {
                 <td>
                   <div class="actions">
                     <a v-if="c.downloadUrl(t.id)" :href="c.downloadUrl(t.id)" download class="button small" style="min-height: 48px; overflow-wrap: anywhere"
-                       @click="c.markDownloadStarted(t.id)">{{ TEXT.download }}</a>
+                       :aria-label="TEXT.downloadLabel" @click="c.markDownloadStarted(t.id)">{{ TEXT.download }}</a>
                     <button v-else type="button" class="small" style="min-height: 48px" :aria-label="TEXT.export" :disabled="!c.canExport(t.id)" @click="c.exportTo(t.id)">{{ TEXT.start }}</button>
                     <button v-if="c.results.value[t.id] && c.results.value[t.id].job && ['pending', 'unknown'].includes(c.results.value[t.id].phase)"
                             type="button" class="small" style="min-height: 48px" @click="c.refreshStatus(t.id)">{{ TEXT.status }}</button>

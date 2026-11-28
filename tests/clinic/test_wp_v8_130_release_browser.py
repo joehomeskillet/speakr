@@ -336,6 +336,7 @@ def test_review_and_release_current_bound_versions(review_scene, tmp_path):
                 assert all(session.get(AuditEvent, key).to_dict() == value for key, value in prior_audit.items())
             page.locator(f'[data-testid=open-link][data-id="{did}"]').click()
             page.get_by_test_id("clinic-dictation-link-review").click()
+            mount._dismiss_session_review(page)
             _capture(page, review.get_by_role('heading', name='Prüfentscheidung'), tmp_path, 'p07-finished')
             output_page.get_by_test_id('clinic-dictation-back').click()
             output = _open_output(output_page, did)

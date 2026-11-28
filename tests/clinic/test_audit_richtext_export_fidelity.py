@@ -57,6 +57,12 @@ def export_client(monkeypatch):
     LoginManager(app).user_loader(lambda uid: User(int(uid)))
     state = {"session": BundleSession(_document(), WAV, 4), "graphic": PNG, "requested": []}
 
+    def load(actor, dictation_id, include_audio):
+        if actor == 7 and dictation_id == DID:
+            saved = state["session"]
+            return BundleSession(saved.doc, saved.audio if include_audio else b"", saved.version)
+        return None
+
     def load_graphic(actor, dictation_id, object_id):
         state["requested"].append((actor, dictation_id, object_id))
         if state["graphic"] is None:
@@ -67,7 +73,7 @@ def export_client(monkeypatch):
         raise AssertionError("not used by export")
 
     app.register_blueprint(create_blueprint(
-        lambda actor, did: state["session"] if actor == 7 and did == DID else None,
+        load,
         lambda actor, did, action: actor == 7 and did == DID and action == "export",
         unused, unused, lambda: True, load_graphic,
     ))
