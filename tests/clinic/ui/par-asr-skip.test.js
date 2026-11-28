@@ -14,12 +14,14 @@ function mount(detail, skip = () => skipped, acquire = hold) {
     const request = vi.fn(async (path, options) => {
         if (path.endsWith('/detail')) return detail();
         if (path.endsWith('/asr/skip')) return skip(options);
-        if (path.endsWith('/leases') && options?.method === 'POST') return acquire();
+        if (path.endsWith('/leases')) return options?.method === 'POST' ? acquire() : ok({ may_acquire: true });
         if (path.endsWith('/correction')) return ok({ text_revision_id: null, text: '' });
         return ok({ items: [] });
     });
     const client = { request, switchContext() {} };
-    controller = createCorrectionViewController({ client, dictationId: 'd1', currentUser: { id: 7 }, contract: 'v8' });
+    controller = createCorrectionViewController({
+        client, dictationId: 'd1', currentUser: { id: 7 }, contract: 'v8', openMode: 'correction',
+    });
     const calls = (suffix) => request.mock.calls.filter(([path]) => path.endsWith(suffix));
     return { c: controller, calls };
 }
@@ -33,6 +35,8 @@ it('polls without reloading text and opens the editor once after the deadline', 
     let wait = waiting;
     const { c, calls } = mount(() => ok(wait));
     await c.start();
+    expect(calls('/leases').filter(([, opts]) => opts?.method === 'POST')).toHaveLength(0);
+    expect(c.editor.canEdit.value).toBe(false);
     const initialReads = calls('/correction').length;
     const initialAudioReads = calls('/audio-revisions/current').length;
     expect(c.asrWait.value.can_start_manual).toBe(false);

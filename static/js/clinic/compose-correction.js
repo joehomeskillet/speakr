@@ -1033,8 +1033,12 @@ export function createCorrectionViewController(options) {
     async function open() {
         const waiting = v8 && refreshAsrWait();
         if (opts.openMode === 'correction') {
-            const [res] = await Promise.all([client.request(dictationPath + '/leases'), waiting]);
-            if (!disposed && !asrWait.value && res.outcome === 'ok' && res.data?.may_acquire === true) await editor.acquire();
+            await waiting;
+            if (disposed) return null;
+            if (!asrWait.value) {
+                const res = await client.request(dictationPath + '/leases');
+                if (!disposed && !asrWait.value && res.outcome === 'ok' && res.data?.may_acquire === true) await editor.acquire();
+            }
         }
         const [res] = await Promise.all([load(), waiting]);
         if (!disposed && !res?.ok && opts.openMode === 'correction'
