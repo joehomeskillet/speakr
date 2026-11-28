@@ -10,9 +10,9 @@
  * The view adds only what the children do not show: the origin of each workstation value
  * (personal, centrally fixed, or centrally limited; the API sends workstation, central, ceiling). The origins are
  * read from the workstation answer the preferences child already requests (a tap on the shared client, no second
- * request). A refused request (403) hides the whole page content and shows only the denial, so no
- * system area is disclosed. A change of the current user switches the client context (aborting
- * in-flight calls) and remounts the children. Leaving the view aborts in-flight calls. The server is
+ * request). A refused child request (403) hides the whole page. The active-pool picker uses the
+ * client directly so a refused selection only updates that panel. Changing users switches the client
+ * context (aborting in-flight calls) and remounts the children. Leaving the view aborts in-flight calls. The server is
  * authoritative for every value; colours come from tokens.js. The only values kept in the browser are the
  * workstation pedal key settings, written exclusively through pedal-ui.js (keys and seconds, no clinical data).
  *
@@ -31,6 +31,24 @@ import {
 import { createSampleRecorder, createVoiceConsentController } from './voice-consent-ui.js';
 
 const WORKSTATION_PATH = /^\/preferences\/workstations\/[^/]+$/;
+const ACTIVE_POOL_PATH = '/preferences/active-pool';
+
+const ACTIVE_POOL_LABELS = Object.freeze({
+    title: 'Gemeinsame Wörter und Vorlagen',
+    ready: 'Hier wählen Sie, welche gemeinsamen Wörter und Vorlagen Sie verwenden.',
+    loading: 'Auswahl wird geladen …',
+    saving: 'Auswahl wird gespeichert …',
+    saved: 'Auswahl gespeichert.',
+    empty: 'Für Sie sind keine gemeinsamen Wörter und Vorlagen verfügbar. Wenn Sie eine Gruppe vermissen, wenden Sie sich an die Verwaltung.',
+    reselection: 'Ihre bisherige Auswahl ist nicht mehr verfügbar. Bitte wählen Sie neu.',
+    readError: 'Die Auswahl konnte nicht geladen werden.',
+    writeError: 'Auswahl nicht gespeichert. Bitte versuchen Sie es erneut.',
+    unavailable: 'Diese Auswahl ist nicht mehr verfügbar.',
+});
+
+function emptyActivePool() {
+    return { pools: [], poolId: '', selected: '', status: 'loading' };
+}
 
 export const ORIGIN_LABELS = Object.freeze({
     workstation: 'Persönlich (Arbeitsplatz)',
@@ -102,6 +120,7 @@ export function createSettingsController(deps) {
     const client = deps.client;
     const state = (deps.makeState || ((o) => o))({
         userId: null, epoch: 0, denied: true, forbidden: false, origins: {},
+        activePool: emptyActivePool(), recipientRevision: 0,
     });
     let disposed = false;
 
@@ -118,8 +137,9 @@ export function createSettingsController(deps) {
     // Same surface as the shared client; every answer is observed once.
     const tapped = {
         request: async (path, options) => {
+            const epoch = state.epoch;
             const res = await client.request(path, options);
-            note(path, options, res);
+            if (state.epoch === epoch) note(path, options, res);
             return res;
         },
         command: (...args) => client.command(...args),
@@ -134,8 +154,53 @@ export function createSettingsController(deps) {
         state.denied = id === null;
         state.forbidden = false;
         state.origins = {};
+        state.activePool = emptyActivePool();
         state.epoch += 1;
         client.switchContext({ accountId: id, dictationId: null });
+    }
+
+    function applyActivePool(result, status) {
+        const data = result?.data;
+        if (result?.outcome !== 'ok' || !Array.isArray(data?.pools)) return false;
+        const pool = state.activePool;
+        pool.pools = data.pools;
+        pool.poolId = pool.selected = data.pool_id ?? '';
+        pool.status = !pool.pools.length ? 'empty' : data.reselection_required ? 'reselection' : status;
+        return true;
+    }
+
+    async function loadActivePool(rejectedId = '') {
+        if (disposed || state.denied || state.forbidden) return;
+        const pool = state.activePool;
+        pool.status = 'loading';
+        const result = await client.request(ACTIVE_POOL_PATH);
+        if (disposed || pool !== state.activePool) return;
+        const previous = pool.poolId;
+        if (!applyActivePool(result, rejectedId ? 'writeError' : 'ready')) {
+            pool.pools = [];
+            pool.selected = '';
+            pool.status = 'readError';
+            return;
+        }
+        const revoked = rejectedId && !pool.pools.some((entry) => entry.id === rejectedId);
+        if (revoked && pool.status === 'writeError') pool.status = 'unavailable';
+        if (revoked || (previous !== pool.poolId && (previous || rejectedId))) state.recipientRevision += 1;
+    }
+
+    async function saveActivePool(poolId) {
+        const pool = state.activePool;
+        if (disposed || state.denied || state.forbidden || pool.status === 'loading' || pool.status === 'saving'
+            || poolId === pool.poolId || !pool.pools.some((entry) => entry.id === poolId)) return;
+        pool.status = 'saving';
+        const result = await client.request(ACTIVE_POOL_PATH, { method: 'PUT', body: { pool_id: poolId } });
+        if (disposed || pool !== state.activePool) return;
+        if (applyActivePool(result, 'saved')) {
+            state.recipientRevision += 1;
+        } else {
+            pool.selected = pool.poolId;
+            if (result?.status === 403) await loadActivePool(poolId);
+            else pool.status = 'writeError';
+        }
     }
 
     function originRows() {
@@ -154,7 +219,7 @@ export function createSettingsController(deps) {
     }
 
     setUser(deps.currentUser);
-    return { state, client: tapped, setUser, originRows, dispose };
+    return { state, client: tapped, setUser, originRows, loadActivePool, saveActivePool, dispose };
 }
 
 const HISTORY_STATUS = Object.freeze({ granted: 'Einwilligung erteilt', revoked: 'Einwilligung widerrufen' });
@@ -413,6 +478,117 @@ const CONSENT_TEMPLATE = `
   </div>
 </section>`;
 
+const NOTIFICATION_PATH = '/preferences/notifications';
+const NOTIFICATION_LABELS = Object.freeze({
+    acceptance_requested: 'Abnahme angefordert',
+    acceptance_rejected: 'Abnahme abgelehnt',
+    accepted: 'Diktat abgenommen',
+    completed: 'Diktat fertiggestellt',
+});
+
+const NOTIFICATION_TEMPLATE = `
+<section class="panel" aria-labelledby="clinic-settings-notifications-title" data-testid="clinic-settings-notifications">
+  <h2 id="clinic-settings-notifications-title" style="overflow-wrap: break-word">Benachrichtigungen</h2>
+  <p v-if="rows.length" class="hint">Wählen Sie, welche Hinweise Sie in Speakr erhalten möchten.</p>
+  <label v-for="row in rows" :key="row.event" class="inline-label min-h-12">
+    <input type="checkbox" class="shrink-0" :name="row.event" :checked="row.enabled" :aria-disabled="busy"
+           @change="save(row, $event)">
+    <span>{{ row.label }}</span>
+  </label>
+  <p v-if="choices && !rows.length" class="hint">Für Sie sind keine Benachrichtigungen zur Auswahl verfügbar.</p>
+  <p role="status" :class="message && (warning ? '${NOTE_WARNING}' : 'note')">{{ message }}</p>
+  <button v-if="!choices && warning && !busy" class="secondary mt-ui-2 min-h-12" type="button" @click="load">
+    Erneut laden
+  </button>
+</section>`;
+
+function notificationChoices(res) {
+    const data = res?.data;
+    const channel = data?.channels?.in_app;
+    if (res?.outcome !== 'ok' || !Number.isInteger(data?.version) || data.version < 0
+        || !channel || typeof channel !== 'object' || Array.isArray(channel)) return null;
+    return data;
+}
+
+function createNotificationSettingsComponent(Vue, client, settingsState) {
+    return {
+        name: 'ClinicNotificationSettings',
+        template: NOTIFICATION_TEMPLATE,
+        setup() {
+            const epoch = settingsState.epoch;
+            let disposed = false;
+            const active = () => !disposed && settingsState.epoch === epoch;
+            Vue.onBeforeUnmount(() => { disposed = true; });
+
+            const choices = Vue.shallowRef(null);
+            const busy = Vue.ref(false);
+            const message = Vue.ref('');
+            const warning = Vue.ref(false);
+            const rows = Vue.computed(() => Object.entries(NOTIFICATION_LABELS).flatMap(([event, label]) => {
+                const enabled = choices.value?.channels.in_app[event];
+                return typeof enabled === 'boolean' ? [{ event, label, enabled }] : [];
+            }));
+
+            async function readChoices(afterConflict = false) {
+                let current = null;
+                try {
+                    current = notificationChoices(await client.request(NOTIFICATION_PATH));
+                } catch {
+                    current = null;
+                }
+                if (!active()) return;
+                choices.value = current;
+                warning.value = afterConflict || !current;
+                message.value = !current ? 'Benachrichtigungen konnten nicht geladen werden.'
+                    : afterConflict ? 'Die Einstellungen wurden inzwischen geändert. Bitte wählen Sie erneut.' : '';
+            }
+
+            async function load() {
+                if (busy.value || !active()) return;
+                busy.value = true;
+                warning.value = false;
+                message.value = 'Benachrichtigungen werden geladen …';
+                await readChoices();
+                if (active()) busy.value = false;
+            }
+
+            async function save(row, change) {
+                const input = change.target;
+                const enabled = input.checked;
+                input.checked = row.enabled;
+                if (busy.value || !active() || enabled === row.enabled) return;
+                busy.value = true;
+                warning.value = false;
+                message.value = 'Wird gespeichert …';
+                try {
+                    const res = await client.request(NOTIFICATION_PATH, {
+                        method: 'PUT', body: { event: row.event, enabled, expected_version: choices.value.version },
+                    });
+                    if (!active()) return;
+                    if (res?.outcome === 'conflict' || res?.status === 409 || res?.code === 'stale_version') {
+                        message.value = 'Der aktuelle Stand wird geladen …';
+                        await readChoices(true);
+                    } else {
+                        const saved = notificationChoices(res);
+                        if (saved?.channels.in_app[row.event] !== enabled) throw new Error('Unconfirmed preference');
+                        choices.value = saved;
+                        message.value = `${row.label}: ${enabled ? 'eingeschaltet' : 'ausgeschaltet'}. Gespeichert.`;
+                    }
+                } catch {
+                    if (!active()) return;
+                    warning.value = true;
+                    message.value = 'Speichern konnte nicht bestätigt werden. Bitte versuchen Sie es erneut.';
+                } finally {
+                    if (active()) busy.value = false;
+                }
+            }
+
+            Vue.onMounted(load);
+            return { choices, rows, busy, warning, message, load, save };
+        },
+    };
+}
+
 export const SETTINGS_TEMPLATE = `
 <div class="clinic-settings-view v8-page ${HEADINGS}">
   <nav class="breadcrumb" aria-label="Brotkrumennavigation">
@@ -431,7 +607,22 @@ export const SETTINGS_TEMPLATE = `
   <template v-else>
     <div class="grid equal">
       <div class="space-y-5 min-w-0">
-        <section class="panel clinic-settings-prefs ${CHILD_BUTTONS} ${CHOICES}"><component :is="preferences" :key="'p:' + state.epoch"></component></section>
+        <section class="panel" aria-labelledby="active-pool-title" data-testid="active-pool-settings">
+          <div class="space-y-2">
+            <h2 id="active-pool-title"><label for="active-pool-select">{{ activePoolLabels.title }}</label></h2>
+            <select id="active-pool-select" data-testid="active-pool-select" style="min-height: 48px; border-color: var(--v8-muted)"
+                    aria-describedby="active-pool-status" v-model="state.activePool.selected"
+                    :disabled="!state.activePool.pools.length || ['loading', 'saving'].includes(state.activePool.status)"
+                    @change="saveActivePool($event.target.value)">
+              <option value="" disabled>{{ state.activePool.status === 'empty' ? 'Keine Gruppe verfügbar' : 'Bitte wählen' }}</option>
+              <option v-for="pool in state.activePool.pools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
+            </select>
+            <p id="active-pool-status" data-testid="active-pool-status" class="hint" role="status">{{ activePoolLabels[state.activePool.status] }}</p>
+            <button v-if="state.activePool.status === 'readError'" type="button" class="secondary" style="min-height: 48px"
+                    @click="loadActivePool()">Erneut laden</button>
+          </div>
+        </section>
+        <section class="panel clinic-settings-prefs ${CHILD_BUTTONS} ${CHOICES}"><component :is="preferences" :key="'p:' + state.epoch + ':' + state.recipientRevision"></component></section>
         <section role="region" :aria-label="labels.origins" class="panel" data-testid="clinic-settings-origins">
           <h2>{{ labels.origins }}</h2>
           <p v-if="!rows().length" class="hint" role="status" aria-live="polite" data-testid="clinic-settings-empty">{{ labels.empty }}</p>
@@ -442,6 +633,7 @@ export const SETTINGS_TEMPLATE = `
             </div>
           </dl>
         </section>
+        <component :is="notifications" :key="'n:' + state.epoch"></component>
       </div>
       <div class="space-y-5 min-w-0">
         <section class="panel clinic-settings-correction ${CHOICES} [&_legend]:!text-[16px] [&_legend]:!mb-[14px] [&_legend]:tracking-[-0.2px] [&_[role=alert]]:mt-3 [&_[role=alert]]:rounded-lg [&_[role=alert]]:border [&_[role=alert]]:border-[color:var(--line)] [&_[role=alert]]:bg-[var(--v8-s2)] [&_[role=alert]]:p-3 [&_[role=alert]]:text-xs [&_.clinic-correction-mode]:grid [&_.clinic-correction-mode]:grid-cols-[auto_1fr] [&_.clinic-correction-mode]:gap-x-2 [&_.clinic-correction-mode]:items-baseline [&_.clinic-correction-mode]:text-[13px] [&_.clinic-correction-mode_small]:col-start-2 [&_.clinic-correction-mode_small]:text-[color:var(--v8-muted)]"><component :is="correction" :audio="audio" :client="client" :vue="vue" :key="'c:' + state.epoch"></component></section>
@@ -477,13 +669,18 @@ export const SettingsView = {
         const pedal = Vue.markRaw(createPedalSettingsComponent(Vue));
         const handmic = Vue.markRaw(createHandmicSettingsComponent(Vue, globalThis.navigator?.hid));
         const consent = Vue.markRaw(createConsentComponent(Vue, ctrl.client, { t: props.t }));
+        const notifications = Vue.markRaw(createNotificationSettingsComponent(Vue, ctrl.client, ctrl.state));
         const s = surfaceFor('error');
         const errorStyle = { background: s.background, color: s.color, borderColor: s.border };
-        Vue.watch(() => userIdOf(props.currentUser), () => ctrl.setUser(props.currentUser));
+        Vue.watch(() => userIdOf(props.currentUser), () => {
+            ctrl.setUser(props.currentUser);
+            return ctrl.loadActivePool();
+        }, { immediate: true });
         Vue.onBeforeUnmount(() => ctrl.dispose());
         return {
             state: ctrl.state, labels: LABELS, rows: ctrl.originRows, client: ctrl.client, vue: props.vue,
-            audio: NO_AUDIO, preferences, correction, pedal, handmic, consent, errorStyle,
+            audio: NO_AUDIO, preferences, correction, pedal, handmic, consent, notifications, errorStyle,
+            activePoolLabels: ACTIVE_POOL_LABELS, loadActivePool: ctrl.loadActivePool, saveActivePool: ctrl.saveActivePool,
         };
     },
 };
