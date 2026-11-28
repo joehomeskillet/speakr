@@ -20,6 +20,9 @@ AUTH: tuple[str, ...] = (
     'clinic_recordings.list_recordings',
     'clinic_offline.capability',
     'clinic_imports_web.intents',
+    'clinic_imports_web.create_intents',
+    'clinic_imports_web.device_send',
+    'clinic_imports_web.retry_intent',
     'clinic_imports_web.inventory',
     'clinic_imports_web.firmware',
     'clinic_imports_web.unassigned',
@@ -27,10 +30,14 @@ AUTH: tuple[str, ...] = (
     'clinic_imports_web.author_suggestion_view',
     'clinic_imports_web.assign',
     'clinic_imports_web.list_sources',
+    'clinic_imports_web.get_source',
     'clinic_imports_web.update_source',
+    'clinic_imports_web.create_source',
+    'clinic_imports_web.delete_source',
 )
 
 ADMIN: tuple[str, ...] = (
+    'clinic_imports_web.retention_preview',
     'clinic_agent_admin.list_agents',
     'clinic_agent_admin.enroll',
     'clinic_agent_admin.set_enabled',
