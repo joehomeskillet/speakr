@@ -525,7 +525,8 @@ export function createRecordingViewController(options) {
                 const detail = draft ? { outcome: 'ok', data: { dictation_id: id, etag: draft.etag } }
                     : await (takeId ? client.request(path + '/detail', deadline) : client.request(path + '/detail'));
                 if (detail.outcome !== 'ok' || detail.data?.dictation_id !== id || !detail.data.etag) {
-                    submitError = detail.message || 'Der aktuelle Diktatstand konnte nicht geladen werden.';
+                    submitError = takeId && ['network', 'UNKNOWN'].includes(detail.outcome)
+                        ? TEXT.takeSendFailed : detail.message || 'Der aktuelle Diktatstand konnte nicht geladen werden.';
                     return denied('detail_unavailable');
                 }
                 pendingSend = {
@@ -559,6 +560,7 @@ export function createRecordingViewController(options) {
             return denied(res.code || 'unconfirmed');
         } catch {
             if (takeId && pendingSend) scheduleRetry();
+            else if (takeId) submitError = TEXT.takeSendFailed;
             return denied('unconfirmed');
         } finally {
             if (submission === 'submitting') {

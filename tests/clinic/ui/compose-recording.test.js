@@ -100,6 +100,35 @@ describe('recording view controller', () => {
         expect(client.request).toHaveBeenCalledTimes(2);
     });
 
+    it.each(['network', 'throw'])('offers a manual retry when loading the saved take fails (%s)', async (failure) => {
+        vi.useFakeTimers();
+        const takeId = '05d0e36d-64bb-41ec-bfd3-52c278e75ca5';
+        const rec = recorder(async () => ({ dictation_id: 'd-7', take_id: takeId }));
+        const request = vi.fn();
+        if (failure === 'throw') request.mockRejectedValueOnce(new TypeError('offline'));
+        else request.mockResolvedValueOnce({ outcome: 'network', message: 'Verbindung unterbrochen.' });
+        request.mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-7', etag: 'draft' } })
+            .mockResolvedValueOnce({ outcome: 'ok', data: { dictation_id: 'd-7', status: 'zu_schreiben' } });
+        const fetchPreflight = async () => ({ ok: true, json: async () => ({
+            routable: true, staff_service_names: ['Süd'],
+        }) });
+        const { c } = make({ recorder: rec, options: { client: { request }, fetchPreflight, oneButton: true } });
+        await c.checkRouting();
+        await toReview(c);
+
+        expect((await c.sendRecording()).ok).toBe(false);
+        expect(c.model()).toMatchObject({ directSend: true, recordActionLabel: 'Erneut senden',
+            message: 'Aufnahme gespeichert. Senden hat nicht geklappt.', plannedDestination: 'Vorgesehen: Schreibdienst Süd' });
+        await vi.runAllTimersAsync();
+        expect(request).toHaveBeenCalledTimes(1);
+
+        expect(await c.sendRecording()).toEqual({ ok: true });
+        expect(rec.uploadRecordedAudio).toHaveBeenCalledOnce();
+        expect(request).toHaveBeenLastCalledWith('/dictations/d-7/send', {
+            method: 'POST', body: { take_id: takeId }, idempotencyKey: takeId, ifMatch: 'draft', timeoutMs: 20_000,
+        });
+    });
+
     it('reports the saved recording separately from the confirmed destination and visibility', async () => {
         const saved = { dictation_id: 'd-7', title: 'Diktat 27.11.2026 09:05', audio_duration: 65.8 };
         const rec = recorder(async () => saved);
