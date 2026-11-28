@@ -52,14 +52,29 @@ describe('clinic recorder upload', () => {
         expect(stock.clearRecording).not.toHaveBeenCalled();
     });
 
+    it('preserves the capture format on disk and identifies a reopened file for upload', async () => {
+        const { recorder, state, upload } = stoppedTake(() => ({ canUseLocalFiles: true }));
+        state.mediaRecorder.value.mimeType = 'audio/mp4;codecs=mp4a.40.2';
+        const saved = recorder.recordedFile();
+        expect(saved.name).toBe('aufnahme.m4a');
+        expect(saved.type).toBe('audio/mp4');
+
+        const reopened = new File([saved], saved.name);
+        recorder.openRecordedFile(reopened);
+        upload.mockResolvedValue({ id: 42 });
+        await recorder.uploadRecordedAudio({ title: 'Datei', useSpeechRecognition: false });
+        expect(upload).toHaveBeenCalledWith(reopened, 'Datei', { useSpeechRecognition: false, reopened: true });
+    });
+
     it('retains an approved offline take as unsent until a retry returns a receipt', async () => {
         const drafts = { saveTake: vi.fn(async () => true), removeTake: vi.fn() };
         const { recorder, stock, upload } = stoppedTake(() => drafts);
         vi.stubGlobal('navigator', { onLine: false });
         upload.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({}).mockResolvedValueOnce({ id: 1 });
 
-        const options = { title: 'Test', useSpeechRecognition: false, clientUploadId: 'synthetic-upload' };
-        await expect(recorder.uploadRecordedAudio(options)).rejects.toThrow('offline_retained');
+        const options = { useSpeechRecognition: false, clientUploadId: 'synthetic-upload' };
+        const take = { title: 'Test', ...options };
+        await expect(recorder.uploadRecordedAudio(take)).rejects.toThrow('offline_retained');
         const [binding, file, title] = drafts.saveTake.mock.calls[0];
         expect(await file.text()).toBe('firstlast');
         expect(title).toBe('Test');
@@ -67,12 +82,10 @@ describe('clinic recorder upload', () => {
         expect(stock.clearRecording).not.toHaveBeenCalled();
 
         vi.stubGlobal('navigator', { onLine: true });
-        await expect(recorder.uploadRecordedAudio(options)).rejects.toThrow('offline_retained');
+        await expect(recorder.uploadRecordedAudio(take)).rejects.toThrow('offline_retained');
         expect(drafts.removeTake).not.toHaveBeenCalled();
-        expect(await recorder.uploadRecordedAudio(options)).toEqual({ id: 1 });
-        expect(upload.mock.calls.map((call) => call[2])).toEqual(Array(3).fill({
-            useSpeechRecognition: false, clientUploadId: 'synthetic-upload',
-        }));
+        expect(await recorder.uploadRecordedAudio(take)).toEqual({ id: 1 });
+        expect(upload.mock.calls.map(([, , sentOptions]) => sentOptions)).toEqual([options, options, options]);
         expect(drafts.removeTake).toHaveBeenCalledOnce();
         expect(drafts.removeTake).toHaveBeenCalledWith(binding);
         expect(stock.clearRecording).toHaveBeenCalledOnce();

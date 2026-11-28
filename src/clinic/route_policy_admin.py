@@ -46,6 +46,7 @@ AUTH: tuple[str, ...] = (
     'clinic_commands.update_text_block',
     'clinic_preferences.recipient_default',
     'clinic_preferences.recipient_resolve',
+    'clinic_preferences.active_pool',
     'clinic_preferences.last_selection',
     'clinic_preferences.workstation_issue',
     'clinic_preferences.workstation',
@@ -67,6 +68,7 @@ AUTH: tuple[str, ...] = (
     'clinic_jobs.health',
     'clinic_jobs.retry',
     'clinic_statistics.aggregates',
+    'clinic_statistics.export_csv',
     # --- v8-75: own-user voice consent and voice enrollment (mounted by register_clinic_voice_consent) ---
     # Each handler authenticates the browser session itself (active user, session id match, CSRF for
     # writes) and acts only on current_user: no body or URL names a subject.
@@ -89,6 +91,7 @@ ADMIN: tuple[str, ...] = (
     'clinic_directory.preview',
     'clinic_directory.apply',
     'clinic_grants.change',
+    'clinic_preferences.central',
     'clinic_preferences.system_preset',
     'clinic_preferences.workstation_lock',
     'clinic_statistics.list_grants',

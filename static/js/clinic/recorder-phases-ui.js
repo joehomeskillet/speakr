@@ -99,7 +99,8 @@ export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = (
         const gated = gatedTake?.chunks === chunks ? gatedTake.blob : null;
         if (gated) return new File([gated], 'aufnahme.wav', { type: gated.type });
         const type = state.mediaRecorder.value.mimeType.split(';')[0];
-        return new File(chunks, 'aufnahme.webm', { type });
+        const extension = { 'audio/wav': 'wav', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a' }[type] || 'webm';
+        return new File(chunks, `aufnahme.${extension}`, { type });
     }
 
     return {
@@ -141,6 +142,7 @@ export function createClinicRecorder(audio, state, uploadFile, offlineDrafts = (
             let binding = retained.get(chunks);
             let receipt;
             try {
+                if (file === chunks[0]) uploadOptions.reopened = true;
                 receipt = await uploadFile(file, title, ...(Object.keys(uploadOptions).length ? [uploadOptions] : []));
                 if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
             } catch (error) {
