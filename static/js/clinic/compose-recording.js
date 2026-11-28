@@ -298,7 +298,9 @@ export function createRecordingViewController(options) {
     }
 
     function editableDraftId() {
-        return !routing && !pendingSend && canSubmit() ? receipt().dictation_id : null;
+        const id = receipt()?.dictation_id;
+        return !routing && !pendingSend && !submission && !state.disposed && allowed()
+            && typeof client?.request === 'function' && typeof id === 'string' && id.trim() ? id : null;
     }
 
     async function sendRecording() {
@@ -354,11 +356,13 @@ export function createRecordingViewController(options) {
             if (state.filePhase === 'failed') return TEXT.fileFailed;
             return state.fileError === 'invalid_file' ? TEXT.fileInvalid : '';
         }
+        if (s.phase === 'sent' && editableDraftId()) return TEXT.sent;
         if (s.phase === 'failed') return opts.oneButton || s.title.trim() ? TEXT.recordFailed : LABELS.titleHint;
         if (s.error === 'microphone_denied') return TEXT.microphoneDenied;
         if (s.error === 'start_failed') return TEXT.startFailed;
         if (s.error === 'discard_failed') return TEXT.discardFailed;
-        if (s.phase === 'sent') return TEXT.sent;
+        if (s.phase === 'sent') return opts.oneButton ? '' : TEXT.sent;
+        if (opts.oneButton && s.phase === 'sending') return TEXT.submitting;
         return machine.announcement();
     }
 
@@ -374,12 +378,12 @@ export function createRecordingViewController(options) {
     function model() {
         const s = machine.getState();
         const fileBusy = state.filePhase === 'sending' || state.filePhase === 'sent';
+        const directRecorderSave = !opts.draftMetadata && !routing && state.mode === 'record';
         return {
             mode: state.mode,
             phase: submission || phase(),
             routing,
             canSubmit: canSubmit(),
-            editableDraftId: editableDraftId(),
             author: displayName(user),
             authorId: String(user.id),
             title: s.title,
@@ -392,6 +396,9 @@ export function createRecordingViewController(options) {
             canCancelFile: allowed() && (state.filePhase === 'selected' || state.filePhase === 'failed'),
             canSwitchMode: allowed() && !recorderBusy() && !fileBusy,
             created: created(),
+            editableDraftId: editableDraftId(),
+            canSaveRecording: directRecorderSave && !s.receipt && ['review', 'failed'].includes(s.phase),
+            showStandaloneDraftActions: directRecorderSave && s.phase === 'sent' && !submission && !!created(),
             message: message(),
             surface: surface(),
         };
@@ -417,6 +424,7 @@ export function createRecordingViewController(options) {
         text: TEXT,
         machine,
         model,
+        saveRecording,
         subscribe(listener) {
             listeners.add(listener);
             return () => listeners.delete(listener);
@@ -427,7 +435,7 @@ export function createRecordingViewController(options) {
         stop: () => machine.stop(), rewind: () => machine.rewind(), play: () => machine.play(),
         beginning: machine.beginning, end: machine.end,
         send: () => machine.send(), cancel: () => machine.cancel(),
-        selectFile, sendFile, cancelFile, submit, saveRecording, sendRecording, checkRouting,
+        selectFile, sendFile, cancelFile, submit, sendRecording, checkRouting,
         openCreated, toWorklist, another, dispose,
     };
 }
@@ -447,6 +455,9 @@ export const RECORDING_TEMPLATE = `
          style="display: grid; place-items: center; min-height: min(56dvh, 30rem); padding: var(--ui-space-6) var(--ui-space-4); color: var(--ui-text)">
   <h1 id="crv-title" class="sr-only">{{ c.text.title }}</h1>
   <div style="width: 100%; max-width: 28rem; text-align: center">
+    <p v-if="m.showStandaloneDraftActions" role="status" aria-live="polite" data-testid="status"
+       style="margin: 0 0 var(--ui-space-3)">{{ m.message }}</p>
+    <template v-else>
     <p v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
        :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}</p>
     <template v-if="!m.routing">
@@ -473,7 +484,7 @@ export const RECORDING_TEMPLATE = `
             <button type="button" class="button accent" style="${TOUCH}" data-testid="rec-stop" :aria-keyshortcuts="shortcuts.stop" @click="c.stop()">Stopp</button>
           </div>
         </div>
-        <div v-else-if="m.phase === 'review' || m.phase === 'failed'"
+        <div v-else-if="m.phase === 'review' || m.phase === 'failed' || (m.created && m.canSubmit)"
              style="display: grid; justify-items: center; gap: var(--ui-space-3)">
           <audio v-if="!m.created && previewUrl" :ref="bindReview" controls preload="metadata" :src="previewUrl" aria-label="Aufnahme anhören"
                  @loadedmetadata="loadReview" @durationchange="c.machine.syncPlayback()" @seeked="finishDurationProbe"
@@ -482,11 +493,9 @@ export const RECORDING_TEMPLATE = `
           <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.sendRecording()">
             {{ m.phase === 'review' ? 'Senden' : 'Erneut senden' }}
           </button>
-          <button type="button" class="button" style="${TOUCH}; width: 100%" data-testid="rec-save-draft" @click="c.saveRecording()">
-            {{ m.phase === 'review' ? 'Entwurf sichern' : c.text.retrySave }}
-          </button>
-          <button type="button" class="button quiet" style="${TOUCH}; font-size: .875rem"
+          <button v-if="!m.created" type="button" class="button quiet" style="${TOUCH}; font-size: .875rem"
                   data-testid="rec-cancel" @click="discard">Neu aufnehmen</button>
+          <a v-else href="#/diktat" style="${LINK}" @click.prevent="c.openCreated()">Diktat öffnen</a>
         </div>
       </template>
       <div v-else-if="!m.created" style="display: grid; gap: var(--ui-space-3); text-align: left">
@@ -499,20 +508,35 @@ export const RECORDING_TEMPLATE = `
                   :disabled="!m.canSwitchMode" @click="backToRecorder">Zurück zur Aufnahme</button>
         </div>
       </div>
-      <div v-if="m.created && m.phase !== 'submitting'"
+      <div v-if="m.created && (m.phase === 'submitted' || m.phase === 'notDraft' || (m.mode === 'file' && m.phase !== 'submitting'))"
            data-testid="created">
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
         <div class="actions" style="justify-content: center">
-          <button v-if="m.canSubmit" type="button" class="button primary" style="${TOUCH}"
+          <button v-if="m.mode === 'file' && m.canSubmit" type="button" class="button primary" style="${TOUCH}"
                   data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
-          <button v-if="m.editableDraftId" ref="audioEditButton" type="button" class="button" style="${TOUCH}"
-                  data-testid="edit-created-audio" @click="openAudioEdits">Audio bearbeiten</button>
           <a href="#/diktat" data-testid="open-created" style="${LINK}" @click.prevent="c.openCreated()">{{ m.mode === 'file' ? c.text.open : 'Diktat öffnen' }}</a>
           <button v-if="m.mode === 'file'" type="button" class="button" style="${TOUCH}" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
           <button type="button" class="button" style="${TOUCH}" data-testid="another" @click="c.another()">{{ c.text.title }}</button>
         </div>
       </div>
     </template>
+    </template>
+    <div v-if="m.canSaveRecording" style="margin-top: var(--ui-space-3)">
+      <button type="button" class="button" style="${TOUCH}; width: 100%" data-testid="rec-save-draft" @click="c.saveRecording()">
+        {{ m.phase === 'review' ? 'Entwurf sichern' : c.text.retrySave }}
+      </button>
+    </div>
+    <div v-if="m.editableDraftId || m.showStandaloneDraftActions" class="actions"
+         style="justify-content: center; margin-top: var(--ui-space-3)">
+      <span v-if="m.showStandaloneDraftActions" class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
+      <button v-if="m.showStandaloneDraftActions && m.canSubmit" type="button" class="button primary" style="${TOUCH}"
+              data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
+      <button v-if="m.editableDraftId" ref="audioEditButton" type="button" class="button" style="${TOUCH}"
+              :disabled="m.draft?.loading || m.draft?.saving" data-testid="edit-created-audio" @click="openAudioEdits">Audio bearbeiten</button>
+      <a v-if="m.showStandaloneDraftActions" href="#/diktat" data-testid="open-created" style="${LINK}" @click.prevent="c.openCreated()">Diktat öffnen</a>
+      <button v-if="m.showStandaloneDraftActions" type="button" class="button" style="${TOUCH}"
+              data-testid="another" @click="c.another()">{{ c.text.title }}</button>
+    </div>
   </div>
 </section>`;
 
