@@ -82,6 +82,37 @@ describe('clinic api client', () => {
         expect(writes).toEqual([]);
     });
 
+    it('transports a bundle as bytes and keeps route refusals in the usual problem format', async () => {
+        const blob = new Blob([new Uint8Array([0, 255, 16])], { type: 'application/zip' });
+        fetchMock.mockResolvedValueOnce(new Response(blob));
+        fetchMock.mockResolvedValueOnce(problem(403, 'FORBIDDEN'));
+        fetchMock.mockResolvedValueOnce(http({ status: 200, body: { status: 'committed' } }));
+        const client = createClinicApiClient();
+        const path = '/bundles/d1/export';
+        const file = await client.request(path, { responseType: 'blob' });
+        expect(await file.data.arrayBuffer()).toEqual(await blob.arrayBuffer());
+        expect((await client.request(path, { responseType: 'blob' })).outcome).toBe('permission');
+        await client.request('/bundles/d1/import', { method: 'POST', rawBody: blob, ifMatch: '"1"', idempotencyKey: 'idem-key-1' });
+        const init = fetchMock.mock.calls[2][1];
+        expect(init.body).toBe(blob);
+        expect(init.headers).toMatchObject({ 'X-CSRFToken': 'csrf-one', 'If-Match': '"1"', 'Idempotency-Key': 'idem-key-1' });
+        expect(init.headers['Content-Type']).toBeUndefined();
+        expect(client.dictationChanges).toBe(1);
+    });
+
+    it('sends a PNG unchanged and rejects ambiguous binary bodies', async () => {
+        const png = new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' });
+        fetchMock.mockResolvedValueOnce(http({ status: 201, body: { object_id: 'graphic' } }));
+        const client = createClinicApiClient();
+        const path = '/dictations/d1/graphics';
+        expect((await client.request(path, { method: 'POST', png })).outcome).toBe('ok');
+        const init = fetchMock.mock.calls[0][1];
+        expect(init.body).toBe(png);
+        expect(init.headers).toMatchObject({ 'Content-Type': 'image/png', 'X-CSRFToken': 'csrf-one' });
+        expect((await client.request(path, { method: 'POST', png, rawBody: png })).outcome).toBe('validation');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it('posts a parity command with the existing CSRF transport', async () => {
         fetchMock.mockResolvedValue(http({
             status: 200,
