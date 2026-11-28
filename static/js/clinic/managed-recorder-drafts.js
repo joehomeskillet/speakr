@@ -80,6 +80,10 @@ export async function createManagedRecorderDrafts({ client, userId, vue, onLogge
     await controller.start();
     return {
         controller,
+        get canUseLocalFiles() {
+            return ['locked', 'unlocked'].includes(controller.state.phase)
+                && !controller.state.loggedOut && crypto.authorized;
+        },
         getWrapped() {
             const reference = crypto.reference;
             return reference ? storage.get(wrapKey(reference)) : null;
