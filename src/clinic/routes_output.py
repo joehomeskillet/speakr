@@ -10,10 +10,10 @@ policy itself:
   the release and revision ids and the content hash. The durable receipt lets any worker
   return the same job for a replay by the same actor. A failed render is stored on
   that same per-format receipt, so a reload still shows the failed target.
-  The target list stays txt and docx. rtf and odt are accepted on the export
-  request while clinic mode is on. GET .../exports/<job>/download returns those
-  bytes again for the owning actor and audits recording.content.read. It does
-  not prove a local save.
+  The target list defaults to txt and docx. The clinic output page requests
+  all four file formats with file_formats=all. GET .../exports/<job>/download
+  returns those bytes again for the owning actor and audits
+  recording.content.read. It does not prove a local save.
 * Existing KIS ledger entries remain readable. New KIS delivery is disabled
   unless synthetic staging explicitly enables it and uses its mock adapter.
 * The actor is always `current_user`. The injected per-object policy allows
@@ -46,7 +46,7 @@ from src.models import User
 from src.services import audit
 
 BASE = '/api/clinic/v1/dictations/<uuid:dictation_id>'
-# The target list stays txt and docx. Existing clients assert that exact list.
+# The default target list stays txt and docx for existing clients.
 # rtf and odt are accepted on POST /exports and on the download while clinic mode is on.
 FILE_FORMATS = {'txt': export_service.render_text, 'docx': export_service.render_docx}
 _CLINIC_FILE_FORMATS = {
@@ -103,7 +103,7 @@ def output_source(dictation: ClinicDictation) -> OutputSource:
 
 
 def _job_view(job: dict) -> dict:
-    return {key: value for key, value in job.items() if key not in ('actor_id', 'request')}
+    return {key: value for key, value in job.items() if key not in ('actor_id', 'request', 'stable_docx_zip')}
 
 
 def file_formats() -> dict:
@@ -214,11 +214,17 @@ def create_blueprint(
             gate = 'not_released'
         known = _latest_file_results(current_user.id, active.id) if active is not None else {}
         listed = []
-        for fmt in FILE_FORMATS:
+        include_all = request.args.get('file_formats') == 'all'
+        formats = file_formats() if include_all else FILE_FORMATS
+        for fmt in formats:
             item = {'id': fmt, 'channel': 'file', 'available': gate is None, 'reason': gate}
             if fmt in known:
-                item['status'] = known[fmt].get('status')
-                item['job_id'] = known[fmt].get('id')
+                job = known[fmt]
+                status = job.get('status')
+                # Old DOCX hashes include the render clock. Keep the receipt and offer a fresh render.
+                if include_all and fmt == 'docx' and status == 'ready' and not job.get('stable_docx_zip'):
+                    status = 'stale'
+                item.update(status=status, job_id=job.get('id'))
             listed.append(item)
         if kis_delivery_enabled():
             adapter = adapter_for()
@@ -271,12 +277,15 @@ def create_blueprint(
                 db.session.rollback()
                 return _failed_file_job(
                     job_id, fmt, dictation_id, release_id, revision_id, actor_id, 'render_failed')
-            return {
+            job = {
                 'id': job_id, 'kind': 'file', 'status': 'ready', 'format': fmt,
                 'dictation_id': dictation_id, 'release_id': release_id,
                 'revision_id': rendered.transcript_revision_id, 'filename': rendered.filename,
                 'mimetype': rendered.mimetype, 'sha256': rendered.sha256, 'actor_id': actor_id,
             }
+            if fmt == 'docx':
+                job['stable_docx_zip'] = True
+            return job
 
         try:
             job, replayed = parity_receipts.run_once_with_replay(scope, digest, render_job)
