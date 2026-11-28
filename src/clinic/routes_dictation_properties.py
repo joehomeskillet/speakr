@@ -23,9 +23,10 @@ from collections.abc import Callable
 from datetime import date, datetime, time, timezone
 from typing import Any, Protocol
 
-from flask import Blueprint, abort, jsonify, request, session
+from flask import Blueprint, abort, current_app, has_request_context, jsonify, request, session
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
+from sqlalchemy.exc import MultipleResultsFound
 from wtforms.validators import ValidationError
 
 from src.clinic import audio_format_choice, dictation_lock, pool_policy, workflow
@@ -33,6 +34,28 @@ from src.clinic.config import clinic_mode_enabled
 from src.clinic.routes_categories import CategoryError, check_submission
 
 PREFIX = "/api/clinic/v1/dictations"
+_SESSION_GRANTS = "clinic_dictation_unlocks"
+
+
+def content_unlocked(user_id: int, dictation_id: str) -> bool:
+    if not has_request_context():
+        return True
+    routes = current_app.extensions.get("clinic_dictation_protection")
+    return routes is None or routes.is_unlocked(user_id, dictation_id)
+
+
+def recording_content_unlocked(user_id: int, recording_id: int) -> bool:
+    if not has_request_context() or "clinic_dictation_protection" not in current_app.extensions:
+        return True
+    from src.clinic.web_ingest import dictation_for_recording
+
+    try:
+        dictation = dictation_for_recording(recording_id)
+    except MultipleResultsFound:
+        return False
+    return dictation is None or content_unlocked(user_id, dictation.id)
+
+
 # Identity and authority come from the session, never from the request.
 _FORBIDDEN_KEYS = frozenset({
     "actor", "actor_id", "user", "user_id", "author_user_id", "role", "roles",
@@ -143,17 +166,32 @@ class DictationPropertyRoutes:
         self.tracker = tracker or dictation_lock.LockoutTracker()
         self.clock = clock
         self.grant_seconds = grant_seconds
-        self._grants: dict[tuple[int, str], dictation_lock.UnlockGrant] = {}
+
+    def is_unlocked(self, user_id: int, dictation_id: str) -> bool:
+        return self._unlocked(user_id, dictation_id, self.store.get(dictation_id))
+
+    def _unlocked(self, user_id: int, dictation_id: str,
+                  loaded: tuple[dictation_lock.ProtectionRecord | None, int] | None) -> bool:
+        if loaded is None:
+            return True
+        record, version = loaded
+        if record is None:
+            return True
+        grant = session.get(_SESSION_GRANTS, {}).get(dictation_id) if has_request_context() else None
+        return bool(grant and grant[:2] == [user_id, version] and grant[2] > self.clock().timestamp())
 
     def access_allowed(self, user_id: int, dictation_id: str) -> bool:
-        """ACL first, then the unlock grant of this user for this very dictation."""
         loaded = self.store.get(dictation_id)
-        if loaded is None:
-            return False
-        return dictation_lock.decide_access(
-            self.store.acl_allows(user_id, dictation_id), loaded[0] is not None,
-            self._grants.get((user_id, dictation_id)),
-            user_id=user_id, dictation_id=dictation_id, now=self.clock())
+        return (loaded is not None and self.store.acl_allows(user_id, dictation_id)
+                and self._unlocked(user_id, dictation_id, loaded))
+
+    def _grant_session(self, user_id: int, dictation_id: str, version: int, now: datetime) -> datetime:
+        grant = dictation_lock.grant(user_id, dictation_id, now, self.grant_seconds)
+        grants = {key: value for key, value in session.get(_SESSION_GRANTS, {}).items()
+                  if key != dictation_id and value[0] == user_id and value[2] > now.timestamp()}
+        grants[dictation_id] = [user_id, version, grant.expires_at.timestamp()]
+        session[_SESSION_GRANTS] = dict(list(grants.items())[-16:])
+        return grant.expires_at
 
     def blueprint(self) -> Blueprint:
         bp = Blueprint("clinic_dictation_properties", __name__)
@@ -186,6 +224,11 @@ class DictationPropertyRoutes:
                            source=props["source"], title=props["title"],
                            deadline_at=deadline.isoformat() if deadline else None)
 
+        @bp.after_request
+        def no_store(response):
+            response.headers['Cache-Control'] = 'no-store'
+            return response
+
         @bp.get(PREFIX + "/<dictation_id>/protection")
         def protection_state(dictation_id: str):
             loaded = self._visible(current_user.id, dictation_id)
@@ -196,16 +239,21 @@ class DictationPropertyRoutes:
 
         @bp.put(PREFIX + "/<dictation_id>/protection")
         def set_protection(dictation_id: str):
-            loaded = self._visible(current_user.id, dictation_id)
+            uid = current_user.id
+            loaded = self._visible(uid, dictation_id)
             if loaded is None:
                 return _problem("unknown_dictation")
-            if not self.store.can_manage(current_user.id, dictation_id):
+            if not self.store.can_manage(uid, dictation_id):
                 return _problem("unauthorized")
             body = request.get_json(silent=True)
             if (not isinstance(body, dict) or _FORBIDDEN_KEYS & body.keys()
                     or isinstance(body.get("version"), bool) or not isinstance(body.get("version"), int)
                     or "secret" not in body or not isinstance(body["secret"], (str, type(None)))):
                 return _problem("invalid_payload")
+            if body["version"] != loaded[1]:
+                return _problem("stale_version", current_version=loaded[1])
+            if not self._unlocked(uid, dictation_id, loaded):
+                return _problem("unauthorized")
             try:
                 # A null secret removes the protection; a string sets it.
                 record = None if body["secret"] is None else dictation_lock.set_protection(body["secret"])
@@ -213,8 +261,13 @@ class DictationPropertyRoutes:
                 return _problem("invalid_payload")
             new_version = self.store.put(dictation_id, record, body["version"])
             if new_version is None:
-                return _problem("stale_version", current_version=self.store.get(dictation_id)[1])
-            self._drop_grants(dictation_id)
+                current = self._visible(uid, dictation_id)
+                if current is None:
+                    return _problem("unknown_dictation")
+                return _problem("stale_version", current_version=current[1])
+            if record is not None:
+                # The managing session just supplied the code for this version.
+                self._grant_session(uid, dictation_id, new_version, self.clock())
             return jsonify(protected=record is not None, version=new_version)
 
         @bp.post(PREFIX + "/<dictation_id>/unlock")
@@ -241,9 +294,8 @@ class DictationPropertyRoutes:
                 if until is not None:
                     return _problem("locked", locked_until=until.isoformat())
                 return _problem("invalid_secret")
-            grant = dictation_lock.grant(uid, dictation_id, now, self.grant_seconds)
-            self._grants[(uid, dictation_id)] = grant
-            return jsonify(unlocked=True, expires_at=grant.expires_at.isoformat())
+            expires_at = self._grant_session(uid, dictation_id, loaded[1], now)
+            return jsonify(unlocked=True, expires_at=expires_at.isoformat())
 
         return bp
 
@@ -253,7 +305,3 @@ class DictationPropertyRoutes:
         if loaded is None or not self.store.acl_allows(user_id, dictation_id):
             return None
         return loaded
-
-    def _drop_grants(self, dictation_id: str) -> None:
-        for key in [k for k in self._grants if k[1] == dictation_id]:
-            del self._grants[key]
