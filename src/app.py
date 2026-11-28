@@ -1158,11 +1158,11 @@ def register_clinic_worklist(flask_app):
     Stores are process-local; release stays fail-closed until a trusted-context source and
     the review-flag count (W11) exist, and the acceptance ledger starts as "not required, no approver".
     """
-    from datetime import datetime, timezone
+    from datetime import date, datetime, timezone
 
     from sqlalchemy import or_
 
-    from src.clinic import (policy, pool_policy, routes_categories, routes_columns, routes_dictation_detail,
+    from src.clinic import (lease, policy, pool_policy, routes_categories, routes_columns, routes_dictation_detail,
                             routes_history, routes_regex, routes_templates, routes_workflow, routes_worklist,
                             workflow, workflow_metadata, worklist_entries)
     from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger, PolicyError
@@ -1242,16 +1242,36 @@ def register_clinic_worklist(flask_app):
     def load_entries(actor):
         return worklist_entries.load_entries(actor)
 
+    def layout_policy(_actor):
+        return routes_worklist._DEFAULT_LAYOUT, routes_worklist.layout_columns(worklist_entries.active_metadata_fields())
+
     def assign_regex(actor, dictation_id, fields):
-        dictation = db.session.query(ClinicDictation).filter_by(id=dictation_id).with_for_update().first()
+        targets = {
+            'title': 'title', 'dictation_name': 'title',
+            'notes': 'notes', 'remarks': 'notes',
+            'priority': 'priority', 'urgency': 'priority',
+            'deadline': 'deadline_date', 'due_date': 'deadline_date',
+        }
+        requested = {targets[key]: value for key, value in fields.items()}
+        if 'deadline_date' in requested:
+            try:
+                requested['deadline_date'] = date.fromisoformat(requested['deadline_date'])
+            except ValueError as error:
+                raise CommandProblem('INVALID_PAYLOAD') from error
         try:
+            dictation = db.session.query(ClinicDictation).filter_by(id=dictation_id).with_for_update().first()
+            if dictation is None:
+                raise CommandProblem('POLICY_DENIED')
             applied = workflow_metadata.apply_metadata(
                 dictation_id=dictation.id, workflow_id=dictation.id, actor_user_id=actor,
                 expected_version=dictation.version_counter,
-                lease_generation=routes_workflow._generation(dictation.id), requested=fields,
+                lease_generation=routes_workflow._generation(dictation.id), requested=requested,
                 allowed_actions=allowed_actions(actor, dictation), now=datetime.now(timezone.utc))
             record_audit(applied.audit_rows)
             db.session.commit()
+        except lease.LeaseConflict as error:
+            db.session.rollback()
+            raise CommandProblem('REVISION_CONFLICT') from error
         except ChangeError as error:
             db.session.rollback()
             code = str(error)
@@ -1285,9 +1305,10 @@ def register_clinic_worklist(flask_app):
     routes_workflow.register_commands(dispatch, workflow_authorize, acceptance_policy, ledger)
     routes_worklist.register_save_filter(dispatch, filters.create)
     flask_app.register_blueprint(routes_worklist.create_blueprint(
-        load_entries, filters, layouts, load_case_displays=worklist_entries.case_displays))
+        load_entries, filters, layouts, load_case_displays=worklist_entries.case_displays,
+        load_metadata_fields=worklist_entries.active_metadata_fields))
     flask_app.register_blueprint(routes_columns.create_columns_blueprint(
-        layouts, lambda _actor: (routes_worklist._DEFAULT_LAYOUT, routes_worklist.LAYOUT_COLUMNS), run_once))
+        layouts, layout_policy, run_once))
     flask_app.register_blueprint(routes_workflow.create_blueprint(
         authorize=workflow_authorize, run_once=run_once, allowed_actions=allowed_actions,
         record_audit=record_audit, trusted_context=context_is_trusted,
@@ -1355,9 +1376,10 @@ def register_clinic_identity(flask_app):
     these modules registers a parity command, so the stored ParityDispatch is only checked
     to be present (one dispatcher, mounted once). Identity providers stay disabled (default
     EntraConfig, IWA off): their routes answer the inert 422 and the exchange never runs.
-    The directory has no provider, so it answers its capability-unavailable problem.
+    Directory comparison is disabled unless an approved provider is configured.
     The last selection is durable (clinic user-preset row per user); workstation preferences are process-local.
     """
+    from src.clinic import directory_provider
     from src.clinic import (app_wiring, entra, pool_policy, routes_admin_dictations, routes_directory, routes_grants,
                             routes_identity_providers, routes_pool_admin, routes_pools, routes_preferences)
     from src.clinic.last_selection import Allowed, PresetUserPreferences, SelectionStore
@@ -1394,6 +1416,8 @@ def register_clinic_identity(flask_app):
 
     flask_app.register_blueprint(
         routes_identity_providers.IdentityProvidersApi(entra.EntraConfig(), disabled_exchange).blueprint)
+    flask_app.extensions[directory_provider.PROVIDER_EXTENSION] = directory_provider.select_provider(
+        os.environ.get("CLINIC_DIRECTORY_PROVIDER"), os.environ.get("CLINIC_DIRECTORY_SNAPSHOT_FILE"))
     flask_app.register_blueprint(routes_directory.blueprint)
     flask_app.register_blueprint(routes_admin_dictations.blueprint)
     flask_app.register_blueprint(routes_pools.blueprint)
