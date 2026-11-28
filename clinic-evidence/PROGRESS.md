@@ -87,3 +87,7 @@ Für neue Diktate kann die erste erfolgreiche lokale Transkription eine Zusammen
 ## P-133 – Playerposition im Schreibplatz (PAR-COR-001)
 
 Teilfunktion umgesetzt und lokal mit synthetischem Audio im Browser geprüft: Die Playerleiste lässt sich per Zeiger und Pfeiltasten im sichtbaren Editorbereich verschieben und zurücksetzen. Audioelement, laufende Wiedergabe, Textauswahl und Bearbeitungslease blieben auch beim Wechsel auf 390 px erhalten. Die Prüfung auf Staging und der unveränderte Originaltest BT-COR-001 mit Referenzvergleich stehen aus; keine Aussage zur vollständigen Parität.
+
+## P-235 – Arbeitsplatzvorgaben (PAR-CFG-001)
+
+Gezielte API-/Datenbanktests mit SQLite und PostgreSQL bestätigen, dass zentrale Locks, Workflow-Presets und lokale Arbeitsplatzwerte nach einem App-Neustart erhalten bleiben. Die effektiven Werte berücksichtigen Systempflicht und Ceilings. Zentrale Schreibzugriffe erfordern einen aktiven Site-Admin und einen gültigen CSRF-Token. Der Staging-Neustarttest bleibt beim Orchestrator.
