@@ -21,22 +21,49 @@
  * which carries expected_consent_id; the client adds X-CSRF-Token and Idempotency-Key).
  */
 
-import { createPreferencesComponent } from './preferences-ui.js';
+import { createPreferencesComponent, WORKSTATION_FIELDS, WORKSTATION_ORIGINS } from './preferences-ui.js';
 import { createHandmicController } from './handmic-webhid.js';
 import { CorrectionModes } from './correction-modes-ui.js';
 import { surfaceFor } from './tokens.js';
 import {
-    ACTIONS, TEXT as PEDAL_TEXT, createKeyCapture, loadSettings, normalizeSettings, saveSettings,
+    CONFIGURABLE_ACTIONS as ACTIONS, TEXT as PEDAL_TEXT, createKeyCapture, loadSettings, normalizeSettings, saveSettings,
 } from './pedal-ui.js';
+import { getPedalWebHid } from './pedal-webhid.js';
 import { createSampleRecorder, createVoiceConsentController } from './voice-consent-ui.js';
 
 const WORKSTATION_PATH = /^\/preferences\/workstations\/[^/]+$/;
 
-export const ORIGIN_LABELS = Object.freeze({
-    workstation: 'Persönlich (Arbeitsplatz)',
-    central: 'Zentral festgelegt',
-    ceiling: 'Zentral begrenzt',
-});
+export const SessionTransportNotice = {
+    props: { client: { type: Object, default: null }, vue: { type: Object, default: null } },
+    setup(props) {
+        const V = props.vue || globalThis.Vue;
+        const message = V.ref('');
+        const blocked = V.ref(false);
+        V.onMounted(async () => {
+            if (!props.client) return;
+            const response = await props.client.request('/preferences/workstations');
+            const policy = response?.outcome === 'ok' ? response.data : null;
+            const mode = policy?.transport_mode;
+            if (mode === 'local') {
+                message.value = 'An diesem Arbeitsplatz: Angeschlossene Geräte werden hier nicht geprüft.';
+            } else if (mode === 'rdp' || mode === 'ica') {
+                const session = mode === 'rdp' ? 'Remotedesktop (RDP)' : 'Citrix (ICA)';
+                blocked.value = policy.device_redirection_verified !== true;
+                message.value = blocked.value
+                    ? `${session}: Geräteweiterleitung nicht geprüft. Die Nutzung weitergeleiteter Geräte wird nicht unterstützt.`
+                    : `${session}: Geräteweiterleitung geprüft.`;
+            } else if (response?.outcome !== 'cancelled') {
+                blocked.value = true;
+                message.value = 'Der Gerätestatus dieser Sitzung konnte nicht geprüft werden.';
+            }
+        });
+        return { message, blocked };
+    },
+    template: `<div role="status" aria-live="polite"><p v-if="message" class="note"
+        :class="{ warning: blocked }" data-testid="session-transport-status">{{ message }}</p></div>`,
+};
+
+export const ORIGIN_LABELS = WORKSTATION_ORIGINS;
 
 export const LABELS = Object.freeze({
     title: 'Einstellungen',
@@ -62,10 +89,23 @@ export const PEDAL_LABELS = Object.freeze({
     notSaved: 'Nicht gespeichert: Der Browser-Speicher ist nicht verfügbar.',
     actions: Object.freeze({
         playPause: 'Wiedergabe / Pause',
-        hold: 'Halten zum Abspielen',
+        hold: 'Halten für Aufnahme oder Wiedergabe',
         rewind: 'Zurückspulen',
         skip: 'Vorspringen',
+        recordToggle: 'Aufnahme starten / pausieren',
+        stop: 'Stopp in der Aufnahmeansicht',
     }),
+});
+
+const PEDAL_WEBHID_MESSAGES = Object.freeze({
+    unavailable: 'Dieser Browser kann das Fußpedal nicht direkt verbinden. Sie können den Tastaturmodus verwenden.',
+    idle: 'Kein Fußpedal direkt verbunden.',
+    connecting: 'Das Fußpedal wird verbunden …',
+    connected: 'Fußpedal verbunden.',
+    disconnecting: 'Das Fußpedal wird getrennt …',
+    disconnected: 'Fußpedal wurde getrennt. Sie können es erneut verbinden.',
+    unsupported: 'Dieses Fußpedal wird nicht direkt unterstützt. Sie können den Tastaturmodus verwenden.',
+    error: 'Die Verbindung ist fehlgeschlagen. Versuchen Sie es erneut oder verwenden Sie den Tastaturmodus.',
 });
 
 export const CONSENT_LABELS = Object.freeze({
@@ -116,7 +156,9 @@ export function createSettingsController(deps) {
     // Same surface as the shared client; every answer is observed once.
     const tapped = {
         request: async (path, options) => {
+            const seen = state.epoch;
             const res = await client.request(path, options);
+            if (disposed || seen !== state.epoch) return { outcome: 'cancelled' };
             note(path, options, res);
             return res;
         },
@@ -171,7 +213,7 @@ const TAG = Object.freeze({ granted: 'neutral', revoked: 'wait', none: 'neutral'
 const PILL = Object.freeze({ granted: 'pill-status--success', revoked: 'pill-status--warn', none: 'pill-status--pending' });
 
 /**
- * Pedal section: capture a key through pedal-ui, map it to a playback action, set the step seconds. Every change
+ * Pedal section: capture a key through pedal-ui, map it to a recording or playback action, set the step seconds. Every change
  * is stored through saveSettings of pedal-ui, which drops printable keys. No key is stored when capture was refused.
  */
 export function createPedalSettingsComponent(Vue, options = {}) {
@@ -182,6 +224,14 @@ export function createPedalSettingsComponent(Vue, options = {}) {
         setup() {
             const settings = Vue.ref(loadSettings(store));
             const saveError = Vue.ref(false);
+            const webHid = options.webHid || getPedalWebHid();
+            const webHidStatus = Vue.ref('unavailable');
+            const unsubscribeHid = webHid.subscribe({ onStatus: (status) => { webHidStatus.value = status; } });
+
+            function toggleWebHid(event) {
+                if (!event.isTrusted) return;
+                return webHidStatus.value === 'connected' ? webHid.disconnect() : webHid.connect();
+            }
 
             function persist(next) {
                 const clean = normalizeSettings(next);
@@ -214,10 +264,11 @@ export function createPedalSettingsComponent(Vue, options = {}) {
                 persist(Object.assign({}, settings.value, { [field]: raw === '' ? NaN : Number(raw) }));
                 if (input) input.value = settings.value[field]; // a refused value shows the kept one
             }
-            Vue.onBeforeUnmount(() => capture.stop());
+            Vue.onBeforeUnmount(() => { capture.stop(); unsubscribeHid(); });
             return {
                 settings, saveError, rows, capture, capturing: capture.capturing, message: capture.message,
                 setAction, removeKey, setSeconds, labels: PEDAL_LABELS, actions: ACTIONS, text: PEDAL_TEXT,
+                webHidStatus, toggleWebHid, webHidMessages: PEDAL_WEBHID_MESSAGES,
             };
         },
     };
@@ -263,20 +314,36 @@ export function createConsentComponent(Vue, client, props = {}) {
 
 // Class bundles for the V8 look. The app's utility reset (preflight) wins over the element rules of clinic-v8.css, so headings
 // get their sizes here; the buttons of the unowned preferences child are skinned from outside.
-const HEADINGS = '[&_h1]:[font-family:Inter,Segoe_UI,Arial,sans-serif] [&_h1]:text-[30px] [&_h1]:max-[760px]:text-[26px] [&_h1]:font-bold [&_h1]:leading-[1.2] [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] [&_h1]:text-[color:var(--v8-text)] '
+const HEADINGS = '[&_h1]:font-sans [&_h1]:text-[30px] [&_h1]:max-[760px]:text-[26px] [&_h1]:font-bold [&_h1]:leading-[1.2] [&_h1]:tracking-[-0.8px] [&_h1]:mb-[9px] [&_h1]:text-[color:var(--v8-text)] '
     + '[&_h2]:text-[16px] [&_h2]:font-bold [&_h2]:leading-[1.35] [&_h2]:tracking-[-0.2px] [&_h2]:mb-[14px] [&_h2]:text-[color:var(--v8-text)] [&_button]:px-[13px]';
 const DANGER = 'danger max-[760px]:min-h-11 [.dark_&]:!text-[color:var(--v8-text)] [.dark_&]:!border-[color:var(--burgundy)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!border-[color:var(--burgundy)]';
 const NOTE_BURGUNDY = 'note burgundy [.dark_&]:!text-[color:var(--v8-text)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)]';
 const NOTE_WARNING = 'note warning [.dark_&]:!bg-[var(--v8-s2)] [.dark_&]:!border-[color:var(--line)] [.dark_&]:!text-[color:var(--v8-text)] '
     + '[[data-theme=dark]_&]:!bg-[var(--v8-s2)] [[data-theme=dark]_&]:!border-[color:var(--line)] [[data-theme=dark]_&]:!text-[color:var(--v8-text)]';
 const PRIMARY = 'primary max-[760px]:min-h-11 !bg-[var(--ink)] !border-[color:var(--ink)] !text-[13px] !font-semibold !px-[13px] hover:!bg-[var(--brand2)]';
-const CHILD_BUTTONS = '[&_.btn]:!min-h-[38px] [&_.btn]:rounded-lg [&_.btn]:border [&_.btn]:border-[color:var(--line)] [&_.btn]:bg-[var(--surface)] [&_.btn]:px-[13px] [&_.btn]:text-[13px] [&_.btn]:font-semibold [&_.btn]:text-[color:var(--v8-text)] [&_.btn:disabled]:opacity-50 '
-    + '[&_button[type=submit]]:!bg-[var(--ink)] [&_button[type=submit]]:!border-[color:var(--ink)] [&_button[type=submit]]:!text-white';
+const CHILD_BUTTONS = '[&_.btn]:!min-h-12 [&_.btn]:rounded-lg [&_.btn]:border [&_.btn]:border-[color:var(--line)] [&_.btn]:bg-[var(--surface)] [&_.btn]:px-[13px] [&_.btn]:text-[13px] [&_.btn]:font-semibold [&_.btn]:text-[color:var(--v8-text)] [&_.btn:disabled]:opacity-50 '
+    + '[&_button[type=submit]]:!bg-[var(--ink)] [&_button[type=submit]]:!border-[color:var(--ink)] [&_button[type=submit]]:!text-[color:var(--v8-on-ink,var(--ui-surface))]';
 const CHOICES = '[&_legend]:mb-2 [&_legend]:text-[12px] [&_legend]:font-bold [&_fieldset]:m-0 [&_fieldset]:mb-4 [&_fieldset]:min-w-0 [&_fieldset]:border-0 [&_fieldset]:p-0 '
     + '[&_label.block]:flex [&_label.block]:items-center [&_label.block]:gap-2 [&_label.block]:text-[13px] [&_label.block]:font-medium';
 
 const PEDAL_TEMPLATE = `
-<section class="panel col-span-full" role="region" :aria-label="labels.title" data-testid="clinic-settings-pedal">
+<section class="panel col-span-full" aria-labelledby="clinic-settings-webhid-title">
+  <h2 id="clinic-settings-webhid-title">Direkte Pedalverbindung</h2>
+  <div class="actions">
+    <button v-if="webHidStatus !== 'unavailable'" type="button" class="!min-h-12"
+            :disabled="webHidStatus === 'connecting' || webHidStatus === 'disconnecting'"
+            data-testid="clinic-settings-pedal-webhid" @click="toggleWebHid">
+      {{ webHidStatus === 'connected' || webHidStatus === 'disconnecting' ? 'Fußpedal trennen' : 'Fußpedal verbinden' }}
+    </button>
+    <span role="status" data-testid="clinic-settings-pedal-webhid-status">{{ webHidMessages[webHidStatus] }}</span>
+  </div>
+  <p v-if="webHidStatus === 'connected'" class="hint mt-3 mb-0">
+    Halten Sie die mittlere Pedaltaste zum Aufnehmen oder Abspielen.
+    Links spulen Sie zurück, rechts springen Sie bei der Wiedergabe vor.
+  </p>
+</section>
+<section class="panel col-span-full" role="region" :aria-label="labels.title" data-testid="clinic-settings-pedal"
+         style="--v8-input-line: var(--ui-text-muted)">
   <h2>{{ labels.title }}</h2>
   <p class="hint mb-3">{{ labels.hint }}</p>
   <div class="actions">
@@ -296,7 +363,8 @@ const PEDAL_TEMPLATE = `
           <td><span class="hidden max-[760px]:inline">{{ labels.key }} </span><kbd class="tag neutral">{{ r.code }}</kbd></td>
           <td>
             <span class="hidden max-[760px]:block">{{ labels.action }}</span>
-            <select class="w-full min-w-0 !pl-3 !pr-8 !text-[13px]" :value="r.action" :aria-label="labels.action + ' ' + r.code" @change="setAction(r.code, $event.target.value)">
+            <select class="w-full min-w-0 !pl-3 !pr-8 !text-[13px]" style="border-color: var(--v8-input-line)"
+                    :value="r.action" :aria-label="labels.action + ' ' + r.code" @change="setAction(r.code, $event.target.value)">
               <option v-for="a in actions" :key="a" :value="a">{{ labels.actions[a] }}</option>
             </select>
           </td>
@@ -305,7 +373,7 @@ const PEDAL_TEMPLATE = `
       </tbody>
     </table>
   </div>
-  <div class="grid three mt-4">
+  <div class="grid three mt-4 [&_input]:min-w-0">
     <div class="flex flex-col gap-1.5 mb-4 [&_label]:text-xs [&_label]:font-bold">
       <label for="clinic-settings-pedal-rewind">{{ labels.rewindSeconds }}</label>
       <input id="clinic-settings-pedal-rewind" type="number" min="0" max="60" step="1" :value="settings.rewindSeconds"
@@ -409,6 +477,117 @@ const CONSENT_TEMPLATE = `
   </div>
 </section>`;
 
+const NOTIFICATION_PATH = '/preferences/notifications';
+const NOTIFICATION_LABELS = Object.freeze({
+    acceptance_requested: 'Abnahme angefordert',
+    acceptance_rejected: 'Abnahme abgelehnt',
+    accepted: 'Diktat abgenommen',
+    completed: 'Diktat fertiggestellt',
+});
+
+const NOTIFICATION_TEMPLATE = `
+<section class="panel" aria-labelledby="clinic-settings-notifications-title" data-testid="clinic-settings-notifications">
+  <h2 id="clinic-settings-notifications-title" style="overflow-wrap: break-word">Benachrichtigungen</h2>
+  <p v-if="rows.length" class="hint">Wählen Sie, welche Hinweise Sie in Speakr erhalten möchten.</p>
+  <label v-for="row in rows" :key="row.event" class="inline-label min-h-12">
+    <input type="checkbox" class="shrink-0" :name="row.event" :checked="row.enabled" :aria-disabled="busy"
+           @change="save(row, $event)">
+    <span>{{ row.label }}</span>
+  </label>
+  <p v-if="choices && !rows.length" class="hint">Für Sie sind keine Benachrichtigungen zur Auswahl verfügbar.</p>
+  <p role="status" :class="message && (warning ? '${NOTE_WARNING}' : 'note')">{{ message }}</p>
+  <button v-if="!choices && warning && !busy" class="secondary mt-ui-2 min-h-12" type="button" @click="load">
+    Erneut laden
+  </button>
+</section>`;
+
+function notificationChoices(res) {
+    const data = res?.data;
+    const channel = data?.channels?.in_app;
+    if (res?.outcome !== 'ok' || !Number.isInteger(data?.version) || data.version < 0
+        || !channel || typeof channel !== 'object' || Array.isArray(channel)) return null;
+    return data;
+}
+
+function createNotificationSettingsComponent(Vue, client, settingsState) {
+    return {
+        name: 'ClinicNotificationSettings',
+        template: NOTIFICATION_TEMPLATE,
+        setup() {
+            const epoch = settingsState.epoch;
+            let disposed = false;
+            const active = () => !disposed && settingsState.epoch === epoch;
+            Vue.onBeforeUnmount(() => { disposed = true; });
+
+            const choices = Vue.shallowRef(null);
+            const busy = Vue.ref(false);
+            const message = Vue.ref('');
+            const warning = Vue.ref(false);
+            const rows = Vue.computed(() => Object.entries(NOTIFICATION_LABELS).flatMap(([event, label]) => {
+                const enabled = choices.value?.channels.in_app[event];
+                return typeof enabled === 'boolean' ? [{ event, label, enabled }] : [];
+            }));
+
+            async function readChoices(afterConflict = false) {
+                let current = null;
+                try {
+                    current = notificationChoices(await client.request(NOTIFICATION_PATH));
+                } catch {
+                    current = null;
+                }
+                if (!active()) return;
+                choices.value = current;
+                warning.value = afterConflict || !current;
+                message.value = !current ? 'Benachrichtigungen konnten nicht geladen werden.'
+                    : afterConflict ? 'Die Einstellungen wurden inzwischen geändert. Bitte wählen Sie erneut.' : '';
+            }
+
+            async function load() {
+                if (busy.value || !active()) return;
+                busy.value = true;
+                warning.value = false;
+                message.value = 'Benachrichtigungen werden geladen …';
+                await readChoices();
+                if (active()) busy.value = false;
+            }
+
+            async function save(row, change) {
+                const input = change.target;
+                const enabled = input.checked;
+                input.checked = row.enabled;
+                if (busy.value || !active() || enabled === row.enabled) return;
+                busy.value = true;
+                warning.value = false;
+                message.value = 'Wird gespeichert …';
+                try {
+                    const res = await client.request(NOTIFICATION_PATH, {
+                        method: 'PUT', body: { event: row.event, enabled, expected_version: choices.value.version },
+                    });
+                    if (!active()) return;
+                    if (res?.outcome === 'conflict' || res?.status === 409 || res?.code === 'stale_version') {
+                        message.value = 'Der aktuelle Stand wird geladen …';
+                        await readChoices(true);
+                    } else {
+                        const saved = notificationChoices(res);
+                        if (saved?.channels.in_app[row.event] !== enabled) throw new Error('Unconfirmed preference');
+                        choices.value = saved;
+                        message.value = `${row.label}: ${enabled ? 'eingeschaltet' : 'ausgeschaltet'}. Gespeichert.`;
+                    }
+                } catch {
+                    if (!active()) return;
+                    warning.value = true;
+                    message.value = 'Speichern konnte nicht bestätigt werden. Bitte versuchen Sie es erneut.';
+                } finally {
+                    if (active()) busy.value = false;
+                }
+            }
+
+            Vue.onMounted(load);
+            return { choices, rows, busy, warning, message, load, save };
+        },
+    };
+}
+
 export const SETTINGS_TEMPLATE = `
 <div class="clinic-settings-view v8-page ${HEADINGS}">
   <nav class="breadcrumb" aria-label="Brotkrumennavigation">
@@ -425,19 +604,21 @@ export const SETTINGS_TEMPLATE = `
   <p v-if="state.denied" class="${NOTE_WARNING}" role="alert">{{ labels.denied }}</p>
   <p v-else-if="state.forbidden" class="${NOTE_BURGUNDY}" role="alert" :style="errorStyle" data-testid="clinic-settings-forbidden">{{ labels.forbidden }}</p>
   <template v-else>
+    <SessionTransportNotice :key="state.epoch" :client="client" :vue="vue" />
     <div class="grid equal">
       <div class="space-y-5 min-w-0">
         <section class="panel clinic-settings-prefs ${CHILD_BUTTONS} ${CHOICES}"><component :is="preferences" :key="'p:' + state.epoch"></component></section>
-        <section role="region" :aria-label="labels.origins" class="panel" data-testid="clinic-settings-origins">
-          <h2>{{ labels.origins }}</h2>
+        <details class="panel" data-testid="clinic-settings-origins">
+          <summary class="min-h-12 cursor-pointer">{{ labels.origins }}</summary>
           <p v-if="!rows().length" class="hint" role="status" aria-live="polite" data-testid="clinic-settings-empty">{{ labels.empty }}</p>
           <dl v-else class="keyvalues" :aria-label="labels.origins">
             <div v-for="r in rows()" :key="r.key" :data-key="r.key" :data-origin="r.origin">
-              <dt>{{ r.key }}</dt>
+              <dt>{{ fieldLabels[r.key]?.label || 'Arbeitsplatzwert' }}</dt>
               <dd><span class="tag" :class="r.locked ? 'burgundy' : 'neutral'">{{ r.label }}</span></dd>
             </div>
           </dl>
-        </section>
+        </details>
+        <component :is="notifications" :key="'n:' + state.epoch"></component>
       </div>
       <div class="space-y-5 min-w-0">
         <section class="panel clinic-settings-correction ${CHOICES} [&_legend]:!text-[16px] [&_legend]:!mb-[14px] [&_legend]:tracking-[-0.2px] [&_[role=alert]]:mt-3 [&_[role=alert]]:rounded-lg [&_[role=alert]]:border [&_[role=alert]]:border-[color:var(--line)] [&_[role=alert]]:bg-[var(--v8-s2)] [&_[role=alert]]:p-3 [&_[role=alert]]:text-xs [&_.clinic-correction-mode]:grid [&_.clinic-correction-mode]:grid-cols-[auto_1fr] [&_.clinic-correction-mode]:gap-x-2 [&_.clinic-correction-mode]:items-baseline [&_.clinic-correction-mode]:text-[13px] [&_.clinic-correction-mode_small]:col-start-2 [&_.clinic-correction-mode_small]:text-[color:var(--v8-muted)]"><component :is="correction" :audio="audio" :client="client" :vue="vue" :key="'c:' + state.epoch"></component></section>
@@ -451,6 +632,7 @@ export const SETTINGS_TEMPLATE = `
 
 export const SettingsView = {
     name: 'ClinicSettingsView',
+    components: { SessionTransportNotice },
     props: {
         client: { type: Object, required: true },
         currentUser: { type: Object, default: null },
@@ -467,19 +649,21 @@ export const SettingsView = {
             makeState: (o) => Vue.reactive(o),
         });
         const preferences = Vue.markRaw(createPreferencesComponent(Vue, ctrl.client, {
-            workstationId: props.workstationId, t: props.t || undefined,
+            workstationId: props.workstationId, issueWorkstation: true, t: props.t || undefined,
         }));
         const correction = Vue.markRaw(CorrectionModes);
         const pedal = Vue.markRaw(createPedalSettingsComponent(Vue));
         const handmic = Vue.markRaw(createHandmicSettingsComponent(Vue, globalThis.navigator?.hid));
         const consent = Vue.markRaw(createConsentComponent(Vue, ctrl.client, { t: props.t }));
+        const notifications = Vue.markRaw(createNotificationSettingsComponent(Vue, ctrl.client, ctrl.state));
         const s = surfaceFor('error');
         const errorStyle = { background: s.background, color: s.color, borderColor: s.border };
         Vue.watch(() => userIdOf(props.currentUser), () => ctrl.setUser(props.currentUser));
         Vue.onBeforeUnmount(() => ctrl.dispose());
         return {
             state: ctrl.state, labels: LABELS, rows: ctrl.originRows, client: ctrl.client, vue: props.vue,
-            audio: NO_AUDIO, preferences, correction, pedal, handmic, consent, errorStyle,
+            audio: NO_AUDIO, preferences, correction, pedal, handmic, consent, notifications, errorStyle,
+            fieldLabels: WORKSTATION_FIELDS,
         };
     },
 };

@@ -21,13 +21,14 @@
 
 import { TOKEN_CONTRACT_VERSION, TokenContractError, surfaceFor } from './tokens.js';
 import { ROLE_AUTHOR, STATUS_LABELS, formatAudioDuration, formatDictationReference, formatPriority, getOpenMode, resolveStatusSurface } from './worklist-ui.js';
-import { formatLastUpdate, useWorklistRefresh } from './worklist-refresh-ui.js';
+import { useWorklistRefresh } from './worklist-refresh-ui.js';
 import { WorklistFiltersPanel, createWorklistFilters } from './worklist-filters-ui.js';
 import { WorklistLayoutControls, useWorklistLayout } from './worklist-layout-ui.js';
+import { DISPLAY_TYPES } from './columns-ui.js';
 import { DictationProtectionComponent } from './dictation-protection-ui.js';
 import { WORKFLOW_ACTIONS_TEMPLATE, createWorkflowActions } from './workflow-actions-ui.js';
 import { acceptancePolicyComponent } from './acceptance-policy-ui.js';
-import { createHistoryComponent } from './history-ui.js';
+import { createHistoryComponent, isHistoryShortcut } from './history-ui.js';
 import { createLeaseController, createLeaseStatusComponent } from './lease-ui.js';
 import { AssignmentPanel } from './assign-ui.js';
 
@@ -45,15 +46,16 @@ export const HOSTED_CSS = [
     '.v8-ui .v8-hosted .clinic-lease button:hover:not(:disabled),.v8-ui .v8-hosted .clinic-workflow-actions button:hover:not(:disabled){background:var(--v8-s1)}',
     '.v8-ui .v8-hosted .clinic-lease button:disabled,.v8-ui .v8-hosted .clinic-workflow-actions button:disabled{opacity:.55;cursor:not-allowed}',
     '.v8-ui .v8-hosted .clinic-workflow-actions{display:grid;gap:10px}',
-    '.v8-ui .v8-hosted .clinic-workflow-actions h2{margin:0;font-size:12px;font-weight:750;color:var(--v8-text)}',
+    '.v8-ui .v8-hosted .clinic-workflow-actions h2{margin:0;font-size:12px;font-weight:750;color:var(--v8-text);text-wrap:balance}',
     '.v8-ui .v8-hosted .clinic-workflow-actions [role="group"]{display:flex;flex-wrap:wrap;gap:8px;margin:0}',
-    '.v8-ui .v8-hosted .clinic-workflow-actions h3{flex:1 0 100%;margin:0;font-size:11px}',
+    '.v8-ui .v8-hosted .clinic-workflow-actions h3{flex:1 0 100%;margin:0;font-size:11px;text-wrap:balance}',
     '.v8-ui .v8-hosted .clinic-workflow-actions form{display:grid;gap:8px;margin:0}',
     '.v8-ui .viewcontrols select,.v8-ui .toolbar-right select{font-weight:600;min-height:34px}',
     '@media (min-width:641px){.v8-ui .viewcontrols select,.v8-ui .toolbar-right select{font-size:12px}}',
     '.v8-ui .searchwrap input{font-weight:400}',
     '.v8-ui .clinic-worklist-view .filter-pill.active:hover{background:var(--v8-s1);color:var(--v8-text)}',
     '.v8-ui .clinic-worklist-view .status{white-space:normal;overflow-wrap:anywhere;max-width:100%}',
+    '.v8-ui .clinic-worklist-view .worktable{table-layout:auto}',
     '.v8-ui .worktable .prio{max-width:100%;vertical-align:middle}',
     '.v8-ui .worktable .prio::before{flex-shrink:0}',
     '.v8-ui .worktable .prio span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
@@ -63,6 +65,21 @@ export const HOSTED_CSS = [
     '.v8-ui .v8-empty p{color:var(--v8-muted)}',
     '.v8-ui .worktable .titletext .cl-search-metadata{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}',
     '.v8-ui .cl-search-metadata mark{border-radius:2px;padding:0;font:inherit}',
+    '.v8-ui .worktable .cl-xml-column{white-space:normal;overflow-wrap:anywhere}',
+    '.v8-ui .worktable th.cl-xml-column{height:48px}',
+    '.v8-ui .worktable th.cl-xml-column:focus-visible{outline:2px solid var(--border-focus);outline-offset:-2px}',
+    '.v8-ui .cl-xml-option :is(label,button),.v8-ui .cl-layout-actions > button{min-height:48px}',
+    '.v8-ui .cl-xml-option button{min-width:48px}',
+    '@media (min-width:768px){.v8-ui .clinic-worklist-view .worktable{min-width:calc(1120px + var(--worklist-xml-width, 0px))}}',
+    // Leave the blank area clickable as part of the row when selection reflows the table.
+    '.v8-ui .clinic-worklist-view .worktable .cl-id-disclosure:not([open]){width:fit-content}',
+    '.v8-ui .clinic-worklist-view .worktable td.cl-scoped-metadata{white-space:pre-wrap;overflow-wrap:anywhere}',
+    '@container (min-width:1101px){',
+    '  .v8-ui .clinic-worklist-view .worktable{table-layout:auto;min-width:var(--worklist-xml-width, 0px)}',
+    '  .v8-ui .clinic-worklist-view .worktable th:not(.check){width:auto;white-space:normal}',
+    '  .v8-ui .clinic-worklist-view .worktable th.cl-scoped-metadata{min-width:8rem}',
+    '  .v8-ui .clinic-worklist-view .worktable td[data-label]{white-space:normal}',
+    '}',
 ].join('\n');
 
 /** Adds the stylesheet above once per document. */
@@ -80,15 +97,13 @@ export const TEXT = Object.freeze({
     title: 'Arbeitsliste',
     refresh: 'Aktualisieren',
     retry: 'Erneut versuchen',
-    paused: 'Die automatische Aktualisierung ist pausiert, solange ein Filter aktiv ist oder eine andere Seite angezeigt wird.',
     loading: 'Laden …',
     empty: 'Keine Diktate vorhanden.',
     noMatch: 'Keine Treffer für den gewählten Filter oder die Suche.',
     denied: 'Keine Berechtigung für diese Aktion.',
-    failed: 'Die Arbeitsliste konnte nicht geladen werden.',
     prev: 'Vorherige Seite',
     next: 'Nächste Seite',
-    keys: 'Tastatur: Pfeil hoch und runter wählt ein Diktat, Eingabetaste öffnet es, Esc schliesst die Details.',
+    keys: 'Tastatur: F5 aktualisiert die Liste. Pfeil hoch und runter wählt ein Diktat, Eingabetaste öffnet es, Strg+I zeigt den Verlauf, Esc schliesst die Details.',
     open: 'Öffnen',
     detail: 'Diktat',
     protection: 'Schutz',
@@ -121,8 +136,7 @@ export const TEXT = Object.freeze({
     detailInfo: 'Eckdaten',
 });
 
-// Columns the layout may order, sort and group. Title, notes and recipient are
-// left out on purpose (W16). The case reference belongs to the row heading.
+// Columns the saved layout may order, sort and group.
 // The order is the default column order of the V8 worklist (Status, Priorität, Pool, Diktiert von, Quelle, Dauer, ...).
 export const LIST_COLUMNS = Object.freeze([
     { key: 'status', label: 'Status' },
@@ -138,6 +152,13 @@ export const LIST_COLUMNS = Object.freeze([
     { key: 'assigned_at', label: 'Zugewiesen' },
 ].map((c) => Object.freeze(c)));
 
+// Q-01 fixed columns consume only metadata from scoped worklist rows.
+const SCOPED_METADATA_COLUMNS = [
+    { key: 'title', label: 'Titel' },
+    { key: 'notes', label: 'Anmerkung' },
+    { key: 'recipient', label: 'Empfänger' },
+];
+
 // Column key to the width class of the V8 worklist table (clinic-v8.css).
 const COL_CLASS = Object.freeze({
     status: 'statuscol', priority: 'priocol', staff_pools: 'poolcol', dictated_by: 'dictatorcol',
@@ -146,6 +167,27 @@ const COL_CLASS = Object.freeze({
 
 // Columns shown by default (the V8 prototype table).
 const V8_COLUMNS = Object.freeze(['status', 'priority', 'staff_pools', 'dictated_by', 'source_kind', 'duration_seconds', 'created_at']);
+const STANDARD_LAYOUT = {
+    version: 1, sort: [], group_by: [],
+    columns: LIST_COLUMNS.map(({ key }) => ({ key, width: 140, visible: V8_COLUMNS.includes(key) })),
+};
+
+// Mirrors the worklist projection's reserved keys, including fields kept out of the V8 table.
+const RESERVED_XML_COLUMNS = new Set([...LIST_COLUMNS.map(({ key }) => key),
+    'dictation_id', 'title', 'author_user_id', 'notes', 'recipient', 'open_mode', 'revision',
+    'source_label', 'asr_state', 'assignee', 'case_display', 'metadata_xml', 'constructor', 'prototype']);
+
+async function loadXmlColumns(client) {
+    const res = await client.request('/metadata-fields');
+    if (res.outcome !== 'ok') return res;
+    const fields = Array.isArray(res.data?.fields) ? res.data.fields : [];
+    return { ...res, data: fields.filter((field) => field?.is_active && field.xml_path
+        && typeof field.name === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(field.name)
+        && !RESERVED_XML_COLUMNS.has(field.name) && DISPLAY_TYPES.includes(field.field_type))
+        .map(({ name, label, field_type, display_format }) => ({
+            key: name, label, type: field_type, format: display_format, visible: false,
+        })) };
+}
 
 // Contract enum of the recording source (WorklistRow.source_kind) as German labels.
 export const SOURCE_LABELS = Object.freeze({
@@ -233,13 +275,13 @@ function groupLabel(key, value) {
 }
 
 /** Flattens layout groups into display items: group headings and rows in order. */
-export function flattenGroups(groups, groupBy) {
+export function flattenGroups(groups, groupBy, labelFor = groupLabel) {
     const items = [];
     const walk = (list) => {
         for (const group of list) {
             const level = group.path.length - 1;
             if (level >= 0) {
-                items.push({ kind: 'group', depth: level, key: 'g:' + JSON.stringify(group.path), label: groupLabel(groupBy[level], group.path[level]) });
+                items.push({ kind: 'group', depth: level, key: 'g:' + JSON.stringify(group.path), label: labelFor(groupBy[level], group.path[level]) });
             }
             if (group.children.length) walk(group.children);
             else for (const row of group.rows) items.push({ kind: 'row', key: 'r:' + rowKey(row), row });
@@ -268,6 +310,39 @@ const DATE_COLUMNS = Object.freeze(['deadline_at', 'created_at', 'assigned_at'])
 const dateTimeFormat = typeof Intl !== 'undefined'
     ? new Intl.DateTimeFormat('de-CH', { timeZone: 'Europe/Zurich', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
     : null;
+const xmlDateTimeFormat = new Intl.DateTimeFormat('de-CH', {
+    timeZone: 'Europe/Zurich', day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+});
+
+function xmlCellText(value, { type, format }) {
+    if (value == null || value === '') return '';
+    const text = String(value);
+    if (!format) return text;
+    if (type === 'string' && (format === 'Nachname, Vorname' || format === 'Vorname Nachname')) {
+        const name = /^([^,]+),\s*([^,]+)$/.exec(text);
+        if (name) return format === 'Vorname Nachname' ? `${name[2].trim()} ${name[1].trim()}` : text;
+        const parts = /^([^\s,]+)\s+([^\s,]+)$/.exec(text);
+        return parts && format === 'Nachname, Vorname' ? `${parts[2]}, ${parts[1]}` : text;
+    }
+    if (type !== 'date' && type !== 'datetime') return text;
+    const calendar = /^(\d{4})-(\d{2})-(\d{2})/.exec(text);
+    const at = new Date(text);
+    if (!calendar || Number.isNaN(at.getTime())) return text;
+    const day = calendar[0];
+    const utcDay = new Date(day);
+    if (Number.isNaN(utcDay.getTime()) || !utcDay.toISOString().startsWith(day)) return text;
+    let parts = { year: calendar[1], month: calendar[2], day: calendar[3] };
+    if (type === 'datetime') {
+        if (!/^T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/.test(text.slice(day.length))) return text;
+        parts = Object.fromEntries(xmlDateTimeFormat.formatToParts(at).map(({ type, value }) => [type, value]));
+    } else if (text !== day) return text;
+    const tokens = { YYYY: 'year', yyyy: 'year', MM: 'month', DD: 'day', dd: 'day', HH: 'hour', mm: 'minute', ss: 'second' };
+    const pattern = /YYYY|yyyy|MM|DD|dd|HH|mm|ss/g;
+    const requested = format.match(pattern);
+    if (!requested || requested.some((token) => !parts[tokens[token]])) return text;
+    return format.replace(pattern, (token) => parts[tokens[token]]);
+}
 
 /** UTC instant to "20.11.2026, 07:21" in Europe/Zurich; unparsable input is shown as received. */
 export function formatDateTime(value) {
@@ -312,8 +387,8 @@ export function searchSegments(value, query) {
 /** Only searched fields from the already authorized response; no additional detail fetch. */
 export function searchMetadata(row, query) {
     if (!String(query ?? '').trim()) return [];
-    return [['title', 'Titel'], ['notes', 'Anmerkung'], ['recipient', 'Empfänger']]
-        .map(([key, label]) => ({ key, label, segments: searchSegments(row[key], query) }))
+    return SCOPED_METADATA_COLUMNS
+        .map(({ key, label }) => ({ key, label, segments: searchSegments(row[key], query) }))
         .filter((field) => field.segments.some((part) => part.match));
 }
 
@@ -380,6 +455,7 @@ export function createWorklistViewController(options) {
     const view = reactive({ page: 1, filterId: null, search: '', total: null, chip: 'all', assignmentNotice: '' });
     const checked = reactive({}); // dictation id -> true; only the bulk-selection checkboxes, no clinical data
     const panels = reactive({ protection: false, acceptance: false, history: false });
+    const historyVersion = ref(0);
     const selectedId = ref(null);
     const leaseState = shallowRef(null);
     let firstClickRowId = null;
@@ -389,32 +465,30 @@ export function createWorklistViewController(options) {
     let pendingDetail;
     let detailKey = null; // `${id}|${revision}|${etag}` of the loaded detail
     let lease = null; // { ctrl, unsubscribe }
-    let reloadQueued = false;
     let loadedRevision = client.dictationChanges;
 
     // --- list modules -------------------------------------------------------
-    let refresh = null;
-    const mapRecording = (recording) => {
-        // A change-feed recording carries no workflow metadata: keep the row
-        // the worklist already has; a new id gets a minimal row and one reload.
-        if (recording && recording.dictation_id != null) return recording;
-        const id = recording && recording.id;
-        const known = refresh.rows.value.find((r) => rowKey(r) === String(id));
-        if (known) return known;
-        if (!reloadQueued) {
-            reloadQueued = true;
-            setTimeout(() => { reloadQueued = false; if (!disposed) reload(); }, 0);
-        }
-        return { dictation_id: id, author_user_id: recording && recording.user_id != null ? recording.user_id : null, status: 'aufgabe' };
-    };
-    refresh = useWorklistRefresh({
+    function rowsPath() {
+        if (view.page === 1 && !view.filterId && !view.search) return '/worklist/rows';
+        const query = new URLSearchParams({ page: String(view.page), page_size: String(PAGE_SIZE) });
+        if (view.filterId) query.set('filter_id', view.filterId);
+        if (view.search) query.set('search', view.search);
+        return '/worklist/rows?' + query;
+    }
+
+    const refresh = useWorklistRefresh({
         apiClient: client,
         role: user.role || ROLE_AUTHOR,
         userId: user.id,
+        serverScopedRows: true, // Search and paging use the same authorized rows as refresh.
         tokenVersion: TOKEN_CONTRACT_VERSION,
         intervalMs: options.intervalMs,
         fetchChanges: options.fetchChanges || null, // v8-148: poll the clinic worklist rows by default.
-        mapRecording,
+        rowsPath,
+        onSnapshot(data) {
+            view.total = Number.isInteger(data?.total) ? data.total : null;
+            syncDetail();
+        },
         now: options.now,
         Vue: V || undefined,
         ref,
@@ -429,54 +503,27 @@ export function createWorklistViewController(options) {
         ...(options.storage !== undefined ? { storage: options.storage } : {}),
         onApply: ({ filterId, query }) => applyFilter(filterId, query),
     });
-    const layout = useWorklistLayout({ client, columns: LIST_COLUMNS, reactive });
-
-    // V8 default arrangement: the server's stored default lists every column visible in its own order. As long as
-    // the layout is the untouched default (version 0: nothing stored yet, nothing edited), show the eight V8 columns in V8 order.
-    // Local only: nothing is saved until the user saves the Ansicht.
-    function applyV8Default() {
-        if (layout.state.version !== 0 || layout.state.dirty) return;
-        const byKey = new Map(layout.state.layout.columns.map((c) => [c.key, c]));
-        const cols = LIST_COLUMNS.map(({ key }) => ({ ...(byKey.get(key) || { key, width: 140 }), visible: V8_COLUMNS.includes(key) }));
-        layout.state.layout = { ...layout.state.layout, columns: cols };
-    }
-    // "Neu laden" in the Ansicht popover calls layout.load() too; keep the V8 set while nothing is saved.
-    const loadLayout = layout.load;
-    layout.load = async (...args) => {
-        const result = await loadLayout(...args);
-        applyV8Default();
-        return result;
+    const layout = useWorklistLayout({ client, columns: LIST_COLUMNS, reactive, defaults: STANDARD_LAYOUT,
+        loadColumns: () => loadXmlColumns(client),
+        onRestore: () => { view.page = 1; return reload(); },
+    });
+    const cell = (row, key) => {
+        const definition = layout.columnOf(key);
+        return definition?.type ? xmlCellText(Object.hasOwn(row, key) ? row[key] : null, definition) : cellText(row, key);
     };
-
-    const paused = computed(() => Boolean(view.filterId || view.search) || view.page > 1);
 
     // --- loading ------------------------------------------------------------
     async function reload() {
+        if (disposed) return null;
         const revision = client.dictationChanges;
-        let response;
-        if (!paused.value) {
-            response = await refresh.refresh();
-        } else {
-            refresh.stop();
-            response = await worklist.loadWorklist({ page: view.page, pageSize: PAGE_SIZE, filterId: view.filterId, search: view.search });
-            if (response && response.outcome === 'ok') {
-                const at = new Date();
-                refresh.lastUpdate.value = at;
-                refresh.lastUpdateLabel.value = formatLastUpdate(at);
-                refresh.refreshError.value = null;
-            } else if (response && !worklist.isPermissionLost.value) {
-                refresh.refreshError.value = response.message || TEXT.failed;
-            }
-        }
-        if (response && response.outcome === 'ok') {
-            loadedRevision = revision;
-            view.total = response.data && Number.isInteger(response.data.total) ? response.data.total : null;
-        }
-        if (!paused.value && started && !disposed && !refresh.isRunning.value && !worklist.isPermissionLost.value) {
-            refresh.start();
-        }
-        syncDetail();
+        const response = await (started && !refresh.isRunning.value ? refresh.start() : refresh.refresh());
+        if (response?.outcome === 'ok') loadedRevision = revision;
         return response;
+    }
+
+    function onRefreshKey(event) {
+        event.preventDefault();
+        if (!event.repeat) return reload();
     }
 
     function applyFilter(filterId, query) {
@@ -507,6 +554,11 @@ export function createWorklistViewController(options) {
     const displayed = computed(() => flattenGroups(
         layout.applyToRows(chipRows.value),
         layout.state.layout.group_by,
+        (key, value) => {
+            const definition = layout.columnOf(key);
+            return definition?.type
+                ? `${definition.label}: ${xmlCellText(value, definition) || 'keine Angabe'}` : groupLabel(key, value);
+        },
     ));
     const shownRows = () => displayed.value.filter((i) => i.kind === 'row').map((i) => i.row);
 
@@ -626,8 +678,23 @@ export function createWorklistViewController(options) {
         if (row) open(row);
     }
 
+    /** Same Verlauf section as the menu. Without a selection there is nothing to open. */
+    function openHistory() {
+        if (disposed || !selectedId.value) return false;
+        historyVersion.value += 1;
+        panels.history = true;
+        return true;
+    }
+
+    function onHistoryKey(event) {
+        if (!isHistoryShortcut(event) || !openHistory()) return false;
+        if (typeof event.preventDefault === 'function') event.preventDefault();
+        return true;
+    }
+
     function onRowKey(event, row) {
         if (!event) return;
+        if (onHistoryKey(event)) return;
         const list = displayed.value.filter((i) => i.kind === 'row').map((i) => i.row);
         const stop = () => { if (typeof event.preventDefault === 'function') event.preventDefault(); };
         let target;
@@ -732,7 +799,6 @@ export function createWorklistViewController(options) {
         loadedRevision = client.dictationChanges;
         ensureHostedStyles();
         await Promise.all([layout.load(), refresh.start()]);
-        applyV8Default();
         syncDetail();
     }
 
@@ -757,26 +823,38 @@ export function createWorklistViewController(options) {
     };
 
     return {
-        vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun, paused,
+        vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun,
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
+        scopedMetadataColumns: SCOPED_METADATA_COLUMNS,
         detailRequest: (id) => id === detailId ? pendingDetail : null,
         refreshIfChanged: () => loadedRevision !== client.dictationChanges ? reload() : null,
-        start, dispose, reload, assignmentDone, select, open, canOpen, listenOnly, onRowKey,
+        start, dispose, reload, onRefreshKey, assignmentDone, select, open, canOpen, listenOnly, onRowKey,
+        openHistory, onHistoryKey, historyVersion,
         rememberFirstClick, keepDoubleClickOnRow, goto, pages, hasNext, applyFilter,
-        key: rowKey, cell: cellText, badge: statusBadge, dictationLabel, entryCount, text: TEXT,
+        key: rowKey, cell, badge: statusBadge, dictationLabel, entryCount, text: TEXT,
         searchMetadata: (row) => searchMetadata(row, view.search),
         searchMarkStyle: surfaceStyle('warning', () => ({})),
         referenceLabel: (row) => 'Diktat ' + formatDictationReference(rowKey(row)),
-        emptyCell: (row, key) => !ROLE_KEYS.includes(key) && key !== 'status' && cellText(row, key) === '–',
+        emptyCell: (row, key) => !ROLE_KEYS.includes(key) && key !== 'status' && cell(row, key) === '–',
+        xmlCellLabel: (row, col) => layout.columnOf(col.key)?.type && cell(row, col.key) === ''
+            ? `${col.label}: keine Angabe` : null,
         priorityTone: priorityToneOf,
         pageLabel: () => 'Seite ' + view.page + (pages() === null ? '' : ' von ' + pages()),
         errorStyle: surfaceStyle('error', (s) => ({ border: '1px solid ' + s.border })),
         selectedStyle: surfaceStyle('normal', () => ({ borderLeft: '4px solid var(--border-focus)' })),
         counts, chipRows, setChip, isChecked, toggleChecked, allChecked, toggleAll, clearChecked, checkedCount,
         sortChoices: SORT_CHOICES, sortValue, setSort, sortNote, sortMark, shownRows,
-        colClass: (key) => COL_CLASS[key] || '',
+        colClass: (key) => layout.columnOf(key)?.type ? 'cl-xml-column' : COL_CLASS[key] || '',
+        tableStyle: () => {
+            const width = columns().reduce((sum, col) => sum + (layout.columnOf(col.key)?.type ? col.width : 0), 0);
+            return width ? { '--worklist-xml-width': `${width}px` } : null;
+        },
         // Columns the stylesheet has no width class for (Frist, Übernommen von, ...) keep the layout width.
-        colStyle: (col) => (COL_CLASS[col.key] ? null : { width: (Number(col.width) || 140) + 'px' }),
+        colStyle: (col) => {
+            if (Object.hasOwn(COL_CLASS, col.key)) return null;
+            const width = (Number(col.width) || 140) + 'px';
+            return layout.columnOf(col.key)?.type ? { width, minWidth: width } : { width };
+        },
         statusTone: (row) => statusTone(row.status),
         prioClass: (row) => ({ high: 'hoch', low: 'niedrig', normal: 'mittel' })[priorityToneOf(row)],
         sourceText: (row) => cellText(row, 'source_kind'),
@@ -836,7 +914,24 @@ export const WorklistView = {
         const V = c.vue;
         if (!V) throw new Error('Vue is required to mount the worklist view');
         const parts = buildParts(V, c.detailClient);
+        const root = V.ref(null);
+        const historySummary = V.ref(null);
+        if (typeof V.watch === 'function') {
+            V.watch(c.historyVersion, () => historySummary.value?.focus(), { flush: 'post' });
+        }
+        // Ctrl+I is a page shortcut. A row click does not focus the row, so the section keydown never sees it.
+        const doc = typeof document !== 'undefined' ? document : null;
+        const onDocKey = (event) => {
+            if (!root.value?.isConnected) return;
+            const active = doc.activeElement;
+            if (active && active !== doc.body && !root.value.contains(active)) return;
+            c.onHistoryKey(event);
+        };
         if (typeof V.onMounted === 'function' && props.autoStart) V.onMounted(() => c.start());
+        if (doc && typeof doc.addEventListener === 'function') {
+            doc.addEventListener('keydown', onDocKey);
+            if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => doc.removeEventListener('keydown', onDocKey));
+        }
         if (typeof V.onActivated === 'function' && props.autoStart) V.onActivated(() => c.refreshIfChanged());
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
         function rowContext(id) {
@@ -856,10 +951,11 @@ export const WorklistView = {
             });
             return context;
         }
-        return { c, parts, rowContext };
+        return { c, parts, rowContext, root, historySummary };
     },
     template: `
-<section class="v8-page clinic-worklist-view" data-testid="clinic-worklist-view" aria-labelledby="cwv-title">
+<section ref="root" class="v8-page clinic-worklist-view" data-testid="clinic-worklist-view" aria-labelledby="cwv-title"
+         @keydown.f5.exact.capture="c.onRefreshKey" @keydown="c.onHistoryKey($event)">
   <div class="page-head">
     <div>
       <div class="eyebrow">{{ c.text.eyebrow }}</div>
@@ -872,7 +968,7 @@ export const WorklistView = {
     </div>
     <div class="page-actions">
       <span role="status" aria-live="polite" class="last-update" data-testid="last-update">{{ c.updatedLabel() }}</span>
-      <button type="button" class="icon-btn" data-testid="refresh-button"
+      <button type="button" class="icon-btn" data-testid="refresh-button" aria-keyshortcuts="F5"
               :aria-label="c.text.refresh" :title="c.text.refresh"
               :disabled="c.refresh.isRefreshing.value" :aria-busy="c.refresh.isRefreshing.value ? 'true' : 'false'"
               @click="c.reload()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.6-4.5M4 4v5h5M4 13a8 8 0 0 0 14.6 4.5M20 20v-5h-5"/></svg>{{ c.text.refresh }}</button>
@@ -902,7 +998,7 @@ export const WorklistView = {
       <WorklistFiltersPanel :controller="c.filters">
         <template #start>
           <span class="viewtitle">{{ c.text.listTitle }}</span>
-          <span class="viewhelp" data-testid="sort-note">{{ c.paused.value ? c.text.paused : c.sortNote() }}</span>
+          <span class="viewhelp" data-testid="sort-note">{{ c.sortNote() }}</span>
         </template>
         <template #end>
           <component :is="parts.Layout" :layout="c.layout" />
@@ -922,7 +1018,6 @@ export const WorklistView = {
           </span>
         </template>
       </WorklistFiltersPanel>
-      <p v-if="c.paused.value" class="sr-only cl-sr-only">{{ c.text.paused }}</p>
       <div v-if="c.chipRows.value.length" class="listhead">
         <strong data-testid="list-count">{{ c.shownRows().length }} von {{ c.counts.value.all }} auf dieser Seite ({{ c.worklist.totals.value.formattedTotalDuration }})</strong>
         <span>{{ c.text.hintSelect }}</span>
@@ -939,12 +1034,13 @@ export const WorklistView = {
               <div class="empty-icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
               <h2>{{ c.view.filterId || c.view.search || c.worklist.rows.value.length ? c.text.noMatch : c.text.empty }}</h2>
             </div>
-            <table v-else class="worktable" data-layout="cl-table" role="grid" aria-label="Arbeitsliste" aria-describedby="cwv-keys"
+            <table v-else class="worktable" data-layout="cl-table" role="grid" aria-label="Arbeitsliste" aria-describedby="cwv-keys" :style="c.tableStyle()"
                    @click.capture="c.rememberFirstClick($event)" @dblclick.capture="c.keepDoubleClickOnRow($event)">
               <thead>
                 <tr>
                   <th class="check"><input type="checkbox" :checked="c.allChecked()" :aria-label="c.text.selectAll" @change="c.toggleAll()"></th>
                   <th class="titlecol" scope="col">{{ c.text.dictation }}</th>
+                  <th v-for="col in c.scopedMetadataColumns" :key="col.key" scope="col" class="cl-scoped-metadata">{{ col.label }}</th>
                   <th v-for="col in c.columns()" :key="col.key" scope="col" v-bind="c.headerAttrs(col.key)"
                       :class="c.colClass(col.key)" :style="c.colStyle(col)" style="cursor: pointer"
                       @keydown="c.layout.onKeydown(col.key, $event)" @click="c.layout.cycleSort(col.key)">{{ col.label }} {{ c.sortMark(col.key) }}</th>
@@ -953,7 +1049,7 @@ export const WorklistView = {
               <tbody>
                 <template v-for="item in c.displayed.value" :key="item.key">
                   <tr v-if="item.kind === 'group'" class="group-row">
-                    <th scope="rowgroup" :colspan="c.columns().length + 2" style="text-align: left; background: var(--v8-s1); color: var(--v8-text)"
+                    <th scope="rowgroup" :colspan="c.columns().length + c.scopedMetadataColumns.length + 2" style="text-align: left; background: var(--v8-s1); color: var(--v8-text)"
                         :style="{ paddingLeft: (0.75 + item.depth) + 'rem' }">{{ item.label }}</th>
                   </tr>
                   <tr v-else tabindex="0" :class="c.selectedId.value === c.key(item.row) ? 'selected' : ''" data-row :data-id="c.key(item.row)"
@@ -983,7 +1079,11 @@ export const WorklistView = {
                         </label>
                       </details>
                     </td>
-                    <td v-for="col in c.columns()" :key="col.key" :data-label="col.label" :class="c.emptyCell(item.row, col.key) ? 'cl-empty' : ''">
+                    <td v-for="col in c.scopedMetadataColumns" :key="col.key" :data-label="col.label" class="cl-scoped-metadata"
+                        :class="c.emptyCell(item.row, col.key) ? 'cl-empty' : ''">{{ c.cell(item.row, col.key) }}</td>
+                    <td v-for="col in c.columns()" :key="col.key" :data-label="col.label"
+                        :aria-label="c.xmlCellLabel(item.row, col)"
+                        :class="[{ 'cl-empty': c.emptyCell(item.row, col.key) }, c.layout.columnOf(col.key)?.type ? 'cl-xml-column' : '']">
                       <span v-if="col.key === 'status'" class="status cl-workflow-status" data-layout="pill-status" :class="c.statusTone(item.row)">Arbeitsstand: {{ c.badge(item.row).workflow }}</span>
                       <span v-else-if="col.key === 'priority'" class="prio" :class="c.prioClass(item.row)" :title="c.cell(item.row, col.key)"><span>{{ c.cell(item.row, col.key) }}</span></span>
                       <span v-else-if="col.key === 'staff_pools'" class="pool-pill" :title="c.cell(item.row, col.key)">{{ c.cell(item.row, col.key) }}</span>
@@ -1036,9 +1136,10 @@ export const WorklistView = {
                   <summary style="cursor: pointer; min-height: 38px; display: flex; align-items: center; font-size: 12px; font-weight: 750">{{ c.text.acceptance }}</summary>
                   <component :is="parts.Acceptance" v-if="c.panels.acceptance" :dictation-id="c.selectedId.value" />
                 </details>
-                <details :open="c.panels.history" @toggle="c.panels.history = $event.target.open" style="border-top: 1px solid var(--v8-line-2); padding-top: 4px">
-                  <summary style="cursor: pointer; min-height: 38px; display: flex; align-items: center; font-size: 12px; font-weight: 750">{{ c.text.history }}</summary>
-                  <component :is="parts.History" v-if="c.panels.history" :client="c.detailClient" :dictation-id="c.selectedId.value" />
+                <details :open="c.panels.history" data-testid="history-panel" @toggle="c.panels.history = $event.target.open" style="border-top: 1px solid var(--v8-line-2); padding-top: 4px">
+                  <summary ref="historySummary" aria-keyshortcuts="Control+I Meta+I" style="cursor: pointer; min-height: 38px; display: flex; align-items: center; font-size: 12px; font-weight: 750">{{ c.text.history }}</summary>
+                  <component :is="parts.History" v-if="c.panels.history" :key="c.historyVersion.value"
+                    :client="c.detailClient" :dictation-id="c.selectedId.value" />
                 </details>
               </div>
             </div>

@@ -1,6 +1,7 @@
 import hashlib
 import io
 import zipfile
+from contextlib import contextmanager
 from uuid import UUID
 
 import pytest
@@ -41,11 +42,14 @@ def ctx(monkeypatch):
         state['asked'] = (actor, dictation_id, action)
         return state['allow'] and actor == 7
 
+    @contextmanager
     def persist(actor, dictation_id, new_doc, audio, expected):
         if state['fail']:
             raise state['fail']
+        if expected != state['session'].version:
+            raise StaleVersion()
         state['saved'].append((actor, new_doc, audio, expected))
-        return expected + 1
+        yield expected + 1
 
     def once(scope, digest, operation):
         old = state['receipts'].get(scope)
@@ -57,9 +61,11 @@ def ctx(monkeypatch):
         state['receipts'][scope] = (digest, result)
         return result
 
-    app.register_blueprint(create_blueprint(
-        lambda actor, did: state['session'] if did == DID else None, authorize, persist, once,
-        lambda: state['managed']))
+    def load(actor, did, include_audio):
+        state['include_audio'] = include_audio
+        return state['session'] if did == DID else None
+
+    app.register_blueprint(create_blueprint(load, authorize, persist, once, lambda: state['managed']))
     client = app.test_client()
 
     return app, client, state
@@ -98,6 +104,7 @@ def test_sdict_export_round_trips_text_and_audio(csrf):
     assert bundle.files['audio/a.wav'] == WAV
     assert formats.reload_bundle(response.data, expected_version=1, allowed=True) == doc()
     assert state['asked'] == (7, DID, 'export')
+    assert state['include_audio'] is True
 
 
 def test_txt_and_rtf_export(csrf):
@@ -108,6 +115,16 @@ def test_txt_and_rtf_export(csrf):
     rtf = client.get(f'{PREFIX}/{DID}/export?format=rtf')
     assert rtf.status_code == 200 and rtf.data.startswith(b'{\\rtf')
     assert client.get(f'{PREFIX}/{DID}/export?format=exe').status_code == 400
+
+
+@pytest.mark.parametrize('kind', ['txt', 'rtf'])
+def test_text_export_does_not_require_audio(csrf, kind):
+    client, state, _token = csrf
+    state['session'] = BundleSession(doc(), b'', 3)
+    response = client.get(f'{PREFIX}/{DID}/export?format={kind}')
+    assert response.status_code == 200
+    assert response.headers['ETag'] == '"3"'
+    assert state['include_audio'] is False
 
 
 def test_export_denials_and_stale(csrf):
@@ -136,6 +153,7 @@ def test_sdict_import_persists_once_and_replays(csrf):
     first = client.post(url, data=data, headers=headers(token) | {
         'X-Content-SHA256': hashlib.sha256(data).hexdigest()})
     assert first.status_code == 200 and first.json['revision'] == 4
+    assert first.json['audio_synced'] is True
     again = client.post(url, data=data, headers=headers(token) | {
         'X-Content-SHA256': hashlib.sha256(data).hexdigest()})
     assert again.get_json() == first.get_json()
@@ -151,10 +169,59 @@ def test_txt_import(csrf):
     response = client.post(f'{PREFIX}/{DID}/import?format=txt', data='Zeile eins\r\nZeile zwei'.encode(),
                            headers=headers(token))
     assert response.status_code == 200
+    assert response.json['audio_synced'] is False
     assert state['saved'][0][1] == text_to_document(b'Zeile eins\nZeile zwei')
     assert state['saved'][0][2] is None
     assert client.post(f'{PREFIX}/{DID}/import?format=txt', data=b'\xff\xfe', headers=headers(token, key='idem-key-0002')
                        ).status_code == 400
+
+
+def test_rtf_import_round_trips_exported_styles_without_audio(csrf):
+    client, state, token = csrf
+    original = CanonicalDocument((Node(id='n1', kind='paragraph', runs=(
+        Segment(id='s1', text='Befund', bold=True),
+        Segment(id='s2', text=': '),
+        Segment(id='s3', text='unauffällig 🙂', italic=True),
+    )),))
+    state['session'] = BundleSession(original, WAV, 3)
+    exported = client.get(f'{PREFIX}/{DID}/export?format=rtf')
+    assert exported.status_code == 200
+    url = f'{PREFIX}/{DID}/import?format=rtf'
+    stale = client.post(url, data=exported.data, headers=headers(token, version=2))
+    assert stale.status_code == 409 and state['saved'] == []
+    result = client.post(url, data=exported.data, headers=headers(token))
+    assert result.status_code == 200
+    assert result.json['revision'] == 4 and result.json['audio_synced'] is False
+    assert len(state['saved']) == 1
+    actor, loaded, audio, expected = state['saved'][0]
+    assert formats.approved_signature(loaded) == formats.approved_signature(original)
+    assert (actor, audio, expected) == (7, None, 3)
+    assert all(run.audio_anchor_id is None for node in loaded.nodes for run in node.runs)
+
+
+@pytest.mark.parametrize('raw', [
+    br'{\rtf1\ansi Unclosed',
+    br"{\rtf1\ansi Invalid \'gg}",
+    br'{\rtf1\ansi Text} trailing',
+    br'{\rtf1\ansi{\object}}',
+    br'{\rtf1\ansi' + br'\par' * (formats.MAX_NODES + 1) + b'}',
+    b'{\\rtf1' + b'{' * 129 + b'}' * 130,
+])
+def test_rtf_refusal_does_not_persist(csrf, raw):
+    client, state, token = csrf
+    response = client.post(f'{PREFIX}/{DID}/import?format=rtf', data=raw, headers=headers(token))
+    assert response.status_code == 400 and response.json['code'] == 'INVALID_PAYLOAD'
+    assert state['saved'] == [] and state['receipts'] == {}
+
+
+def test_rtf_import_accepts_windows_1252_and_empty_paragraphs(csrf):
+    client, state, token = csrf
+    raw = br"{\rtf1\ansi\ansicpg1252\b Arzt\b0\par\par\i Gr\'fcnde\i0}"
+    response = client.post(f'{PREFIX}/{DID}/import?format=rtf', data=raw, headers=headers(token))
+    assert response.status_code == 200
+    loaded = state['saved'][0][1]
+    assert formats.to_plain_text(loaded) == 'Arzt\n\nGründe'
+    assert loaded.nodes[0].runs[0].bold and loaded.nodes[2].runs[0].italic
 
 
 def test_import_rejects_bad_requests(csrf):

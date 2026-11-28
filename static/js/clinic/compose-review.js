@@ -3,7 +3,7 @@
  * PAR-WF-011, W11).
  *
  * One read-only Vue view over existing building blocks: correction-editor-ui
- * (text, audio revision; loaded only, no lease is ever requested), correction-alignment-ui
+ * (text, audio revision and review lease), correction-alignment-ui
  * (current-word mark while the audio plays), acceptance-policy-ui (rule and decision
  * history) and workflow-actions-ui (accept, reject, release, archive commands and
  * their idempotent sending). Nothing from those modules is re-implemented; this
@@ -42,6 +42,7 @@ import { createClinicApiClient } from './api-client.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { useCorrectionEditor } from './correction-editor-ui.js';
 import { useCorrectionAlignment } from './correction-alignment-ui.js';
+import { FinishOptions } from './finish-options-ui.js';
 import { createAcceptancePolicyEditor } from './acceptance-policy-ui.js';
 import { ACTIONS, createWorkflowActions } from './workflow-actions-ui.js';
 
@@ -102,6 +103,8 @@ export const TEXT = Object.freeze({
     blockers: 'Offene Prüfmarken',
     blockersHint: 'Solange Prüfmarken offen sind, kann das Diktat nicht fertiggestellt werden.',
     blockerFallback: 'Prüfmarke',
+    confirmMarker: 'Treffer geprüft',
+    markerFailed: 'Die Prüfmarke konnte nicht bestätigt werden.',
     wiedervorlage: 'Wiedervorlage',
     newerRevision: 'Es liegt eine neuere Fassung vor als die geprüfte. Die Entscheidung ist gesperrt, bis der aktuelle Stand geladen und erneut geprüft wurde.',
     conflict: 'Der Stand hat sich geändert. Die Entscheidung ist gesperrt, bis der aktuelle Stand geladen wurde.',
@@ -205,6 +208,7 @@ export function createReviewViewController(options) {
     const isOnline = opts.isOnline || (() => typeof navigator === 'undefined' || navigator.onLine !== false);
 
     const path = '/dictations/' + encodeURIComponent(dictationId);
+    const markerPath = path + '/correction/review-markers';
     const status = ref('idle'); // idle | loading | ready | none | denied | error
     const review = ref(null); // last review state as served
     const reviewed = ref(null); // { text, audio, context } revisions the reviewer saw
@@ -215,6 +219,8 @@ export function createReviewViewController(options) {
     const contentChecked = ref(false);
     const contextChecked = ref(false);
     const error = ref('');
+    const markerState = ref(null);
+    const markerBusy = ref(false);
     const reasonInvalid = ref(false);
     const audioEl = shallowRef(null);
     let disposed = false;
@@ -235,6 +241,7 @@ export function createReviewViewController(options) {
 
     // --- derived state --------------------------------------------------------
     const markers = () => {
+        if (markerState.value) return markerState.value;
         const r = review.value || {};
         if (!Array.isArray(r.review_markers)) return [];
         return r.review_markers.map((m, i) => ({
@@ -327,9 +334,10 @@ export function createReviewViewController(options) {
         status.value = 'loading';
         error.value = '';
         cancel();
-        const [res, acc] = await Promise.all([
+        const [res, acc, markerRes] = await Promise.all([
             scoped.request(path + '/review'),
             scoped.request(path + '/acceptance-state'),
+            scoped.request(markerPath),
             editor.load({ discard: true }),
         ]);
         if (disposed) return fail('cancelled', '');
@@ -351,6 +359,9 @@ export function createReviewViewController(options) {
         const b = data.binding || {};
         const head = str(editor.textRevisionId.value);
         const bound = str(b.text_revision_id);
+        const snapshot = markerRes?.outcome === 'ok' ? markerRes.data : null;
+        markerState.value = snapshot?.text_revision_id === (bound || head) && Array.isArray(snapshot?.review_markers)
+            ? snapshot.review_markers : null;
         reviewed.value = {
             text: bound || head,
             audio: str(b.audio_revision_id) || str(editor.audio.value.revisionId),
@@ -373,6 +384,24 @@ export function createReviewViewController(options) {
         const head = str(res.data.text_revision_id);
         if (head && reviewed.value.text && head !== reviewed.value.text) newer.value = { revisionId: head };
         return isNewer();
+    }
+
+    async function confirmMarker(id) {
+        const lease = editor.lease.value;
+        if (disposed || markerBusy.value || !isOnline() || isNewer() || !lease.writable
+                || !markerState.value?.some((marker) => marker.id === id)) return false;
+        markerBusy.value = true;
+        try {
+            const res = await scoped.request(markerPath + '/' + encodeURIComponent(id) + '/confirm', {
+                method: 'POST', idempotencyKey: id,
+                body: { expected_text_revision_id: reviewed.value.text, lease_generation: lease.generation },
+            });
+            await load();
+            if (res.outcome !== 'ok' && !disposed) error.value = res.message || TEXT.markerFailed;
+            return res.outcome === 'ok';
+        } finally {
+            markerBusy.value = false;
+        }
     }
 
     // --- decisions -----------------------------------------------------------------
@@ -488,6 +517,7 @@ export function createReviewViewController(options) {
         wf.load(null);
         policy.reset();
         review.value = null;
+        markerState.value = null;
         reviewed.value = null;
         acceptance.value = null;
         editor.text.value = '';
@@ -499,7 +529,7 @@ export function createReviewViewController(options) {
         vue: V, api, editor, alignment, wf, policy,
         status, review, reviewed, acceptance, newer, confirming, reason, contentChecked, contextChecked, error, reasonInvalid, audioEl,
         dictationId, markers, isNewer, blockedReason, actions, acceptanceView, readOnly, revisionSummary, confirmText,
-        start, load, checkNewer, request, confirm, cancel, bindAudio, close, correct, dispose,
+        start, load, checkNewer, request, confirm, confirmMarker, markerBusy, cancel, bindAudio, close, correct, dispose,
         client: scoped, text: TEXT,
     };
 }
@@ -520,6 +550,7 @@ const BODY_PROPS = {
 
 const ReviewBody = {
     name: 'ClinicReviewBody',
+    components: { FinishOptions },
     props: BODY_PROPS,
     emits: ['close', 'correct'],
     setup(props, ctx) {
@@ -539,6 +570,23 @@ const ReviewBody = {
         if (typeof V.onMounted === 'function') V.onMounted(() => { c.start(); });
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
         const a = c.alignment;
+        let finishOptions = null;
+        const onFinishKeydown = (event) => {
+            event.stopPropagation();
+            finishOptions?.onKeydown(event);
+            event.preventDefault();
+        };
+        const finishWorkflow = {
+            ...c.wf,
+            async confirm() {
+                const why = c.blockedReason('release');
+                if (why || await c.checkNewer()) {
+                    c.wf.state.error = why || TEXT.newerRevision;
+                    return null;
+                }
+                return c.wf.confirm();
+            },
+        };
         const styleFor = (seg) => {
             const word = a.currentWord.value;
             if (word && seg.linkId === word.id) return box('processing');
@@ -546,17 +594,20 @@ const ReviewBody = {
             return {};
         };
         return {
-            c, FOCUS, short: (v) => (typeof v === 'string' && v.length > 13 ? v.slice(0, 8) + '…' : v), box, styleFor, TEXT, wf: c.wf,
+            c, FOCUS, short: (v) => (typeof v === 'string' && v.length > 13 ? v.slice(0, 8) + '…' : v), box, styleFor, TEXT, wf: c.wf, finishWorkflow, onFinishKeydown,
+            setFinishOptions: (view) => { finishOptions = view; },
             toneBox: (tone) => box({ success: 'success', warn: 'warning', danger: 'error', info: 'pending' }[tone] || 'normal'),
             status: c.status, review: c.review, newer: c.newer, confirming: c.confirming, reason: c.reason, error: c.error,
-            reasonInvalid: c.reasonInvalid, contentChecked: c.contentChecked, contextChecked: c.contextChecked,
+            markerBusy: c.markerBusy,
+            reasonInvalid: c.reasonInvalid,
             audio: c.editor.audio, manual: c.editor.manual, lease: c.editor.lease,
             segments: a.segments, currentWord: a.currentWord,
             setReasonNode: (n) => { reasonNode = n; },
         };
     },
     template: `
-<section class="clinic-review-view v8-page" data-testid="clinic-review-view" aria-labelledby="crv-title" :aria-busy="status === 'loading' ? 'true' : 'false'">
+<section class="clinic-review-view v8-page" data-testid="clinic-review-view" aria-labelledby="crv-title" :aria-busy="status === 'loading' ? 'true' : 'false'"
+         @keydown.f5.exact.capture="onFinishKeydown">
   <nav class="breadcrumb" aria-label="Pfad"><span>Speakr</span><span aria-hidden="true">›</span><span>{{ TEXT.eyebrow }}</span><span aria-hidden="true">›</span><span aria-current="page">{{ TEXT.title }}</span></nav>
   <div class="pagehead">
     <div>
@@ -600,7 +651,15 @@ const ReviewBody = {
     <section v-if="c.markers().length" class="note warning" style="margin: 0 0 16px" :aria-label="TEXT.blockers" data-testid="blockers">
       <h3 style="${H3}">{{ TEXT.blockers }} ({{ c.markers().length }})</h3>
       <p>{{ TEXT.blockersHint }}</p>
-      <ul role="list" style="margin: 0; padding-left: 18px; list-style: disc"><li v-for="b in c.markers()" :key="b.id">{{ b.label }}</li></ul>
+      <ul role="list" style="margin: 0; padding-left: 18px; list-style: disc">
+        <li v-for="b in c.markers()" :key="b.id">
+          {{ b.label }}<template v-if="b.anchor_offset != null"> · Stelle {{ b.anchor_offset + 1 }}</template>
+          <button v-if="b.anchor_offset != null && lease.writable" type="button" class="button secondary"
+                  :style="FOCUS" :disabled="markerBusy || !!newer"
+                  :aria-label="TEXT.confirmMarker + ' ' + b.label + ', Stelle ' + (b.anchor_offset + 1)"
+                  @click="c.confirmMarker(b.id)">{{ TEXT.confirmMarker }}</button>
+        </li>
+      </ul>
     </section>
 
     <div class="grid">
@@ -646,9 +705,13 @@ const ReviewBody = {
           </div>
           <p v-if="c.readOnly()" class="note" role="note" data-testid="read-only">{{ TEXT.readOnly }}</p>
           <div class="actions text-sm" style="margin-top: 14px">
-            <button v-for="a in c.actions()" :key="a.id" type="button" class="button" style="min-height: 2.75rem"
-                    :style="[FOCUS, a.id === 'accept' ? '${PRIMARY}' : null]" :disabled="a.disabled" :data-action="a.id" :aria-describedby="a.why ? 'crv-why-' + a.id : null"
-                    @click="c.request(a.id)">{{ a.label }}</button>
+            <template v-for="a in c.actions()" :key="a.id">
+              <FinishOptions v-if="a.id === 'release'" :ref="setFinishOptions" :workflow="finishWorkflow" :client="c.client" :vue="vue"
+                             :disabled="a.disabled || !lease.writable || !!confirming" @finished="c.close()" />
+              <button v-else type="button" class="button" style="min-height: 2.75rem"
+                      :style="[FOCUS, a.id === 'accept' ? '${PRIMARY}' : null]" :disabled="a.disabled" :data-action="a.id" :aria-describedby="a.why ? 'crv-why-' + a.id : null"
+                      @click="c.request(a.id)">{{ a.label }}</button>
+            </template>
           </div>
           <template v-for="a in c.actions()" :key="'w' + a.id"><span v-if="a.why" :id="'crv-why-' + a.id" :class="a.id === 'accept' ? 'hint' : 'visually-hidden'">{{ a.why }}</span></template>
 
@@ -659,10 +722,6 @@ const ReviewBody = {
               <label style="${LABEL}" for="crv-reason">{{ TEXT.reason }}</label>
               <textarea style="${TEXTAREA}" id="crv-reason" :ref="setReasonNode" v-model="reason" maxlength="2000"
                         :aria-invalid="reasonInvalid ? 'true' : 'false'" aria-describedby="crv-error" data-testid="reason"></textarea>
-            </div>
-            <div v-if="confirming === 'release'" class="checkboxes">
-              <label class="inline-label"><input type="checkbox" v-model="contentChecked"> {{ TEXT.contentChecked }}</label>
-              <label class="inline-label"><input type="checkbox" v-model="contextChecked"> {{ TEXT.contextChecked }}</label>
             </div>
             <div class="actions text-sm">
               <button type="submit" class="button" style="min-height: 2.75rem; ${PRIMARY}" :style="FOCUS" :disabled="wf.state.busy" data-testid="confirm">{{ TEXT.confirm }}</button>

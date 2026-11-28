@@ -29,8 +29,10 @@
  *   createCorrectionViewController(options)  the controller behind the view.
  */
 
+import { useCorrectionPlayerPosition } from './correction-player-position.js';
 import { formatDictationReference } from './worklist-ui.js';
 import { createClinicApiClient } from './api-client.js';
+import { SessionTransportNotice } from './compose-settings.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { CorrectionAudioPanel, DictationSummary, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT, insertDocumentChoiceRun } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
@@ -38,12 +40,30 @@ import { CorrectionWaveform } from './correction-waveform-ui.js';
 import { PlaybackTempo, usePlaybackTempo } from './playback-tempo-ui.js';
 import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
+import { applyReplacements, findMatches, transformSelectionCase } from './correction-toolbar-ui.js';
+import { FORMATS, label as richTextLabel, sanitizePaste } from './richtext-editor-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
 import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
+import { FinishOptions } from './finish-options-ui.js';
+import { createWorkflowActions } from './workflow-actions-ui.js';
 
 export const COMPOSE_CORRECTION_VERSION = 1;
 
 const CLINIC_OPEN_MODES = Object.freeze(['author_case', 'player', 'correction']);
+const SESSION_FORMATS = Object.freeze([
+    { id: 'sdict', label: 'Diktatdatei (.sdict)', mime: 'application/zip' },
+    { id: 'rtf', label: 'Formatierter Text (.rtf)', mime: 'application/rtf' },
+    { id: 'txt', label: 'Reiner Text (.txt)', mime: 'text/plain' },
+]);
+
+function downloadSession(blob, format) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'diktat.' + format;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 /**
  * Where a list open event lands.
@@ -110,12 +130,16 @@ export const TEXT = Object.freeze({
     openAssignment: 'Zuordnung offen',
     noPool: 'Kein Pool zugewiesen',
     options: 'Wiedergabeoptionen',
+    audioUnsynced: 'Text und Audio sind nicht synchronisiert.',
     highlightOn: 'Wortmarkierung ausschalten',
     highlightOff: 'Wortmarkierung einschalten',
     follow: 'Aktuelles Wort mitverfolgen',
     undo: 'Rückgängig',
     redo: 'Wiederholen',
     paragraph: 'Absatz einfügen',
+    moveUp: 'Absatz nach oben',
+    moveDown: 'Absatz nach unten',
+    insertManual: 'Neuen Textabschnitt einfügen',
     marker: 'Prüfmarke einfügen',
     markerTip: 'Prüfmarke einfügen (noch nicht angebunden)',
     ctxAssignment: 'Zuständigkeit und Übernahme',
@@ -125,6 +149,8 @@ export const TEXT = Object.freeze({
     ctxClosed: 'Kontextbereich',
     find: 'Im Text suchen',
     replace: 'Suchen und Ersetzen',
+    upperCase: 'Auswahl in Grossbuchstaben',
+    lowerCase: 'Auswahl in Kleinbuchstaben',
     fontDown: 'Text kleiner anzeigen',
     fontUp: 'Text grösser anzeigen',
     focusOn: 'Vollbild öffnen',
@@ -161,8 +187,19 @@ export const TEXT = Object.freeze({
     alignment: 'Text und Audio',
     alignmentText: 'Transkript mit Audio-Zuordnung',
     wordAria: 'Wort abspielen',
+    passageAria: 'Passage abspielen',
+    startTyping: 'Hier mit dem Schreiben beginnen',
     unalignedMark: 'ohne Audio',
     markers: 'Marken im Audio',
+    reviewTitle: 'Zu prüfende Wörter',
+    reviewHint: 'Pfeiltasten wechseln den Treffer. Eingabe bestätigt, Esc wählt die Textstelle aus.',
+    reviewConfirm: 'Bestätigen',
+    reviewConfirmed: 'Bestätigt',
+    reviewOpen: 'Offen',
+    reviewNone: 'Keine offenen Treffer',
+    reviewFailed: 'Bestätigung nicht möglich. Bitte erneut versuchen.',
+    reviewLoadFailed: 'Treffer konnten nicht geladen werden.',
+    reviewDraft: 'Geänderte Stelle zuerst speichern.',
     lease: 'Bearbeitungsstatus',
     save: 'Speichern',
     saveSection: 'Speicherstand',
@@ -287,15 +324,22 @@ export function createCorrectionViewController(options) {
     const revisionGeneration = ref(0); // bumps when a save produced a new text revision
     const audioEl = shallowRef(null);
     const gainState = shallowRef(null);
+    const documentLoading = ref(false);
     const closeMessage = ref('');
+    const fileAction = ref('');
+    const fileMessage = ref('');
+    const fileError = ref(false);
     let gain = null;
     let gainContext = null;
     let highlighter = null;
     let alignmentRoot = null;
     let knownRevision;
     let disposed = false;
+    let opening = null;
+    let closing = false;
     const stops = [];
     const audioListeners = [];
+    let activeRange = null;
     let tempo = null;
     let pedal = null;
     let pedalReady = Promise.resolve(null);
@@ -314,6 +358,58 @@ export function createCorrectionViewController(options) {
     const getPositionMs = () => (audioEl.value ? Math.round(position() * 1000) : null);
     const seek = (seconds) => { if (audioEl.value) audioEl.value.currentTime = seconds; };
 
+    function clearRange() {
+        const range = activeRange;
+        activeRange = null;
+        if (range?.frame != null) range.view.cancelAnimationFrame(range.frame);
+        return range;
+    }
+
+    function stopRange() {
+        clearRange()?.el.pause();
+    }
+
+    function checkRange() {
+        const range = activeRange;
+        if (!range) return;
+        if (editor.textRevisionId.value !== range.textRevision || editor.audio.value !== range.audio) {
+            stopRange();
+        } else if (range.el.currentTime >= range.end) {
+            stopRange();
+            range.el.currentTime = range.end;
+        }
+    }
+
+    async function playRange(start, end) {
+        const el = audioEl.value;
+        const audio = editor.audio.value;
+        if (!el || audio.status !== 'ready' || !audio.src || !el.currentSrc
+            || el.currentSrc !== new URL(audio.src, el.ownerDocument.baseURI).href
+            || !Number.isFinite(el.duration) || !Number.isFinite(start) || !Number.isFinite(end)
+            || start < 0 || start >= end || start >= el.duration || end > el.duration + 0.001) return false;
+        manuallyPaused = false;
+        modes.cancelResume();
+        clearRange();
+        const range = { el, start, end: Math.min(end, el.duration), audio,
+            textRevision: editor.textRevisionId.value, view: el.ownerDocument.defaultView };
+        activeRange = range;
+        try {
+            el.currentTime = start;
+            await el.play();
+        } catch {
+            if (activeRange === range) clearRange();
+            return false;
+        }
+        if (activeRange !== range) return false;
+        // Keep short marks bounded between the media element's timeupdate events.
+        const tick = () => {
+            checkRange();
+            if (activeRange === range) range.frame = range.view.requestAnimationFrame(tick);
+        };
+        if (range.view?.requestAnimationFrame) range.frame = range.view.requestAnimationFrame(tick);
+        return true;
+    }
+
     const alignment = useCorrectionAlignment({ editor, client, dictationId, seek, vue: V || undefined });
 
     // Adapter for the correction modes (w153); inert until the element is bound.
@@ -329,13 +425,56 @@ export function createCorrectionViewController(options) {
         ...(opts.modesOptions || {}),
     });
 
+    let manuallyPaused = false;
+    function togglePlayback() {
+        const wasWaiting = modes.waiting.value;
+        modes.cancelResume();
+        if (modeAudio.isPlaying()) {
+            manuallyPaused = true;
+            modeAudio.pause();
+        } else {
+            const backstep = manuallyPaused || wasWaiting;
+            manuallyPaused = false;
+            if (backstep) modes.resumeWithBackstep();
+            else modeAudio.play();
+        }
+    }
+
+    function pedalPlayback(command) {
+        manuallyPaused = false;
+        modes.cancelResume();
+        command();
+    }
+
     const saver = useCorrectionSave({
         editor, client, dictationId, getPositionMs, vue: V || undefined,
         lease: createLeaseAdapter(editor, V),
+        canSave: () => fileAction.value !== 'open',
         ...(opts.autosaveMs !== undefined ? { autosaveMs: opts.autosaveMs } : {}),
         ...(v8 ? { reconcileFirst: true } : {}),
+        ...(opts.document === true ? { document: true, seek } : {}),
         ...(opts.saveOptions || {}),
     });
+    const doc = saver.document;
+
+    function seekDocument(runId, play = false) {
+        if (editor.audio.value.status !== 'ready' || !audioEl.value || !doc?.seekToSegment(runId)) return false;
+        if (play) modeAudio.play();
+        return true;
+    }
+
+    // Keep the waveform's existing alignment in step; only the read-along uses stable document runs.
+    const playbackAlignment = doc ? {
+        ...alignment,
+        highlightAt(seconds) {
+            const word = alignment.highlightAt(seconds);
+            if (!doc.available.value) return word;
+            const id = doc.highlightAt(seconds);
+            return id ? { id } : null;
+        },
+        granularityOf: (id) => doc.available.value ? 'segment' : alignment.granularityOf(id),
+    } : alignment;
+    if (doc && api.watch) stops.push(api.watch([doc.doc, doc.version, editor.audio], () => highlighter?.refresh()));
 
     const repeat = createRepeatTranscription({ editor, ref });
     const resumeLabel = (api.computed)(() => {
@@ -370,6 +509,9 @@ export function createCorrectionViewController(options) {
 
     // --- audio wiring -------------------------------------------------------
     function unbindAudio() {
+        stopRange();
+        manuallyPaused = false;
+        modes.cancelResume();
         for (const [node, name, fn] of audioListeners.splice(0)) {
             if (typeof node.removeEventListener === 'function') node.removeEventListener(name, fn);
         }
@@ -405,62 +547,188 @@ export function createCorrectionViewController(options) {
             if (gainContext && typeof gainContext.resume === 'function') Promise.resolve(gainContext.resume()).catch(() => {});
             if (gain) gain.start();
         });
-        listen('pause', () => { if (gain) gain.stop(); });
-        listen('ended', () => { if (gain) gain.stop(); });
+        const onPlaybackStop = () => {
+            if (el.paused) clearRange();
+            if (gain) gain.stop();
+        };
+        listen('pause', onPlaybackStop);
+        listen('ended', () => {
+            manuallyPaused = false;
+            modes.cancelResume();
+            onPlaybackStop();
+        });
+        listen('timeupdate', checkRange);
+        listen('seeking', () => { if (activeRange && Math.abs(el.currentTime - activeRange.start) > 0.001) clearRange(); });
+        listen('emptied', clearRange);
         // Same tempo controller the player buttons use (seek, rewind); the pedal calls it too.
         tempo = usePlaybackTempo({ audio: el, onSync });
         // Highlight follows the real media position (rAF while playing, events otherwise); it never touches focus or editor state.
-        highlighter = createPlaybackHighlighter({ alignment, audio: el, root: alignmentRoot, follow: false });
+        highlighter = createPlaybackHighlighter({ alignment: playbackAlignment, audio: el, root: alignmentRoot, follow: false });
+        highlighter.refresh();
     }
 
     /** Element holding the aligned words; the highlighter marks [data-link] children and follows them. */
-    function bindAlignmentRoot(node) {
-        alignmentRoot = isNode(node) ? node : null;
-        if (highlighter) highlighter.setRoot(alignmentRoot);
+            function bindAlignmentRoot(node) {
+        const root = isNode(node) ? node : null;
+        if (root === alignmentRoot) return;
+        alignmentRoot = root;
+        if (highlighter) highlighter.setRoot(root);
     }
 
     /** Honest notice for the current binding: "nicht ausgerichtet" or the coarse segment highlight. */
     const alignmentNotice = api.computed(() => {
+        if (doc?.available.value) return doc.activeRunId.value ? ALIGN_LABELS.segmentHighlight : '';
         alignment.status.value; alignment.currentWord.value; // dependencies
         return highlighter ? highlighter.notice() : (alignment.status.value === 'stale' || alignment.status.value === 'error' ? ALIGN_LABELS.notAligned : '');
     });
 
     /** Tempo sync (seek, rate change): the current word follows the player. */
     function onSync(event) {
-        if (!disposed && event && Number.isFinite(event.positionMs)) alignment.highlightAt(event.positionMs / 1000);
+        if (!disposed && event && Number.isFinite(event.positionMs)) playbackAlignment.highlightAt(event.positionMs / 1000);
     }
 
     // --- load and revision follow-up (W10) -----------------------------------
     async function load(loadOptions) {
         if (disposed) return { ok: false, code: 'cancelled', message: '' };
         closeMessage.value = '';
-        const res = await editor.load(loadOptions);
-        if (disposed || (res && res.code === 'cancelled')) return res;
-        if (res && res.ok) {
+        if (documentLoading.value) return { ok: false, code: 'loading' };
+        documentLoading.value = Boolean(doc);
+        let res;
+        try {
+            res = await editor.load(loadOptions);
+            if (disposed || !res?.ok) return res;
             knownRevision = editor.textRevisionId.value;
-            ready.value = true;
-            loadGeneration.value += 1;
-            await Promise.all([alignment.refresh(), saver.loadResume(), modes.load()]);
+            if (doc) {
+                const resume = await saver.loadResume();
+                if (disposed) return { ok: false, code: 'cancelled' };
+                if (!resume.ok) {
+                    ready.value = false;
+                    editor.error.value = { code: 'failed', message: resume.message };
+                    return { ok: false, code: 'failed', message: resume.message };
+                }
+            }
+        } finally {
+            documentLoading.value = false;
         }
+        ready.value = true;
+        loadGeneration.value += 1;
+        await Promise.all([alignment.refresh(), doc ? null : saver.loadResume(), modes.load(), loadReview()]);
         return res;
     }
 
     /** After a save produced a new text revision, text and audio are linked again by the server; adopt the new links. */
     function syncRevision() {
-        if (disposed || !ready.value) return null;
+        if (disposed || !ready.value || documentLoading.value) return null;
         const revision = editor.textRevisionId.value;
         if (revision === knownRevision) return null;
         knownRevision = revision;
         revisionGeneration.value += 1;
-        return alignment.refresh();
+        return Promise.all([alignment.refresh(), loadReview()]);
     }
 
-    if (api.watch) stops.push(api.watch(editor.textRevisionId, () => { syncRevision(); }));
+    if (api.watch) {
+        stops.push(api.watch(editor.textRevisionId, () => { checkRange(); syncRevision(); }));
+        stops.push(api.watch(editor.audio, checkRange));
+    }
 
     async function save() {
+        if (doc && (!ready.value || documentLoading.value)) return { ok: false, state: saver.state.value };
         const res = await saver.save();
         if (res && res.ok) await syncRevision();
         return res;
+    }
+
+    const bundlePath = '/bundles/' + encodeURIComponent(dictationId);
+
+    async function sessionVersion() {
+        const res = await client.request('/dictations/' + encodeURIComponent(dictationId) + '/correction');
+        if (res.outcome !== 'ok' || !Number.isSafeInteger(res.data?.bundle_version)) {
+            throw new Error('Der aktuelle Stand konnte nicht geprüft werden.');
+        }
+        if (res.data.text_revision_id !== editor.textRevisionId.value
+            || (res.data.audio_revision_id ?? null) !== editor.audio.value.revisionId) {
+            throw new Error('Das Diktat wurde in der Zwischenzeit geändert. Laden Sie es zuerst neu.');
+        }
+        return res.data.bundle_version;
+    }
+
+    async function withFileAction(action, work) {
+        if (disposed || closing || !ready.value || fileAction.value || editor.loading.value || documentLoading.value
+            || saver.state.value === 'saving') return false;
+        fileAction.value = action;
+        fileError.value = false;
+        fileMessage.value = action === 'open' ? 'Datei wird geöffnet …' : 'Datei wird vorbereitet …';
+        try {
+            const message = await work();
+            if (disposed) return false;
+            fileMessage.value = message;
+            return true;
+        } catch (error) {
+            if (disposed) return false;
+            fileError.value = true;
+            fileMessage.value = error instanceof Error ? error.message : 'Die Datei konnte nicht verarbeitet werden.';
+            return false;
+        } finally {
+            fileAction.value = '';
+            if (!disposed && editor.dirty.value) saver.touch();
+        }
+    }
+
+    function saveSession(format) {
+        const kind = SESSION_FORMATS.find((row) => row.id === format);
+        if (!kind) return false;
+        return withFileAction('save', async () => {
+            if (editor.dirty.value) {
+                const res = await save();
+                if (!res.ok || editor.dirty.value) throw new Error('Speichern Sie zuerst Ihre Änderungen am Diktat.');
+            }
+            if (disposed) return '';
+            const version = await sessionVersion();
+            if (disposed) return '';
+            const res = await client.request(bundlePath + '/export?format=' + format + '&version=' + version,
+                { responseType: 'blob' });
+            if (disposed) return '';
+            if (res.outcome !== 'ok' || res.data?.type?.split(';')[0] !== kind.mime) {
+                const reason = res.status === 404 ? 'Keine Berechtigung zum Speichern dieser Datei.' : res.message;
+                throw new Error('Die Datei konnte nicht gespeichert werden. ' + (reason || ''));
+            }
+            (opts.downloadSession || downloadSession)(res.data, format);
+            return 'Download gestartet: diktat.' + format + ' Prüfen Sie die Datei in den Downloads Ihres Browsers.';
+        });
+    }
+
+    function openSession(file) {
+        if (!file || !editor.canEdit.value) return false;
+        const format = /\.(sdict|rtf|txt)$/i.exec(file.name)?.[1].toLowerCase();
+        return withFileAction('open', async () => {
+            if (!format) throw new Error('Wählen Sie eine Datei mit der Endung .sdict, .rtf oder .txt.');
+            const replacement = format === 'sdict' ? 'Text und Ton' : 'den Text (der bisherige Ton bleibt)';
+            const warning = editor.dirty.value ? ' Nicht gespeicherte Änderungen gehen verloren.' : '';
+            if (!(opts.confirm || globalThis.confirm)('Diese Datei ersetzt ' + replacement + ' im offenen Diktat.' + warning + ' Datei öffnen?')) {
+                return 'Öffnen abgebrochen.';
+            }
+            const version = await sessionVersion();
+            if (disposed) return '';
+            if (!editor.canEdit.value) throw new Error('Das Diktat kann gerade nicht bearbeitet werden.');
+            const res = await client.request(bundlePath + '/import?format=' + format, {
+                method: 'POST', rawBody: file, ifMatch: '"' + version + '"', idempotencyKey: globalThis.crypto.randomUUID(),
+            });
+            if (disposed) return '';
+            if (res.outcome !== 'ok' || res.data?.status !== 'committed') {
+                if (res.status === 404) throw new Error('Die Datei wurde nicht geöffnet. Keine Berechtigung für dieses Diktat.');
+                if (res.status === 413) throw new Error('Die Datei wurde nicht geöffnet. Sie ist zu gross.');
+                if (res.outcome === 'network' || res.outcome === 'UNKNOWN' || res.outcome === 'ok') {
+                    throw new Error('Ob die Datei übernommen wurde, ist unklar. Prüfen Sie den Stand, bevor Sie es erneut versuchen.');
+                }
+                throw new Error('Die Datei wurde nicht geöffnet. ' + (res.message || ''));
+            }
+            const loaded = await reloadLatest();
+            if (!loaded.ok || editor.audio.value.status !== 'ready') {
+                throw new Error('Die Datei wurde übernommen, aber das Diktat konnte nicht vollständig geladen werden. Laden Sie es neu.');
+            }
+            return res.data.audio_synced === true ? 'Diktatdatei mit Text und Ton geöffnet.'
+                : 'Text geöffnet. Die Datei enthielt keinen Ton. Der bisherige Ton bleibt. Beim Abspielen folgt die Markierung dem neuen Text nicht.';
+        });
     }
 
     function adoptAudioRevision(id) {
@@ -480,23 +748,32 @@ export function createCorrectionViewController(options) {
         if (res && res.ok) {
             knownRevision = editor.textRevisionId.value;
             loadGeneration.value += 1;
-            await alignment.refresh();
+            await Promise.all([alignment.refresh(), loadReview()]);
         }
         return res;
     }
 
     function setText(next) {
+        if (fileAction.value || doc?.available.value || documentLoading.value) return false;
         const accepted = editor.setText(next);
         if (accepted) saver.touch();
         return accepted;
     }
 
     async function reloadLatest() {
-        const res = await saver.reloadLatest();
+        if (documentLoading.value) return { ok: false, code: 'loading' };
+        documentLoading.value = Boolean(doc);
+        let res;
+        try {
+            res = await saver.reloadLatest();
+        } finally {
+            documentLoading.value = false;
+        }
+        if (disposed) return res;
         if (res && res.ok) {
             knownRevision = editor.textRevisionId.value;
             loadGeneration.value += 1;
-            await alignment.refresh();
+            await Promise.all([alignment.refresh(), loadReview()]);
         }
         return res;
     }
@@ -508,7 +785,7 @@ export function createCorrectionViewController(options) {
     function onShortcut(event) {
         if (!event || !(event.ctrlKey || event.metaKey) || String(event.key).toLowerCase() !== 's') return false;
         if (typeof event.preventDefault === 'function') event.preventDefault();
-        save();
+        if (!fileAction.value) save();
         return true;
     }
 
@@ -540,13 +817,125 @@ export function createCorrectionViewController(options) {
         return true;
     }
 
+    // --- review markers at the affected span (PAR-VOC-004) ---------------------------
+    // Server offsets and confirmations belong to the saved text revision (UTF-16 units).
+    const reviewHits = ref([]);
+    const reviewActive = ref(0);
+    const reviewMessage = ref('');
+    let reviewBase = '';
+    const reviewRevision = ref(null);
+    const reviewLoaded = ref(false);
+    let reviewSeq = 0;
+    const reviewPath = () => '/dictations/' + encodeURIComponent(dictationId) + '/correction/review-markers';
+    const reviewKeys = new Map();
+    const newReviewKey = () => (globalThis.crypto && globalThis.crypto.randomUUID ? globalThis.crypto.randomUUID() : 'rk-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+
+    /** Changed range in the saved and draft texts, excluding their common prefix and suffix. */
+    function reviewEdit(current) {
+        if (current === reviewBase) return null;
+        let p = 0;
+        const max = Math.min(current.length, reviewBase.length);
+        while (p < max && current[p] === reviewBase[p]) p += 1;
+        let s = 0;
+        while (s < max - p && current[current.length - 1 - s] === reviewBase[reviewBase.length - 1 - s]) s += 1;
+        return { start: p, end: reviewBase.length - s, draftEnd: current.length - s };
+    }
+
+    /** Hits with their state: 'confirmed' only while the confirmed span is untouched in the editor text. */
+    const reviewList = api.computed(() => {
+        if (reviewRevision.value !== editor.textRevisionId.value) return [];
+        const text = editor.text.value;
+        const edit = reviewEdit(text);
+        // A word also changes when an adjacent edit joins it to another word or extends it.
+        const joinedBefore = edit && text.slice(0, edit.draftEnd).match(/[\p{L}\p{N}_]+$/u)?.[0];
+        const joinedAfter = edit && text.slice(edit.start).match(/^[\p{L}\p{N}_]+/u)?.[0];
+        return reviewHits.value.map((h) => {
+            const savedEnd = h.offset + h.label.length;
+            const shift = edit ? edit.draftEnd - edit.end : 0;
+            const start = !edit || h.offset < edit.start ? h.offset : h.offset >= edit.end ? h.offset + shift : edit.start;
+            const end = !edit || savedEnd <= edit.start ? savedEnd : savedEnd >= edit.end ? savedEnd + shift : edit.draftEnd;
+            const before = edit && h.offset === edit.end && joinedBefore ? joinedBefore.length : 0;
+            const after = edit && savedEnd === edit.start && joinedAfter ? joinedAfter.length : 0;
+            const touched = Boolean(before || after || (edit && h.offset < edit.end && savedEnd > edit.start));
+            return {
+                ...h, start: start - before, end: end + after, touched, state: h.confirmed && !touched ? 'confirmed' : 'open',
+                context: reviewBase.slice(Math.max(0, h.offset - 20), savedEnd + 20).replace(/\s+/g, ' '),
+            };
+        });
+    });
+    const reviewOutstanding = api.computed(() => reviewList.value.filter((h) => h.state === 'open').length);
+
+    async function loadReview() {
+        if (disposed) return { ok: false, code: 'cancelled', message: '' };
+        const mine = ++reviewSeq;
+        const revision = editor.textRevisionId.value;
+        const text = editor.text.value;
+        if (reviewRevision.value !== revision) reviewLoaded.value = false;
+        const [res, base] = await Promise.all([
+            client.request(reviewPath()),
+            editor.dirty.value ? client.request('/dictations/' + encodeURIComponent(dictationId) + '/correction') : null,
+        ]);
+        if (mine !== reviewSeq || disposed || revision !== editor.textRevisionId.value || res?.outcome === 'cancelled') {
+            return { ok: false, code: 'cancelled', message: '' };
+        }
+        const data = res?.data;
+        if (res?.outcome !== 'ok' || data?.text_revision_id !== revision || !Array.isArray(data?.review_markers)
+            || (base && (base.outcome !== 'ok' || base.data?.text_revision_id !== revision || typeof base.data.text !== 'string'))) {
+            reviewMessage.value = TEXT.reviewLoadFailed;
+            return { ok: false, code: 'failed', message: TEXT.reviewLoadFailed };
+        }
+        reviewBase = base ? base.data.text : text;
+        reviewRevision.value = revision;
+        const list = data.review_markers;
+        reviewHits.value = list.filter((h) => h && typeof h.id === 'string' && typeof h.label === 'string' && Number.isInteger(h.anchor_offset))
+            .map((h) => ({ id: h.id, label: h.label, offset: h.anchor_offset, confirmed: false }));
+        reviewActive.value = 0;
+        reviewMessage.value = '';
+        reviewLoaded.value = true;
+        return { ok: true };
+    }
+
+    function moveReview(step) {
+        const n = reviewHits.value.length;
+        if (!n) return null;
+        reviewActive.value = (reviewActive.value + step + n) % n;
+        return reviewActive.value;
+    }
+
+    /** Confirm one open hit (server: lease generation and expected text revision). */
+    async function confirmReview(id) {
+        const hit = reviewList.value.find((h) => h.id === id);
+        const snap = editor.lease && editor.lease.value;
+        const generation = snap && Number.isInteger(snap.generation) ? snap.generation : null;
+        if (disposed || !hit || hit.touched || hit.state !== 'open') return { ok: false, code: 'noop', message: '' };
+        const revision = reviewRevision.value;
+        if (fileAction.value || !editor.canEdit.value || generation === null || !revision) return { ok: false, code: 'readOnly', message: TEXT.readOnly };
+        const body = { expected_text_revision_id: revision, lease_generation: generation };
+        const digest = id + JSON.stringify(body);
+        if (!reviewKeys.has(digest)) reviewKeys.set(digest, newReviewKey());
+        const res = await client.request(reviewPath() + '/' + encodeURIComponent(id) + '/confirm',
+            { method: 'POST', idempotencyKey: reviewKeys.get(digest), body });
+        if (disposed || revision !== editor.textRevisionId.value || res?.outcome === 'cancelled') {
+            return { ok: false, code: 'cancelled', message: '' };
+        }
+        if (res && res.outcome === 'ok') {
+            reviewKeys.delete(digest);
+            reviewHits.value = reviewHits.value.map((h) => (h.id === id ? { ...h, confirmed: true } : h));
+            reviewMessage.value = '';
+            return { ok: true };
+        }
+        reviewMessage.value = TEXT.reviewFailed;
+        return { ok: false, code: 'failed', message: TEXT.reviewFailed };
+    }
+
+
     // --- lifecycle ------------------------------------------------------------
     const leaseRun = { acquire: editor.acquire, release: editor.release, takeOver: editor.takeOver };
     const leaseButtons = () => editor.availableLeaseActions().filter((a) => typeof leaseRun[a.id] === 'function');
 
     // --- foot pedal, keyboard mode (PAR-OPS-001) -----------------------------
-    // The pedal calls the same functions as the player controls: modeAudio (play, pause) and the tempo
-    // controller (rewind, skip). No playback action mutates data; `mutating` stays empty and canMutate
+    // Pedal commands bypass correction backstep: hold release already applies its own rewind.
+    // No playback action mutates data; `mutating` stays empty and canMutate
     // follows the lease so a future mutating command cannot bypass it. The module is loaded on demand.
     function startPedal() {
         if (opts.pedal === false) return Promise.resolve(null);
@@ -555,11 +944,11 @@ export function createCorrectionViewController(options) {
             pedal = mod.createPedalController({
                 vue: api,
                 commands: {
-                    play: () => modeAudio.play(),
-                    pause: () => modeAudio.pause(),
-                    playPause: () => (modeAudio.isPlaying() ? modeAudio.pause() : modeAudio.play()),
-                    rewind: (s) => { if (tempo) tempo.rewind(s); },
-                    skip: (s) => { if (tempo) tempo.skip(s); },
+                    play: () => pedalPlayback(modeAudio.play),
+                    pause: () => pedalPlayback(modeAudio.pause),
+                    playPause: () => pedalPlayback(modeAudio.isPlaying() ? modeAudio.pause : modeAudio.play),
+                    rewind: (s) => pedalPlayback(() => tempo?.rewind(s)),
+                    skip: (s) => pedalPlayback(() => tempo?.skip(s)),
                 },
                 mutating: [],
                 canMutate: () => Boolean(editor.canEdit.value),
@@ -579,16 +968,44 @@ export function createCorrectionViewController(options) {
         return applied;
     }
 
-    async function start() {
-        if (disposed) return null;
-        modes.start();
-        pedalReady = startPedal();
-        return load();
+    async function open() {
+        if (opts.openMode === 'correction') {
+            const res = await client.request('/dictations/' + encodeURIComponent(dictationId) + '/leases');
+            if (!disposed && res.outcome === 'ok' && res.data?.may_acquire === true) await editor.acquire();
+        }
+        const res = await load();
+        if (!disposed && !res?.ok && opts.openMode === 'correction'
+            && editor.lease.value.status === 'held') await editor.release();
+        return res;
+    }
+
+    function start() {
+        if (disposed) return Promise.resolve(null);
+        if (!opening) {
+            modes.start();
+            pedalReady = startPedal();
+            opening = open();
+        }
+        return opening;
     }
 
     /** Unsaved edits are saved before the page is told to close; a failed save keeps the view open. */
     async function close() {
-        if (disposed) return false;
+        if (disposed || closing || fileAction.value) return false;
+        closing = true;
+        try {
+            if (opening) await opening;
+            if (disposed || !(await saveBeforeClose())) return false;
+            if (editor.lease.value.status === 'held') await editor.release();
+            if (disposed) return false;
+            if (typeof opts.onClose === 'function') opts.onClose({ dictationId });
+            return true;
+        } finally {
+            closing = false;
+        }
+    }
+
+    async function saveBeforeClose() {
         // A save can settle an older pending operation and leave newer text dirty (reconcile first),
         // or the text can change while the save is awaited: save again, bounded, until nothing is dirty.
         // A save already in flight (autosave follow-up) is awaited, not counted as a failure or a pass.
@@ -606,7 +1023,6 @@ export function createCorrectionViewController(options) {
                 return false;
             }
         }
-        if (typeof opts.onClose === 'function') opts.onClose({ dictationId });
         return true;
     }
 
@@ -628,18 +1044,24 @@ export function createCorrectionViewController(options) {
         editor.dispose();
         ready.value = false;
         editor.text.value = '';
+        if (doc) {
+            doc.reset({ text: '' });
+            doc.available.value = false;
+        }
         Promise.resolve(released).catch(() => {});
     }
 
     return {
         vue: V, api, editor, alignment, modes, saver, repeat, gain: () => gain,
-        ready, loadGeneration, revisionGeneration, audioEl, gainState, closeMessage, resumeLabel,
+        ready, loadGeneration, revisionGeneration, audioEl, gainState, closeMessage, resumeLabel, documentLoading, seekDocument,
+        reviewList, reviewOutstanding, reviewActive, reviewMessage, reviewLoaded, loadReview, moveReview, confirmReview,
         recordingId: () => opts.recordingId || editor.audio.value.recordingId || null,
-        peaksKey, peaksFetch,
-        stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS,
+        peaksKey, peaksFetch, playRange,
+        stepSeconds: v8 ? STEP_SECONDS_V8 : STEP_SECONDS, togglePlayback,
         leaseRun, leaseButtons,
         pedalStatus, pedalReady: () => pedalReady, pedal: () => pedal, setPedalSettings,
         start, load, save, setText, reloadLatest, keepMine, takeServer, compare: () => saver.compare(), close, dispose, syncRevision,
+        fileAction, fileMessage, fileError, saveSession, openSession,
         client: scoped, adoptAudioRevision, bindAudio, bindAlignmentRoot, alignmentRootEl: () => alignmentRoot, alignmentNotice, onSync, onShortcut, onKeydown, onInput, onSelect, onTemplate, seekToResume, getPositionMs, seek,
         text: TEXT,
     };
@@ -655,6 +1077,8 @@ const ICON_PATHS = Object.freeze({
     marker: '<path d="M6 21V4m0 0c4-4 8 4 12 0v10c-4 4-8-4-12 0"/>',
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
     replace: '<path d="M4 6h13l-3-3m3 3-3 3M20 18H7l3-3m-3 3 3 3M5 11v2m14-2v2"/>',
+    'upper-case': '<path d="m3 19 5-14 5 14M5 14h6m7 3V7m-3 3 3-3 3 3"/>',
+    'lower-case': '<path d="M11 11v8m0-4a4 4 0 1 0-8 0 4 4 0 0 0 8 0m7-8v10m-3-3 3 3 3-3"/>',
     'font-down': '<path d="m3 19 6-14 6 14M5 14h8m4-2h5"/>',
     'font-up': '<path d="m2 19 6-14 6 14M4 14h8m4-2h6m-3-3v6"/>',
     focus: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
@@ -669,6 +1093,7 @@ const ICON_PATHS = Object.freeze({
     refresh: '<path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/>',
     users: '<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 5"/>',
     settings: '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>',
+    'move-player': '<path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3m12-6 3 3-3 3"/>',
     target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/>'
 });
 
@@ -712,7 +1137,26 @@ const LOCAL_CSS = `
 .v8-ui .audio-edit-fields .clinic-audio-edit p {flex-basis:100%;margin:0}
 .v8-ui .editor-page :is(.context-tools,.toolbar-group:last-child,.find-row,.word-sync-controls,.dialoghead,.popover-heading) .tooltip{left:auto;right:0;transform:none}
 .v8-ui .editor-page .alignment-text{max-height:8lh;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap;line-height:1.8;margin:0}
+.v8-ui .editor-page .document-editor{width:100%;min-width:0;min-height:160px;max-height:55dvh;overflow:auto;padding:clamp(12px,3vw,30px)}
+.v8-ui .editor-page .document-paragraph{display:grid;gap:4px;margin-bottom:14px}
+.v8-ui .editor-page .document-run{width:100%;min-height:48px;line-height:1.6;resize:vertical;background:var(--surface);color:var(--v8-text);border-color:var(--line)}
+.v8-ui .editor-page .document-run[data-playing]{background:var(--v8-s2);border-color:var(--brand-accent)}
+.v8-ui .editor-page .document-tools .icon-button,.v8-ui .editor-page .document-passage{min-width:48px;min-height:48px}
+.v8-ui .editor-page .document-passage{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;text-align:start;color:var(--v8-text);border-color:var(--line)}
+.v8-ui .editor-page .alignment-panel .panel-header{flex-wrap:wrap}
+.v8-ui .editor-page .alignment-panel .panel-header>button{white-space:nowrap}
+.v8-ui .editor-page .review-hits button:focus-visible{outline:2px solid var(--brand-accent);outline-offset:2px}
+.v8-ui .editor-page .review-hits button[aria-disabled=true]{cursor:default}
 .v8-ui .editor-page .editor-status{flex-wrap:wrap}
+.v8-ui .editor-page .session-files{padding-inline:16px;margin-bottom:8px}
+.v8-ui .editor-page .session-files summary{display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600}
+.v8-ui .editor-page .session-files summary::before{content:'▸'}
+.v8-ui .editor-page .session-files[open] summary::before{content:'▾'}
+.v8-ui .editor-page .session-file-actions{display:flex;flex-wrap:wrap;gap:8px;margin-block:8px}
+.v8-ui .editor-page .session-files :is(summary,button){min-height:48px}
+.v8-ui .editor-page .session-files button{max-width:100%;padding:8px 12px;white-space:normal;text-align:start}
+.v8-ui .editor-page .session-files .template-meta{margin:0 0 8px}
+.v8-ui .editor-page .session-files :is(summary,button):focus-visible{outline:var(--focus-outline);outline-offset:var(--focus-offset)}
 .v8-ui .editor-page .editor-status>[role=status]{flex:1 1 220px;min-width:0}
 .v8-ui .editor-page .editor-status-right{flex-wrap:wrap;white-space:normal;min-width:0}
 .v8-ui .editor-page .editor-workspace[data-dirty=true] .editor-status>[role=status]{color:var(--v8-text);font-weight:650}
@@ -720,10 +1164,11 @@ const LOCAL_CSS = `
 .v8-ui .editor-page .shortcut-list kbd{background:var(--v8-s2);color:var(--v8-text);border-color:var(--line)}
 .v8-ui .editor-page .live-inline-status .button{min-height:32px;padding:5px 12px;font-size:12px}
 .v8-ui .editor-page .live-inline-status .button:not(.primary){color:var(--v8-text)}
-.v8-ui .editor-page .live-inline-status .button:disabled{opacity:.55}
-.v8-ui .editor-page .context-drawer{background:var(--surface);color:var(--v8-text);border:1px solid var(--line);box-shadow:0 12px 40px rgb(0 0 0 / .22);z-index:120}
+.v8-ui .editor-page :is(.live-inline-status .button,.alignment-panel .panel-header>button):disabled{background:var(--v8-s2);border-color:var(--line);color:var(--v8-text);opacity:.55;cursor:not-allowed}
+.v8-ui .editor-page .context-drawer{background:var(--surface);color:var(--v8-text);border:1px solid var(--line);box-shadow:var(--shadow-lg,var(--shadow));z-index:120}
 .v8-ui .editor-page .context-drawer:not([data-open]){transform:translateX(calc(100% + 40px));pointer-events:none;box-shadow:none}
 .v8-ui .editor-page .context-drawer .dialoghead{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.v8-ui .editor-page .context-drawer :is(h2,h3){text-wrap:balance}
 .v8-ui .editor-page .context-drawer h2{font-size:16px;font-weight:700;letter-spacing:-.2px;color:var(--v8-text);margin:0}
 .v8-ui .editor-page .context-drawer h3{font-size:13px;font-weight:700;color:var(--v8-text);margin:0 0 6px}
 .v8-ui .editor-page .context-drawer .panel-header h2{font-size:14px}
@@ -738,16 +1183,38 @@ const LOCAL_CSS = `
 .v8-ui .editor-page .clinic-audio-markers li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:8px;border-radius:8px}
 .v8-ui .editor-page .clinic-correction-waveform-uncertain,.v8-ui .editor-page .clinic-correction-waveform-unaligned{font-size:12px}
 .v8-ui .editor-page .editor-aux{display:grid;gap:14px;margin-top:16px}
+.v8-ui .editor-page .correction-backstep{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-block:14px 0}
+.v8-ui .editor-page .correction-backstep input{width:7ch;min-height:44px;padding:6px 8px;border:1px solid var(--v8-input-line);border-radius:7px;color:var(--v8-text);background:var(--surface)}
 .v8-ui .editor-page :is(.panel-header h2,.clinic-correction-waveform h3){font-size:14px;font-weight:700;letter-spacing:-.1px;color:var(--v8-text)}
 .v8-ui .editor-page .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 @media(max-width:767px){.v8-ui .editor-page .document-id{min-width:0;white-space:normal;overflow-wrap:anywhere}.v8-ui .editor-page .document-title h2{flex-shrink:0}}
 @media(max-width:700px){
+  .v8-ui .editor-page .context-tools .tooltip{max-width:160px}
+  .v8-ui .editor-page .context-tools>.tool-wrap:nth-child(-n+2) .tooltip{left:0;right:auto}
+  .v8-ui .editor-page .symbol-toolbar .tooltip:not([data-visible=true]){display:none}
+  .v8-ui .editor-page .symbol-toolbar :is(.document-tools,.font-group)>.tool-wrap:last-child .tooltip{left:auto;right:0;transform:none}
   .v8-ui .editor-page .editor-popover{position:static;width:auto;max-height:none;margin:8px 12px}
   .v8-ui .editor-page .find-row{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,auto)}
   .v8-ui .editor-page .find-row>input{min-width:0;width:100%}
   .v8-ui .editor-page .find-count{grid-column:2 / -1;min-width:0}
+  .v8-ui .editor-page .review-hits button{min-height:44px}
+}
+@media(max-width:700px),(pointer:coarse){
+  .v8-ui .editor-page .editor-heading{flex-wrap:wrap}
+  .v8-ui .editor-page :is(.context-tools .icon-button,.context-drawer .dialoghead .icon-button,.live-inline-status .button,.alignment-panel .panel-header>button){min-width:48px;min-height:48px}
 }
 .v8-ui .editor-page[data-open-mode="player"] .compact-player{border:1px solid var(--line);background:var(--v8-s2);border-radius:8px;padding:8px 10px}
+.v8-ui .editor-page .player-dock .compact-player{box-sizing:border-box;flex-wrap:wrap}
+.v8-ui .editor-page .player-dock[data-player-moved] .compact-player{position:relative;z-index:30;width:min(100%, 640px);transform:translate(var(--player-x, 0px),var(--player-y, 0px));border:1px solid var(--line);border-radius:var(--ui-radius-sm);box-shadow:var(--shadow)}
+.v8-ui .editor-page .player-dock:not([data-player-moved]) .player-reset{display:none}
+.v8-ui .editor-page .player-dock .tempo-controls>input[type=range]{flex:1;min-width:100px}
+.v8-ui .editor-page .player-placement{display:flex;gap:2px;align-items:center;flex:none}
+.v8-ui .editor-page .player-move{cursor:grab;touch-action:none;user-select:none}
+.v8-ui .editor-page .player-move:active{cursor:grabbing}
+@media(max-width:700px){
+  .v8-ui .editor-page .player-dock .tempo-controls>input[type=range]{flex-basis:100%;min-width:0}
+  .v8-ui .editor-page .player-placement .icon-button{width:44px;height:44px;min-height:44px}
+}
 `;
 const LOCAL_CSS_ID = 'clinic-v8-schreibplatz-local';
 
@@ -767,12 +1234,13 @@ const BODY_PROPS = {
     dictator: { type: String, default: null },
     pool: { type: String, default: null },
     openMode: { type: String, default: '' },
+    openAudioEdits: { type: Boolean, default: false },
 };
 
 /** Inner body: one instance per dictation. The outer view re-keys it, which disposes everything. */
 export const CorrectionBody = {
     name: 'ClinicCorrectionBody',
-    components: { DictationSummary, CorrectionAudioPanel, CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain, UiIcon },
+    components: { DictationSummary, CorrectionAudioPanel, CorrectionWaveform, AudioMarkers, PlaybackTempo, PlaybackGain, UiIcon, FinishOptions },
     directives: { tip: vTip },
     props: BODY_PROPS,
     emits: ['close'],
@@ -784,7 +1252,9 @@ export const CorrectionBody = {
             dictationId: props.dictationId,
             currentUser: props.currentUser,
             vue: props.vue || undefined,
-            contract: 'v8', // the mounted view runs the V8 save contract: lease controller, reconcile first, +-5 s step
+            contract: 'v8',
+            document: props.openMode !== 'player',
+            openMode: props.openMode,
             recordingId: props.recordingId || undefined,
             createAudioContext: props.createAudioContext || undefined,
             onClose: () => { if (ctx && typeof ctx.emit === 'function') ctx.emit('close'); },
@@ -801,23 +1271,98 @@ export const CorrectionBody = {
         const e = c.editor;
         const a = c.alignment;
         const s = c.saver;
+        const doc = s.document;
+        const documentMode = V.computed(() => Boolean(doc?.available.value));
+        const canEdit = V.computed(() => e.canEdit.value && !c.documentLoading.value && !c.fileAction.value);
         const m = c.modes;
+        const finishOptions = V.shallowRef(null);
+        const finishWorkflow = createWorkflowActions({ client: c.client, reactive: V.reactive });
+        if (typeof V.watch === 'function') {
+            V.watch([c.loadGeneration, e.textRevisionId, () => e.audio.value.revisionId], async ([loaded, textId, audioId], _, onCleanup) => {
+                finishWorkflow.load(null);
+                if (!loaded || !textId || !audioId || props.openMode === 'player') return;
+                let current = true;
+                onCleanup(() => { current = false; });
+                const { outcome, data } = await c.client.request('/dictations/' + encodeURIComponent(props.dictationId) + '/detail');
+                const binding = data?.binding?.release;
+                if (!current || outcome !== 'ok' || !Array.isArray(data?.allowed_actions)
+                        || binding?.transcript_revision_id !== textId
+                        || binding.original_version_id !== audioId || !binding.context_revision_id || !binding.text_sha256) return;
+                finishWorkflow.load({ dictationId: props.dictationId, etag: data.etag, revision: data.revision,
+                    allowedActions: data.allowed_actions, binding: data.binding });
+            });
+        }
+        function onFinishKeydown(event) {
+            // Handle F5 before the nested dialog's own shortcut listener.
+            event.stopPropagation();
+            if (!c.fileAction.value) finishOptions.value?.onKeydown(event);
+            if (!event.defaultPrevented) event.preventDefault();
+        }
         const highlightOn = V.ref(true);
         const editorScroll = V.ref(0);
+        const reviewFocused = V.ref(false);
+        const reviewMark = V.shallowRef(null);
+        const reviewSpan = V.computed(() => reviewFocused.value ? c.reviewList.value[c.reviewActive.value] : null);
         const inlineWord = V.computed(() => {
+            if (documentMode.value) return null;
+            if (reviewSpan.value) return reviewSpan.value;
             if (!highlightOn.value || e.dirty.value || a.activeGranularity.value !== 'word') return null;
             const state = a.alignmentState.value;
             return state === 'succeeded' || state === 'partial' ? a.currentWord.value : null;
         });
+        const currentLink = V.computed(() => documentMode.value ? doc.activeRunId.value : a.currentWord.value?.id);
         const styleFor = (seg) => {
-            const word = a.currentWord.value;
-            if (highlightOn.value && word && seg.linkId === word.id) return box('processing');
+            if (highlightOn.value && seg.linkId && seg.linkId === currentLink.value) return box('processing');
             if (seg.flagged) { const w = surfaceFor('warning'); return { background: w.background, color: w.color }; }
             return {};
         };
 
-        // --- V8 editor chrome: toolbar controller over the text area, view state ---------------------------
+        // V8 chrome stays shared. In document mode the fields and all edits use the same canonical draft.
         const textEl = V.shallowRef(null);
+        const runRoot = V.shallowRef(null);
+        const rawDocumentText = V.computed(() => doc.doc.value.nodes.map((node) => node.runs.map((run) => run.text).join('')).join('\n'));
+        const runRanges = V.computed(() => {
+            if (!documentMode.value) return [];
+            let offset = 0;
+            return doc.doc.value.nodes.flatMap((node, i) => {
+                if (i) offset += 1;
+                return node.runs.map((run, index) => {
+                    const start = offset;
+                    offset += run.text.length;
+                    return { node, run, index, start, end: offset, startsParagraph: i > 0 && index === 0 };
+                });
+            });
+        });
+        const currentRun = V.computed(() => runRanges.value.find(({ run }) => run.id === doc?.selection.value.runId));
+        const selectedNodeIndex = V.computed(() => doc?.doc.value.nodes.findIndex((node) => node.id === doc.selection.value.nodeId) ?? -1);
+        const runField = (id) => runRoot.value?.querySelector('[data-run-id="' + id + '"]');
+        const FORMAT_KEYS = Object.freeze({ b: 'bold', i: 'italic', u: 'underline' });
+        const canSeekRun = (id) => e.audio.value.status === 'ready' && Boolean(c.audioEl.value) && doc.canSeek(id);
+        const documentSegments = V.computed(() => runRanges.value.flatMap(({ run, start, end, startsParagraph }) => {
+            const aligned = canSeekRun(run.id);
+            const segment = { start, end, text: run.text, linkId: aligned ? run.id : null, aligned, unavailable: !aligned && !!run.text.trim() };
+            return [...(startsParagraph ? [{ start: start - 1, text: '\n' }] : []), ...(run.text ? [segment] : [])];
+        }));
+        // Legacy waveform/marker offsets refer to the saved revision, not a reordered draft.
+        const savedOffsets = () => !documentMode.value || !e.dirty.value;
+        const revisionAlignment = doc ? {
+            ...a,
+            status: V.computed(() => savedOffsets() ? a.status.value : 'stale'),
+            links: V.computed(() => savedOffsets() ? a.links.value : []),
+            currentWord: V.computed(() => savedOffsets() ? a.currentWord.value : null),
+            segments: V.computed(() => documentMode.value ? documentSegments.value : a.segments.value),
+            seekToSegment(seg) {
+                if (!documentMode.value) return a.seekToSegment(seg);
+                return { ok: c.seekDocument(seg?.linkId) };
+            },
+        } : a;
+        const formatName = (format) => richTextLabel('clinic.richtext.' + format);
+        function runLabel(run, nodeIndex, runIndex) {
+            const parts = [richTextLabel('clinic.richtext.run', { run: runIndex + 1, node: nodeIndex + 1 }),
+                ...FORMATS.filter((format) => run[format]).map(formatName)];
+            if (run.text.trim() && !canSeekRun(run.id)) parts.push(TEXT.unalignedMark);
+            return parts.join(', ');
+        }
         const fontPx = V.ref(16);
         const focusMode = V.ref(false);
         const shortcutsOpen = V.ref(false);
@@ -828,23 +1373,33 @@ export const CorrectionBody = {
         const later = (fn) => { if (typeof V.nextTick === 'function') V.nextTick(fn); else fn(); };
         const editorPort = {
             read() {
+                if (documentMode.value) {
+                    const selected = currentRun.value;
+                    const el = selected && runField(selected.run.id);
+                    return { text: rawDocumentText.value,
+                        start: el ? selected.start + el.selectionStart : 0, end: el ? selected.start + el.selectionEnd : 0 };
+                }
                 const el = textEl.value;
-                return { text: e.text.value, start: el ? el.selectionStart : 0, end: el ? el.selectionEnd : 0 };
+                return { text: e.text.value, start: el?.selectionStart ?? 0, end: el?.selectionEnd ?? 0, direction: el?.selectionDirection };
             },
             write(next) {
-                c.setText(next.text);
-                later(() => { const el = textEl.value; if (el) el.setSelectionRange(next.start, next.end); });
+                if (documentMode.value) return;
+                if (c.setText(next.text)) {
+                    later(() => textEl.value?.setSelectionRange(next.start, next.end, next.direction));
+                }
             },
             select(start, end) {
-                const el = textEl.value;
+                const range = documentMode.value && (runRanges.value.find((r) => r.end > start) || runRanges.value.at(-1));
+                const el = range ? runField(range.run.id) : textEl.value;
                 if (!el) return;
                 el.focus();
-                el.setSelectionRange(start, end);
+                const offset = range ? range.start : 0;
+                el.setSelectionRange(Math.max(0, start - offset), end - offset);
             },
         };
         const tb = createCorrectionToolbar({
             editor: editorPort,
-            canEdit: () => Boolean(e.canEdit.value),
+            canEdit: () => canEdit.value,
             onFontSize: (px) => { fontPx.value = px; },
             onFocusMode: (on) => {
                 focusMode.value = on;
@@ -853,6 +1408,95 @@ export const CorrectionBody = {
             onShowShortcuts: () => { shortcutsOpen.value = !shortcutsOpen.value; },
         });
         const tbState = V.shallowRef(tb.getState());
+        const historyState = V.computed(() => documentMode.value ? {
+            canUndo: canEdit.value && doc.historyState.value.canUndo,
+            canRedo: canEdit.value && doc.historyState.value.canRedo,
+        } : tbState.value);
+        function restoreRunSelection({ runId, start, end, direction }) {
+            later(() => {
+                const field = runField(runId);
+                field?.focus();
+                if (start !== undefined) field?.setSelectionRange(start, end, direction);
+            });
+        }
+        function historyAction(action) {
+            if (!documentMode.value) return tb[action]();
+            let selection;
+            if (!canEdit.value || !doc[action]((entry) => { selection = entry; })) return false;
+            const { nodeId, runId } = doc.selection.value;
+            const target = runId || doc.doc.value.nodes.find((node) => node.id === nodeId)?.runs[0]?.id;
+            if (selection || target) restoreRunSelection(selection || { runId: target });
+            return true;
+        }
+        function editSelection(text) {
+            if (!canEdit.value || !currentRun.value) return false;
+            const { node, run } = currentRun.value;
+            const field = runField(run.id);
+            if (!field) return false;
+            const start = field.selectionStart;
+            const next = run.text.slice(0, start) + text + run.text.slice(field.selectionEnd);
+            const changed = doc.editRun(node.id, run.id, next);
+            later(() => { field.focus(); field.setSelectionRange(start + text.length, start + text.length); });
+            return changed;
+        }
+        function insertManualRun(text = '', before = false) {
+            if (!canEdit.value || !currentRun.value) return false;
+            const { node, index } = currentRun.value;
+            const id = doc.insertRun(node.id, index + (before ? 0 : 1), text);
+            if (id) later(() => {
+                const field = runField(id);
+                field?.focus();
+                field?.setSelectionRange(text.length, text.length);
+            });
+            return Boolean(id);
+        }
+        function insertParagraph() {
+            if (!documentMode.value) return tb.insertParagraph();
+            const field = currentRun.value && runField(currentRun.value.run.id);
+            if (field && field.selectionStart === field.selectionEnd && field.value) {
+                // A boundary break can live in its own unaligned run without touching the spoken text.
+                if (field.selectionStart === 0) return insertManualRun('\n\n', true);
+                if (field.selectionStart === field.value.length) return insertManualRun('\n\n');
+            }
+            // P-072 exposes run edits, not node insertion; keep the existing blank-line shortcut.
+            return editSelection('\n\n');
+        }
+        const documentFeedback = V.ref('');
+        function moveParagraph(step) {
+            if (!canEdit.value || !doc.moveParagraph(step)) return;
+            documentFeedback.value = `Absatz verschoben. Jetzt an Position ${selectedNodeIndex.value + 1}.`;
+            later(() => runField(doc.selection.value.runId)?.focus());
+        }
+        function replaceMatches(all) {
+            if (!documentMode.value) return all ? tb.replaceAll() : tb.replaceCurrent();
+            if (!canEdit.value) return false;
+            const { query, caseSensitive, replacement, current } = tbState.value;
+            const { text, start, end } = editorPort.read();
+            const matches = findMatches(text, query, caseSensitive);
+            if (!matches.length) return false;
+            const ranges = all ? matches : [matches.find((m) => m.start === start && m.end === end) || matches[current] || matches[0]];
+            const clean = sanitizePaste(replacement).text;
+            // Work from the original offsets. Only touched runs change; no flattened text is written to the saver.
+            let first = 0;
+            for (const { node, run, start: from, end: to } of runRanges.value) {
+                while (ranges[first]?.end <= from) first += 1;
+                if (from === to) continue;
+                if (!(ranges[first]?.start < to)) continue;
+                const parts = [];
+                let offset = 0;
+                for (let i = first; ranges[i]?.start < to; i += 1) {
+                    const { start: a, end: b } = ranges[i];
+                    parts.push(run.text.slice(offset, Math.max(a, from) - from));
+                    if (a >= from) parts.push(clean);
+                    offset = Math.min(b, to) - from;
+                }
+                parts.push(run.text.slice(offset));
+                doc.editRun(node.id, run.id, parts.join(''));
+            }
+            const caret = all ? applyReplacements(text, ranges, clean, end).caret : ranges[0].start + clean.length;
+            later(() => editorPort.select(caret, caret));
+            return true;
+        }
         const offToolbar = tb.subscribe((snapshot) => { tbState.value = snapshot; });
         if (typeof V.onBeforeUnmount === 'function') {
             V.onBeforeUnmount(() => {
@@ -862,26 +1506,84 @@ export const CorrectionBody = {
         }
         if (typeof V.watch === 'function') {
             V.watch(c.loadGeneration, () => { tb.reset(); });
-            V.watch(e.canEdit, () => { tb.refresh(); });
-            V.watch([followOn, a.currentWord], ([follow, word]) => {
-                if (!follow || !word || drawer.value) return;
+            V.watch(canEdit, () => { tb.refresh(); });
+            if (doc) V.watch(doc.doc, () => tb.notifyChange());
+            V.watch([followOn, currentLink, highlightOn], ([follow, word, highlight]) => {
+                if (!follow || !word || !highlight || drawer.value) return;
+                const followWithin = (root, node) => {
+                    if (!node || !root.clientHeight || root.scrollHeight <= root.clientHeight) return;
+                    const panel = root.getBoundingClientRect();
+                    if (panel.bottom <= 0 || panel.top >= root.ownerDocument.documentElement.clientHeight) return;
+                    const cue = node.getBoundingClientRect();
+                    if (cue.top < panel.top) root.scrollTop += cue.top - panel.top;
+                    else if (cue.bottom > panel.bottom) root.scrollTop += cue.bottom - panel.bottom;
+                };
                 const root = c.alignmentRootEl();
-                if (!root || !root.clientHeight || root.scrollHeight <= root.clientHeight) return;
-                const panel = root.getBoundingClientRect();
-                if (panel.bottom <= 0 || panel.top >= root.ownerDocument.documentElement.clientHeight) return;
-                const node = root.querySelector('[aria-current="true"]');
-                if (!node) return;
-                const cue = node.getBoundingClientRect();
-                if (cue.top < panel.top) root.scrollTop += cue.top - panel.top;
-                else if (cue.bottom > panel.bottom) root.scrollTop += cue.bottom - panel.bottom;
+                followWithin(root, root?.querySelector('[aria-current="true"]'));
+                const editorRoot = runRoot.value;
+                if (editorRoot && !editorRoot.contains(editorRoot.ownerDocument.activeElement)) {
+                    followWithin(editorRoot, runField(word));
+                }
             }, { flush: 'post' });
         }
         const setTextEl = (node) => { textEl.value = node && typeof node === 'object' ? node : null; };
+        function onSelectionCase(mode) {
+            if (!documentMode.value) {
+                if (tb.changeSelectionCase(mode)) textEl.value?.focus();
+                return;
+            }
+            if (!canEdit.value || !currentRun.value) return;
+            const { node, run } = currentRun.value;
+            const field = runField(run.id);
+            if (!field || field.value !== run.text) return;
+            const before = { runId: run.id, start: field.selectionStart, end: field.selectionEnd, direction: field.selectionDirection };
+            const next = transformSelectionCase({ text: run.text, ...before }, mode);
+            // Reject edits that the run sanitizer would truncate or change outside the selection.
+            if (!next || sanitizePaste(next.text).text !== next.text) return;
+            const after = { ...before, end: next.end };
+            if (doc.editRun(node.id, run.id, next.text, { before, after })) restoreRunSelection(after);
+        }
+        const setRunRoot = (node) => { runRoot.value = node; };
         const onTextInput = (event) => { c.onInput(event); tb.notifyChange(); };
         const onTextKeydown = (event) => {
             c.onKeydown(event);
-            if (tb.shortcut(event) && typeof event.preventDefault === 'function') event.preventDefault();
+            if (event.isComposing) return;
+            if (documentMode.value && (event.ctrlKey || event.metaKey) && !event.altKey) {
+                const key = event.key.toLowerCase();
+                const format = FORMAT_KEYS[key];
+                if (format || key === 'z' || key === 'y' || key === 'enter') {
+                    event.preventDefault();
+                    if (format && canEdit.value) doc.toggleFormat(format);
+                    else if (key === 'enter') insertParagraph();
+                    else if (key === 'z' || key === 'y') historyAction(key === 'y' || event.shiftKey ? 'redo' : 'undo');
+                    return;
+                }
+            }
+            if (tb.shortcut(event)) event.preventDefault();
         };
+        function onRunSelection(event, nodeId, runId) {
+            doc.select(nodeId, runId);
+            const { start, end } = editorPort.read();
+            m.onSelectionChange(start, end);
+            if (event.type === 'select' || event.type === 'pointerdown') followOn.value = false;
+        }
+        function onRunInput(event, nodeId, run) {
+            if (event.isComposing) return;
+            let accepted = run.text;
+            if (canEdit.value) {
+                doc.select(nodeId, run.id);
+                doc.editRun(nodeId, run.id, event.target.value);
+                accepted = currentRun.value?.run.text ?? run.text;
+            }
+            if (event.target.value !== accepted) event.target.value = accepted;
+        }
+        function onRunPaste(event) {
+            editSelection(sanitizePaste(event.clipboardData?.getData('text/plain')).text);
+        }
+        function activatePassage(seg) {
+            if (documentMode.value) c.seekDocument(seg.linkId, true);
+            else a.seekToSegment(seg);
+        }
         const onFindKeydown = (event) => {
             if (event.key === 'Enter') { event.preventDefault(); tb.step(event.shiftKey ? -1 : 1); }
         };
@@ -893,10 +1595,11 @@ export const CorrectionBody = {
             if (!s.query) return '';
             return s.matches ? (s.current >= 0 ? (s.current + 1) + ' / ' + s.matches : s.matches + ' Treffer') : TEXT.noMatches;
         };
-        const SHORTCUTS = Object.freeze([
+        const SHORTCUTS = V.computed(() => [
             ['Speichern', 'Strg/Cmd+S'], [TEXT.undo, 'Strg/Cmd+Z'], [TEXT.redo, 'Strg/Cmd+Umschalt+Z'],
             [TEXT.paragraph, 'Strg/Cmd+Enter'], [TEXT.marker, 'Strg/Cmd+Umschalt+M'], [TEXT.find, 'Strg/Cmd+F'],
-            ['Vollbild', 'Strg/Cmd+Umschalt+F'], [TEXT.shortcuts, 'F1'],
+            ['Vollbild', 'Strg/Cmd+Umschalt+F'], [TEXT.shortcuts, 'F1'], ['Fertigstellen (wenn verfügbar)', 'F5'],
+            ...(documentMode.value ? Object.entries(FORMAT_KEYS).map(([key, format]) => [formatName(format), 'Strg/Cmd+' + key.toUpperCase()]) : []),
         ]);
         const WORKER = { held: TEXT.workerHeld, foreign: TEXT.workerForeign, lost: TEXT.workerLost };
         const workerLabel = () => WORKER[e.lease.value.status] || TEXT.workerFree;
@@ -1029,23 +1732,78 @@ export const CorrectionBody = {
             drawer.value = id;
             later(() => { if (drawer.value === id) drawerClose.value?.focus(); });
         };
+        if (props.openAudioEdits) {
+            const stop = V.watch([c.ready, e.canEdit, e.audio], ([ready, canEdit, audio]) => {
+                if (!ready || !canEdit || audio.status !== 'ready') return;
+                if (drawer.value !== 'options') toggleDrawer('options');
+                stop();
+            });
+        }
         // saveMessage already says "Nicht gespeicherte Änderungen." while dirty; do not repeat it.
         const unsavedSuffix = () => Boolean(e.dirty.value) && !/nicht gespeicherte/i.test(String(s.message.value || ''));
         const pickTemplate = (id) => chooseSource({ templateId: id });
         const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
+        const fileInput = V.shallowRef(null);
+        const onSessionFile = (event) => {
+            const file = event.currentTarget.files[0];
+            event.currentTarget.value = '';
+            c.openSession(file);
+        };
+        const reviewRefs = new Map();
+        const setReviewRef = (id, node) => { if (node) reviewRefs.set(id, node); else reviewRefs.delete(id); };
+        const activateReview = (index) => {
+            c.reviewActive.value = index;
+            reviewFocused.value = true;
+            const hit = c.reviewList.value[index];
+            textEl.value?.setSelectionRange(hit.start, hit.end);
+            later(() => {
+                const el = textEl.value;
+                if (!reviewFocused.value || c.reviewActive.value !== index || !el || !reviewMark.value) return;
+                const editorBounds = el.getBoundingClientRect();
+                const markBounds = reviewMark.value.getBoundingClientRect();
+                if (markBounds.top < editorBounds.top || markBounds.bottom > editorBounds.bottom) {
+                    el.scrollTop += markBounds.top - editorBounds.top - el.clientHeight / 2;
+                }
+            });
+        };
+        const onReviewKeydown = (event, index) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                const hit = c.reviewList.value[index];
+                editorPort.select(hit.start, hit.end);
+                return;
+            }
+            const n = c.reviewList.value.length;
+            const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1, Home: -index, End: n - 1 - index }[event.key];
+            if (typeof step !== 'number') return;
+            event.preventDefault();
+            const next = c.reviewList.value[c.moveReview(step)];
+            if (next) reviewRefs.get(next.id)?.focus();
+        };
         return {
+            ...useCorrectionPlayerPosition(V),
+            reviewList: c.reviewList, reviewOutstanding: c.reviewOutstanding, reviewActive: c.reviewActive, reviewMessage: c.reviewMessage,
+            reviewLoaded: c.reviewLoaded, reviewFocused, reviewSpan, reviewMark, setReviewRef, activateReview, onReviewKeydown,
             formatDictationReference,
-            c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
+            c, FOCUS, MODES, box, styleFor, TEXT, showDiff, finishOptions, finishWorkflow, onFinishKeydown,
+            SESSION_FORMATS, fileInput, onSessionFile, fileAction: c.fileAction, fileMessage: c.fileMessage, fileError: c.fileError,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
-            onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
+            onQuery, onReplacement, onCase, onSelectionCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
-            text: e.text, canEdit: e.canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId, loading: e.loading, error: e.error, manual: e.manual,
-            lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
+            SessionTransportNotice,
+            documentMode, doc, setRunRoot, currentRun, selectedNodeIndex, canSeekRun, currentLink, historyState, historyAction,
+            FORMATS, formatName, runLabel, insertParagraph, insertManualRun, moveParagraph, documentFeedback, replaceMatches, onRunSelection, onRunInput, onRunPaste, activatePassage,
+            text: e.text, canEdit, editAllowed: e.canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId,
+            loading: V.computed(() => e.loading.value || c.documentLoading.value), error: e.error, manual: e.manual,
+            lease: e.lease, audio: e.audio, audioSynced: e.audioSynced,
+            template: e.template, templates: e.templates, templatesError: e.templatesError,
             editorAnnouncement: e.announcement,
-            alignStatus: a.status, alignError: a.error, segments: a.segments, currentWord: a.currentWord, alignAnnouncement: a.announcement,
+            alignStatus: a.status, alignError: a.error,
+            revisionAlignment, segments: revisionAlignment.segments, alignAnnouncement: a.announcement,
             saveState: s.state, saveMessage: s.message,
             choice, choiceHeading, previewHeading, choiceNotice, closeChoice, toggleChoice, chooseSource, chooseFile, insertChoice,
             mode: m.mode, modeStatus: m.status, modeError: m.error, modeAnnouncement: m.announcement,
+            backstepSeconds: m.backstepSeconds,
             ready: c.ready, loadGeneration: c.loadGeneration, revisionGeneration: c.revisionGeneration,
             audioEl: c.audioEl, gainState: c.gainState, closeMessage: c.closeMessage, resumeLabel: c.resumeLabel,
             pedalStatus: c.pedalStatus, alignmentNotice: c.alignmentNotice,
@@ -1053,11 +1811,16 @@ export const CorrectionBody = {
     },
     template: `
 <section class="clinic-correction-view editor-page v8-page" data-testid="clinic-correction-view" :data-open-mode="openMode === 'player' ? 'player' : 'correction'" aria-labelledby="ccv-title" :aria-busy="loading ? 'true' : 'false'"
-         @keydown="c.onShortcut($event)">
+         @keydown.f5.exact.capture="onFinishKeydown" @keydown="c.onShortcut($event)">
   <div class="pagehead">
     <div>
       <div class="eyebrow">{{ TEXT.eyebrow }}</div>
-      <h1 id="ccv-title" style="font-weight: 700; letter-spacing: -.8px; color: var(--v8-text)">{{ openMode === 'player' ? TEXT.playerPage : TEXT.page }}</h1>
+      <div class="hline">
+        <h1 id="ccv-title" style="font-weight: 700; letter-spacing: -.8px; color: var(--v8-text)">{{ openMode === 'player' ? TEXT.playerPage : TEXT.page }}</h1>
+        <FinishOptions v-if="finishWorkflow.state.allowed.includes('release')" :inert="Boolean(fileAction)"
+                       ref="finishOptions" :workflow="finishWorkflow" :client="c.client" :vue="vue"
+                       :disabled="!ready || !lease.writable || dirty || loading || !!error" @finished="c.close()" />
+      </div>
       <p class="subline">{{ openMode === 'player' ? TEXT.playerSubline : TEXT.subline }}</p>
     </div>
     <div class="head-actions">
@@ -1068,6 +1831,7 @@ export const CorrectionBody = {
       </slot>
     </div>
   </div>
+  <component :is="SessionTransportNotice" :client="c.client" :vue="vue" />
   <p v-if="closeMessage" role="alert" class="note" :style="box('error')">{{ closeMessage }}</p>
   <p class="sr-only" id="ccv-keys">{{ TEXT.keys }}</p>
 
@@ -1103,7 +1867,7 @@ export const CorrectionBody = {
                   aria-haspopup="dialog" aria-controls="ccv-drawer" data-context-toggle="options" @click="toggleDrawer('options', $event.currentTarget)"><UiIcon name="settings" /></button>
         </span>
         <span class="tool-wrap" v-tip="{ label: TEXT.reload }">
-          <button type="button" class="icon-button" :style="FOCUS" :disabled="loading || dirty" :aria-label="TEXT.reload"
+          <button type="button" class="icon-button" :style="FOCUS" :disabled="loading || dirty || Boolean(fileAction)" :aria-label="TEXT.reload"
                   data-testid="reload" @click="c.load()"><UiIcon name="refresh" /></button>
         </span>
       </div>
@@ -1118,14 +1882,42 @@ export const CorrectionBody = {
     <div class="live-inline-status" role="group" :aria-label="TEXT.lease" data-testid="lease-bar"
          style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
       <span role="status" aria-live="polite" :style="{ color: lease.surface.color }">{{ lease.message }}</span>
-      <button v-for="b in c.leaseButtons()" :key="b.id" type="button" :class="['button', 'small', b.id === 'acquire' ? 'primary' : '']" :style="FOCUS" :disabled="b.disabled"
+      <button v-for="b in c.leaseButtons()" :key="b.id" type="button" :class="['button', 'small', b.id === 'acquire' ? 'primary' : '']" :style="FOCUS" :disabled="b.disabled || Boolean(fileAction)"
               :data-action="b.id" @click="c.leaseRun[b.id]()">{{ b.label }}</button>
     </div>
 
     <template v-if="ready">
+      <details class="session-files" data-testid="session-files">
+        <summary :style="FOCUS">Diktatdateien</summary>
+        <div class="session-file-actions" role="group" aria-label="Diktatdateien speichern oder öffnen">
+          <button v-for="format in SESSION_FORMATS" :key="format.id" type="button" class="button" :style="FOCUS"
+                  :disabled="loading || Boolean(fileAction) || saveState === 'saving'" :data-session-format="format.id"
+                  :aria-describedby="format.id === 'txt' ? 'ccv-session-hint' : null"
+                  @click="c.saveSession(format.id)">{{ format.label }} speichern</button>
+          <button type="button" class="button" :style="FOCUS" :disabled="!canEdit || saveState === 'saving'"
+                  @click="fileInput.click()">Datei ins Diktat laden …</button>
+          <input ref="fileInput" type="file" accept=".sdict,.rtf,.txt" hidden data-testid="session-file-input" @change="onSessionFile">
+        </div>
+        <p id="ccv-session-hint" class="template-meta">Diktatdatei: Text und Ton, hier wieder zu öffnen. TXT: nur Text, ohne Ton und Wortmarkierung beim Abspielen.</p>
+        <p v-if="!canEdit && !fileAction" class="template-meta">Wählen Sie zuerst «Bearbeiten», um eine Datei zu laden.</p>
+      </details>
+      <p role="status" :class="{ note: fileMessage }" :style="fileError ? box('error') : {}" data-testid="session-file-status">{{ fileMessage }}</p>
+      <div class="player-dock" ref="playerDock">
       <div class="player compact-player" data-testid="player-bar">
+        <span class="player-placement">
+          <span class="tool-wrap" v-tip="{ label: 'Player verschieben', keys: 'Pfeiltasten · Pos1 zurücksetzen' }">
+            <button type="button" class="icon-button player-move" :style="FOCUS" data-testid="player-move"
+                    aria-label="Player verschieben" aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Home Escape"
+                    @pointerdown="startMove" @pointermove="movePlayer" @pointerup="endMove"
+                    @pointercancel="endMove" @lostpointercapture="endMove" @keydown="playerPositionKey"><UiIcon name="move-player" /></button>
+          </span>
+          <span class="tool-wrap player-reset" v-tip="{ label: 'Playerposition zurücksetzen' }">
+            <button type="button" class="icon-button" :style="FOCUS" data-testid="player-reset"
+                    aria-label="Playerposition zurücksetzen" @click="resetPlayer(); $event.currentTarget.closest('.player-placement').querySelector('.player-move').focus({ preventScroll: true })"><UiIcon name="refresh" /></button>
+          </span>
+        </span>
         <audio preload="metadata" hidden :ref="c.bindAudio" :src="audio.status === 'ready' ? audio.src : null" :aria-label="TEXT.audio"></audio>
-        <PlaybackTempo v-if="audioEl" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" />
+        <PlaybackTempo v-if="audioEl" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" :on-toggle="c.togglePlayback" />
         <span class="word-sync-controls">
           <span class="tool-wrap" v-tip="{ label: highlightOn ? TEXT.highlightOn : TEXT.highlightOff }">
             <button type="button" class="icon-button" :style="FOCUS" :aria-pressed="String(highlightOn)" :aria-label="highlightOn ? TEXT.highlightOn : TEXT.highlightOff"
@@ -1137,8 +1929,10 @@ export const CorrectionBody = {
           </span>
         </span>
       </div>
+      </div>
       <p class="word-sync-info" role="status" aria-live="polite">
         <template v-if="audio.status !== 'ready' && audio.status !== 'idle' && audio.status !== 'loading'">{{ audio.message + ' ' }}</template>
+        <span v-if="audioSynced === false">{{ TEXT.audioUnsynced + ' ' }}</span>
         <span v-if="alignmentNotice" data-testid="alignment-notice">{{ alignmentNotice + ' ' }}</span>
         <span v-if="pedalStatus" data-testid="pedal-status">{{ pedalStatus }}</span>
       </p>
@@ -1147,13 +1941,13 @@ export const CorrectionBody = {
         <div class="editorbar symbol-toolbar" role="toolbar" :aria-label="TEXT.toolbar" data-testid="toolbar">
           <div class="toolbar-group">
             <span class="tool-wrap" v-tip="{ label: TEXT.undo, keys: 'Strg/Cmd+Z' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.undo"
-                    :aria-disabled="tbState.canUndo ? null : 'true'" data-tool="undo" @click="tb.undo()"><UiIcon name="undo" /></button></span>
+                    :aria-disabled="historyState.canUndo ? null : 'true'" data-tool="undo" @click="historyAction('undo')"><UiIcon name="undo" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.redo, keys: 'Strg/Cmd+Umschalt+Z' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.redo"
-                    :aria-disabled="tbState.canRedo ? null : 'true'" data-tool="redo" @click="tb.redo()"><UiIcon name="redo" /></button></span>
+                    :aria-disabled="historyState.canRedo ? null : 'true'" data-tool="redo" @click="historyAction('redo')"><UiIcon name="redo" /></button></span>
           </div>
           <div class="toolbar-group">
             <span class="tool-wrap" v-tip="{ label: TEXT.paragraph, keys: 'Strg/Cmd+Enter' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.paragraph"
-                    data-tool="paragraph" @click="tb.insertParagraph()"><UiIcon name="paragraph" /></button></span>
+                    :disabled="documentMode && (!canEdit || !currentRun)" data-tool="paragraph" @click="insertParagraph()"><UiIcon name="paragraph" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.markerTip, keys: 'Strg/Cmd+Umschalt+M' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.marker"
                     aria-disabled="true" data-tool="marker" @click="tb.insertMarker()"><UiIcon name="marker" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.templateMenu }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.templateMenu"
@@ -1164,6 +1958,27 @@ export const CorrectionBody = {
                     :aria-expanded="String(tbState.searchOpen)" data-tool="search" @click="tb.toggleSearch()"><UiIcon name="search" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.replace }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.replace"
                     :aria-expanded="String(tbState.searchOpen)" data-tool="replace" @click="tb.openSearch()"><UiIcon name="replace" /></button></span>
+          </div>
+          <div class="toolbar-group">
+            <span class="tool-wrap" v-tip="{ label: TEXT.upperCase }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.upperCase"
+                    :disabled="!canEdit" data-tool="upper-case" @mousedown.left.prevent @click="onSelectionCase('upper')"><UiIcon name="upper-case" /></button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.lowerCase }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.lowerCase"
+                    :disabled="!canEdit" data-tool="lower-case" @mousedown.left.prevent @click="onSelectionCase('lower')"><UiIcon name="lower-case" /></button></span>
+          </div>
+          <div v-if="documentMode" class="toolbar-group document-tools">
+            <span v-for="format in FORMATS" :key="format" class="tool-wrap" v-tip="{ label: formatName(format) }">
+              <button type="button" class="icon-button" :style="{ ...FOCUS, fontWeight: format === 'bold' ? 'bold' : null, fontStyle: format === 'italic' ? 'italic' : null, textDecoration: format === 'underline' ? 'underline' : null }"
+                      :aria-label="formatName(format)" :aria-pressed="String(Boolean(currentRun?.run[format]))" :disabled="!canEdit || !currentRun"
+                      :data-tool="format" @click="doc.toggleFormat(format)">{{ { bold: 'F', italic: 'K', underline: 'U' }[format] }}</button>
+            </span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.insertManual }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.insertManual"
+                    :disabled="!canEdit || !currentRun" data-tool="insert-run" @click="insertManualRun()">+</button></span>
+          </div>
+          <div v-if="documentMode" class="toolbar-group document-tools">
+            <span class="tool-wrap" v-tip="{ label: TEXT.moveUp }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.moveUp"
+                    :disabled="!canEdit || selectedNodeIndex < 1" data-tool="move-up" @click="moveParagraph(-1)">↑</button></span>
+            <span class="tool-wrap" v-tip="{ label: TEXT.moveDown }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.moveDown"
+                    :disabled="!canEdit || selectedNodeIndex < 0 || selectedNodeIndex >= doc.doc.value.nodes.length - 1" data-tool="move-down" @click="moveParagraph(1)">↓</button></span>
           </div>
           <div class="toolbar-group font-group">
             <span class="tool-wrap" v-tip="{ label: TEXT.fontDown }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.fontDown"
@@ -1180,7 +1995,7 @@ export const CorrectionBody = {
                     :aria-expanded="String(shortcutsOpen)" data-tool="shortcuts" @click="shortcutsOpen = !shortcutsOpen; closeChoice(undefined, true)"><UiIcon name="keyboard" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.save, keys: 'Strg/Cmd+S' }"><button type="button" class="icon-button save-button" :class="{ 'has-changes': dirty }" :style="FOCUS"
                     :aria-label="dirty ? TEXT.saveDirty : TEXT.save"
-                    :disabled="saveState === 'saving' || saveState === 'saved'" data-testid="save" @click="c.save()"><UiIcon name="save" /></button></span>
+                    :disabled="saveState === 'saving' || saveState === 'saved' || Boolean(fileAction)" data-testid="save" @click="c.save()"><UiIcon name="save" /></button></span>
           </div>
         </div>
 
@@ -1195,8 +2010,8 @@ export const CorrectionBody = {
           </div>
           <div class="replace-row">
             <input type="text" :aria-label="TEXT.replacement" :placeholder="TEXT.replacement" :value="tbState.replacement" data-testid="search-replacement" @input="onReplacement">
-            <button type="button" class="small" :style="FOCUS" :disabled="!canEdit" @click="tb.replaceCurrent()">{{ TEXT.replaceOne }}</button>
-            <button type="button" class="small" :style="FOCUS" :disabled="!canEdit" @click="tb.replaceAll()">{{ TEXT.replaceAll }}</button>
+            <button type="button" class="small" :style="FOCUS" :disabled="!canEdit" @click="replaceMatches(false)">{{ TEXT.replaceOne }}</button>
+            <button type="button" class="small" :style="FOCUS" :disabled="!canEdit" @click="replaceMatches(true)">{{ TEXT.replaceAll }}</button>
           </div>
         </div>
 
@@ -1242,34 +2057,76 @@ export const CorrectionBody = {
         <p v-if="toolStatus()" class="template-meta" role="status" data-testid="toolbar-reason">{{ toolStatus() }}</p>
 
         <div class="writing-surface" :class="{ 'has-word-sync': inlineWord }">
-          <div v-if="inlineWord" class="word-backdrop" aria-hidden="true">
-            <div class="word-backdrop-content" :style="{ fontSize: fontPx + 'px', transform: 'translateY(' + (-editorScroll) + 'px)' }">{{ text.slice(0, inlineWord.start) }}<mark data-active-word>{{ text.slice(inlineWord.start, inlineWord.end) }}</mark>{{ text.slice(inlineWord.end) }}</div>
+          <p v-if="documentMode" role="status" class="sr-only">{{ documentFeedback }}</p>
+          <div v-if="documentMode" :ref="setRunRoot" class="document-editor clinic-richtext" data-testid="correction-document" :aria-label="TEXT.text" role="group"
+               @wheel.passive="followOn = false" @touchmove.passive="followOn = false">
+            <div v-for="(node, nodeIndex) in doc.doc.value.nodes" :key="node.id" :data-node-id="node.id" class="document-paragraph" role="group" :aria-label="'Absatz ' + (nodeIndex + 1)">
+              <textarea v-for="(run, runIndex) in node.runs" :key="run.id" class="document-run" :data-run-id="run.id" :rows="Math.min(6, run.text.split('\\n').length)"
+                        :data-testid="nodeIndex === 0 && runIndex === 0 ? 'text' : null" :value="run.text" :readonly="!canEdit" :aria-readonly="String(!canEdit)"
+                        :placeholder="!text && canEdit ? TEXT.startTyping : null" :aria-label="runLabel(run, nodeIndex, runIndex)" :aria-describedby="canEdit ? 'ccv-keys' : 'ccv-keys ccv-readonly'"
+                        :data-playing="highlightOn && run.id === currentLink ? 'true' : null"
+                        :style="{ ...FOCUS, fontSize: fontPx + 'px', fontWeight: run.bold ? 'bold' : null, fontStyle: run.italic ? 'italic' : null, textDecoration: run.underline ? 'underline' : null }"
+                        @focus="onRunSelection($event, node.id, run.id)" @pointerdown="onRunSelection($event, node.id, run.id)" @select="onRunSelection($event, node.id, run.id)"
+                        @keyup="onRunSelection($event, node.id, run.id)" @mouseup="onRunSelection($event, node.id, run.id)"
+                        @input="onRunInput($event, node.id, run)" @compositionend="onRunInput($event, node.id, run)" @keydown="onTextKeydown($event)" @paste.prevent="onRunPaste($event)"></textarea>
+            </div>
           </div>
-          <textarea class="editor" :ref="setTextEl" :style="{ ...FOCUS, fontSize: fontPx + 'px' }" :value="text" :readonly="!canEdit" :aria-readonly="String(!canEdit)"
+          <div v-if="inlineWord" class="word-backdrop" aria-hidden="true">
+            <div class="word-backdrop-content" :style="{ fontSize: fontPx + 'px', transform: 'translateY(' + (-editorScroll) + 'px)' }">{{ text.slice(0, inlineWord.start) }}<mark ref="reviewMark" data-active-word :data-review-span="reviewSpan ? '' : null" :style="reviewSpan ? { background: 'var(--ui-hover)', boxShadow: 'inset 0 -2px 0 var(--brand-accent)' } : null">{{ text.slice(inlineWord.start, inlineWord.end) }}</mark>{{ text.slice(inlineWord.end) }}</div>
+          </div>
+          <textarea v-if="!documentMode" class="editor" :ref="setTextEl" :style="{ ...FOCUS, fontSize: fontPx + 'px' }" :value="text" :readonly="!canEdit" :aria-readonly="String(!canEdit)"
                     :aria-label="TEXT.text" :aria-describedby="canEdit ? 'ccv-keys' : 'ccv-keys ccv-readonly'" data-testid="text"
                     @scroll.passive="editorScroll = $event.target.scrollTop" @input="onTextInput($event)" @keydown="onTextKeydown($event)" @select="followOn = false; c.onSelect($event)"
                     @keyup="c.onSelect($event)" @mouseup="c.onSelect($event)"></textarea>
         </div>
-        <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly }}</p>
-        <section class="panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
+        <section v-if="reviewLoaded || reviewMessage" class="panel review-hits" :aria-label="TEXT.reviewTitle" data-testid="review-hits">
+          <div class="panel-header" style="flex-wrap: wrap; margin-bottom: 0">
+            <h2>{{ TEXT.reviewTitle }}</h2>
+            <span v-if="reviewLoaded" class="hint" role="status" data-testid="review-outstanding">{{ reviewOutstanding ? reviewOutstanding + ' ' + TEXT.reviewOpen.toLowerCase() : TEXT.reviewNone }}</span>
+          </div>
+          <p v-if="reviewList.length" id="ccv-review-keys" class="hint" style="margin: var(--ui-space-2) 0">{{ TEXT.reviewHint }}</p>
+          <ul v-if="reviewList.length" role="list" style="list-style: none; margin: 0; padding: 0; display: grid; gap: var(--ui-space-2)">
+            <li v-for="(hit, i) in reviewList" :key="hit.id" class="review-hit" :data-state="hit.state" :data-testid="'review-hit-' + hit.id"
+                style="display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-space-2); min-width: 0; overflow-wrap: anywhere">
+              <button type="button" class="button small" :ref="node => setReviewRef(hit.id, node)" :style="FOCUS" :tabindex="i === reviewActive ? 0 : -1"
+                      :aria-disabled="!canEdit || hit.touched || hit.state !== 'open' ? 'true' : null"
+                      :aria-label="(hit.state === 'confirmed' ? TEXT.reviewConfirmed : TEXT.reviewConfirm) + ': ' + hit.label"
+                      :aria-describedby="hit.touched ? 'ccv-review-keys ccv-review-draft-' + i : 'ccv-review-keys'"
+                      @focus="activateReview(i)" @blur="reviewFocused = false" @keydown="onReviewKeydown($event, i)" @click="c.confirmReview(hit.id)">
+                {{ hit.state === 'confirmed' ? TEXT.reviewConfirmed : TEXT.reviewConfirm }}
+              </button>
+              <strong>{{ hit.label }}</strong>
+              <span class="hint" style="min-width: 0">{{ hit.context }}</span>
+              <span class="sr-only">{{ hit.state === 'confirmed' ? TEXT.reviewConfirmed : TEXT.reviewOpen }}</span>
+              <span v-if="hit.touched" :id="'ccv-review-draft-' + i" class="hint">{{ TEXT.reviewDraft }}</span>
+            </li>
+          </ul>
+          <p v-if="reviewMessage" role="alert" class="hint" data-testid="review-message">{{ reviewMessage }}</p>
+        </section>
+        <p v-if="!canEdit && !loading" id="ccv-readonly" class="template-meta" style="margin: 0">{{ editAllowed ? fileMessage : (lease.mayAcquire === false ? TEXT.readOnlyAccess : TEXT.readOnly) }}</p>
+        <section class="panel alignment-panel" :aria-label="TEXT.alignment" :data-status="alignStatus" data-testid="alignment">
           <div class="panel-header">
             <h2>{{ TEXT.alignment }}</h2>
-            <button type="button" class="small" :style="FOCUS" :disabled="alignStatus !== 'ready'" data-testid="seek-selection" @click="c.alignment.seekToSelection()">{{ TEXT.seekSelection }}</button>
+            <button type="button" class="small" :style="FOCUS" :disabled="documentMode ? !canSeekRun(currentRun?.run.id) : alignStatus !== 'ready'" data-testid="seek-selection"
+                    @click="documentMode ? c.seekDocument(currentRun?.run.id) : c.alignment.seekToSelection()">{{ TEXT.seekSelection }}</button>
           </div>
-          <div v-if="alignStatus === 'error' || alignStatus === 'stale'" role="alert" class="note" :style="box(alignStatus === 'error' ? 'error' : 'warning')">
+          <div v-if="!documentMode && (alignStatus === 'error' || alignStatus === 'stale')" role="alert" class="note" :style="box(alignStatus === 'error' ? 'error' : 'warning')">
             {{ alignStatus === 'error' && alignError ? alignError.message : 'Die Audio-Zuordnung ist veraltet.' }}
             <button type="button" class="small" :style="FOCUS" @click="c.alignment.refresh()">{{ TEXT.retry }}</button>
           </div>
           <p role="group" :aria-label="TEXT.alignmentText" :ref="c.bindAlignmentRoot" class="alignment-text"
              @wheel.passive="followOn = false" @touchmove.passive="followOn = false" @pointerdown="followOn = false">
             <template v-for="seg in segments" :key="seg.start">
-              <span v-if="seg.aligned" role="button" tabindex="0" :data-start="seg.start" :data-link="seg.linkId"
-                    :aria-label="TEXT.wordAria + ': ' + seg.text" :aria-current="currentWord && currentWord.id === seg.linkId ? 'true' : null"
+              <button v-if="documentMode && seg.aligned" type="button" class="button small document-passage" :data-start="seg.start" :data-link="seg.linkId"
+                      :aria-label="TEXT.passageAria + ': ' + seg.text" :aria-current="highlightOn && currentLink === seg.linkId ? 'true' : null"
+                      :style="{ ...FOCUS, ...styleFor(seg) }" @click="activatePassage(seg)">{{ seg.text }}</button>
+              <span v-else-if="seg.aligned" role="button" tabindex="0" :data-start="seg.start" :data-link="seg.linkId"
+                    :aria-label="TEXT.wordAria + ': ' + seg.text" :aria-current="highlightOn && currentLink === seg.linkId ? 'true' : null"
                     :style="{ ...FOCUS, ...styleFor(seg) }"
-                    @click="c.alignment.seekToSegment(seg)" @keydown.enter.prevent="c.alignment.seekToSegment(seg)"
-                    @keydown.space.prevent="c.alignment.seekToSegment(seg)">{{ seg.text }}</span>
+                    @click="activatePassage(seg)" @keydown.enter.prevent="activatePassage(seg)"
+                    @keydown.space.prevent="activatePassage(seg)">{{ seg.text }}</span>
               <span v-else :data-start="seg.start" :data-unaligned="seg.flagged || seg.unavailable ? 'true' : null"
-                    :title="seg.flagged ? TEXT.unalignedMark : null" :style="styleFor(seg)">{{ seg.text }}</span>
+                    :title="seg.flagged || seg.unavailable ? TEXT.unalignedMark : null" :style="styleFor(seg)">{{ seg.text }}</span>
             </template>
           </p>
           <div role="status" aria-live="polite" class="sr-only">{{ alignAnnouncement }}</div>
@@ -1311,6 +2168,12 @@ export const CorrectionBody = {
             <small :id="'ccv-mode-' + opt.id" class="hint" style="grid-column: 2; margin: 0">{{ opt.hint }}</small>
           </label>
         </div>
+        <label class="correction-backstep">
+          <span>Rücksprung in Sekunden</span>
+          <input type="number" min="0" step="1" required :value="backstepSeconds" :style="FOCUS"
+                 aria-describedby="ccv-backstep-hint" @input="c.modes.setBackstepSeconds" @change="c.modes.setBackstepSeconds">
+        </label>
+        <p id="ccv-backstep-hint" class="hint">Gilt nach einer Tipp-Pause und beim erneuten Starten. 0 bedeutet kein Rücksprung.</p>
         <div v-if="modeStatus === 'error'" role="alert" class="note" :style="box('error')">
           {{ modeError && modeError.message }}
           <button type="button" class="small" :style="FOCUS" @click="c.modes.setMode(mode)">{{ TEXT.modeRetry }}</button>
@@ -1319,8 +2182,8 @@ export const CorrectionBody = {
       </fieldset>
     </section>
     <section class="panel">
-      <CorrectionWaveform :key="'w' + loadGeneration + audio.revisionId" :editor="c.editor" :alignment="c.alignment" :client="c.client"
-                          :dictation-id="dictationId" :recording-id="c.peaksKey()" :fetch-fn="c.peaksFetch" :seek="c.seek" :vue="c.vue" />
+      <CorrectionWaveform :key="'w' + loadGeneration + '-' + revisionGeneration + audio.revisionId" :editor="c.editor" :alignment="revisionAlignment" :client="c.client"
+                          :dictation-id="dictationId" :recording-id="c.peaksKey()" :fetch-fn="c.peaksFetch" :play-range="c.playRange" :vue="c.vue" />
     </section>
 
   </div>
@@ -1343,7 +2206,7 @@ export const CorrectionBody = {
     </div>
     <div v-show="!drawer || drawer === 'marks'" style="display: grid; gap: 20px; min-width: 0">
       <section class="panel">
-        <AudioMarkers :key="'m' + loadGeneration + '-' + revisionGeneration + audio.revisionId" :editor="c.editor" :alignment="c.alignment" :client="c.client"
+        <AudioMarkers :key="'m' + loadGeneration + '-' + revisionGeneration + audio.revisionId" :editor="c.editor" :alignment="revisionAlignment" :client="c.client"
                       :dictation-id="dictationId" :get-position-ms="c.getPositionMs" :seek="c.seek" :vue="c.vue" />
       </section>
     </div>
@@ -1353,7 +2216,7 @@ export const CorrectionBody = {
         <div class="panel-header"><h2>{{ TEXT.options }}</h2></div>
         <PlaybackGain v-if="gainState" :state="gainState.value" :controller="c.gain()" />
         <CorrectionAudioPanel v-if="canEdit && audio.status === 'ready'" :client="c.client" :dictation-id="dictationId"
-            :lease="c.editor.leaseController" :position="c.getPositionMs" :visible="drawer === 'options'"
+            :lease="c.editor.leaseController" :position="c.getPositionMs" :visible="drawer === 'options'" :open-on-mount="openAudioEdits"
             @revision="c.adoptAudioRevision" />
         <div data-testid="repeat-transcription">
           <button type="button" class="button small" :style="FOCUS" :disabled="!c.repeat.eligible()"
@@ -1383,7 +2246,7 @@ export const CorrectionView = {
     emits: ['close'],
     template: `<CorrectionBody :key="dictationId" :client="client" :dictation-id="dictationId" :current-user="currentUser"
                               :vue="vue" :recording-id="recordingId" :create-audio-context="createAudioContext"
-        :dictator="dictator" :pool="pool" :open-mode="openMode" @close="$emit('close')">
+        :dictator="dictator" :pool="pool" :open-mode="openMode" :open-audio-edits="openAudioEdits" @close="$emit('close')">
           <template v-if="$slots['back-action']" #back-action="scope"><slot name="back-action" v-bind="scope"></slot></template>
         </CorrectionBody>`,
 };

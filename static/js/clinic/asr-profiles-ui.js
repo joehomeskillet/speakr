@@ -60,6 +60,7 @@ const LABELS = Object.freeze({
     'clinic.asr.format': 'Ausgabeformat',
     'clinic.asr.engine': 'Verwendete Erkennung',
     'clinic.asr.engine.unknown': 'Nicht ermittelt',
+    'clinic.asr.engine.synthetic': 'Synthetischer Test',
     'clinic.asr.engine.gpu': 'GPU',
     'clinic.asr.engine.cpu': 'CPU',
     'clinic.asr.fallback': 'Ausweichlösung aktiv: CPU statt GPU.',
@@ -77,6 +78,16 @@ const LABELS = Object.freeze({
     'clinic.asr.reload': 'Neu laden',
     'clinic.asr.saved': 'Gespeichert.',
     'clinic.asr.removed': 'Die gewählte Auswahl ist nicht mehr verfügbar.',
+});
+
+const ADMIN_LABELS = Object.freeze({
+    'clinic.asr.profile': 'Gespeichertes Sprachprofil',
+    'clinic.asr.source': 'Gerät zum Diktieren',
+    'clinic.asr.live': 'Profil beim Diktieren (live)',
+    'clinic.asr.batch': 'Profil für nachträgliche Erkennung',
+    'clinic.asr.wait': 'Wartezeit bis zum manuellen Schreiben (Minuten)',
+    'clinic.asr.save': 'Profilvorgabe übernehmen',
+    'clinic.asr.saved': 'Profilvorgabe gespeichert.',
 });
 
 const SERVER_MESSAGES = Object.freeze({
@@ -99,7 +110,7 @@ function minutesOf(wait) {
 
 /**
  * @param {{client: {request: Function, switchContext: Function},
- *          t?: (key: string) => string}} deps
+ *          t?: (key: string) => string, adminLayout?: boolean}} deps
  */
 export function createAsrProfilesController(deps) {
     const client = deps.client;
@@ -108,7 +119,7 @@ export function createAsrProfilesController(deps) {
 
     function label(key) {
         const text = translate ? translate(key) : key;
-        return text && text !== key ? text : (LABELS[key] || key);
+        return text && text !== key ? text : ((deps.adminLayout && ADMIN_LABELS[key]) || LABELS[key] || key);
     }
 
     function emptyServer() {
@@ -192,6 +203,7 @@ export function createAsrProfilesController(deps) {
             profile: d.profile && typeof d.profile === 'object' ? d.profile : null,
             source: SOURCES.includes(d.source) ? d.source : base.source,
             saveRule: SAVE_RULES.includes(d.save_rule) ? d.save_rule : base.saveRule,
+            supportsSaveRule: SAVE_RULES.includes(d.save_rule),
             profileMode: PROFILE_MODES.includes(d.profile_mode) ? d.profile_mode : null,
             batchSource: d.profile_mode === 'separate' && SOURCES.includes(d.batch_source) ? d.batch_source : null,
             liveProfileId: d.live_profile_id == null ? null : String(d.live_profile_id),
@@ -201,7 +213,9 @@ export function createAsrProfilesController(deps) {
             output: d.output_format && typeof d.output_format === 'object' ? d.output_format : null,
             engine: {
                 configured: ENGINES.includes(engine.configured) ? engine.configured : base.engine.configured,
-                actual: ENGINES.includes(engine.actual) ? engine.actual : base.engine.actual,
+                actual: ENGINES.includes(engine.actual) ? engine.actual : (engine.status ? null : base.engine.actual),
+                status: engine.status,
+                fallback: engine.fallback === true,
                 reason: str(engine.reason),
             },
             // Prompts stay off unless the server says otherwise.
@@ -329,13 +343,16 @@ export function createAsrProfilesController(deps) {
     function view(asrStatus, waitedS) {
         const s = state.server;
         const d = state.draft;
-        const fallback = s.engine.configured === 'gpu' && s.engine.actual === 'cpu';
+        const fallback = s.engine.status ? s.engine.fallback : s.engine.configured === 'gpu' && s.engine.actual === 'cpu';
         const provenSet = new Set(s.proven);
-        const verifiedEngine = ['batch', 'live'].some((name) => provenSet.has(name)) || fallback;
+        const verifiedEngine = s.engine.status ? s.engine.status === 'runtime' && s.engine.actual !== null
+            : ['batch', 'live'].some((name) => provenSet.has(name)) || fallback;
+        const engineLabel = s.engine.status === 'synthetic' ? 'synthetic' : (verifiedEngine ? s.engine.actual : 'unknown');
         const dirty = d.source !== s.source || d.liveProfileId !== s.liveProfileId || d.batchProfileId !== s.batchProfileId
             || d.skipWaitMinutes !== s.skipWaitMinutes || d.saveRule !== s.saveRule
             || d.profileMode !== s.profileMode || d.batchSource !== s.batchSource;
         const complete = d.profileMode !== 'separate' || SOURCES.includes(d.batchSource);
+        const notice = deps.adminLayout && dirty && state.notice === label('clinic.asr.saved') ? null : state.notice;
         const choices = (mode) => offered(mode).map((id) => ({
             value: id,
             label: (s.profiles.find((p) => p.id === id) || {}).name || id,
@@ -344,11 +361,13 @@ export function createAsrProfilesController(deps) {
         return {
             title: label('clinic.asr.title'),
             ready: state.ready, loading: state.loading, busy: state.busy,
-            canSave: state.ready && !state.loading && !state.busy && dirty && complete,
+            canSave: state.ready && !state.loading && !state.busy && complete
+                && (dirty || (deps.adminLayout === true && !s.profile)),
             profileMode: d.profileMode,
             profileModes: PROFILE_MODES.map((v) => ({ value: v, label: label('clinic.asr.profileMode.' + v) })),
             batchSource: d.batchSource,
             saveRule: d.saveRule,
+            supportsSaveRule: s.supportsSaveRule,
             saveRules: SAVE_RULES.map((v) => ({ value: v, label: label('clinic.asr.saveRule.' + v) })),
             dirty,
             profile: s.profile ? { id: str(s.profile.id), name: str(s.profile.name), version: s.profile.version } : null,
@@ -361,7 +380,7 @@ export function createAsrProfilesController(deps) {
             engine: {
                 configured: s.engine.configured,
                 actual: s.engine.actual,
-                label: label('clinic.asr.engine.' + (verifiedEngine ? s.engine.actual : 'unknown')),
+                label: label('clinic.asr.engine.' + engineLabel),
                 fallback,
                 fallbackLabel: fallback ? label('clinic.asr.fallback') : '',
                 reason: s.engine.reason,
@@ -374,10 +393,11 @@ export function createAsrProfilesController(deps) {
                 label: provenSet.has(name) ? label('clinic.asr.proven') : label('clinic.asr.unproven'),
             })),
             skipWaitMinutes: d.skipWaitMinutes,
+            waitDisabled: s.waitDisabled,
             manual: manualAction(asrStatus, waitedS),
             error: state.error,
             errorSurface: state.error ? surfaceFor('error') : null,
-            notice: state.notice,
+            notice,
             a11y: {
                 role: 'form',
                 sourceGroup: { role: 'radiogroup', label: label('clinic.asr.source') },

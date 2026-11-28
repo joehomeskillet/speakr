@@ -25,9 +25,9 @@ from src.clinic.revisions import normalise_text, text_hash
 from src.clinic.rich_text_doc import (
     Document, Node, RichTextError, from_html, to_html, to_plain_text,
 )
-from src.clinic.richtext import SCHEMA_VERSION, CanonicalDocument, Segment
+from src.clinic.richtext import MAX_NODES, MAX_SEGMENTS, SCHEMA_VERSION, CanonicalDocument, Segment
 from src.clinic.rtf_text import rtf_to_text, text_to_rtf
-from src.clinic.sdict_bundle import FORMAT_VERSION, BundleError, build_bundle, read_bundle
+from src.clinic.sdict_bundle import FORMAT_VERSION, Bundle, BundleError, build_bundle, read_bundle
 from src.clinic.unicode_anchor_map import map_through_normalisation, to_utf16_offset
 
 _MACRO = re.compile(r"(?i)<\s*(?:script|iframe|object)\b|vbaProject|\\objdata|\\macro")
@@ -105,10 +105,10 @@ def export_document(
     plain = to_plain_text(doc)
     html = to_html(doc)
     try:
-        rtf = output_rtf.text_to_rtf(_rtf_source(doc))
+        rtf = render_rtf(doc)
         plain_rtf = text_to_rtf(plain)
         odt = render_odt(["".join(run.text for run in node.runs) for node in doc.nodes])
-    except (output_rtf.RTFValidationError, rtf_text.RtfError, odt_export.OdtExportError) as exc:
+    except (rtf_text.RtfError, odt_export.OdtExportError) as exc:
         raise FormatError("export_failed") from exc
     anchors = _anchors(doc)
     return Export(
@@ -125,6 +125,31 @@ def export_document(
         text_identity=text_hash(plain),
         anchors=anchors,
     )
+
+
+def render_rtf(doc: CanonicalDocument) -> bytes:
+    """Render formatted text without building a session bundle."""
+    try:
+        return output_rtf.text_to_rtf(_rtf_source(doc))
+    except output_rtf.RTFValidationError as exc:
+        raise FormatError("export_failed") from exc
+
+
+def import_rtf(raw: bytes) -> CanonicalDocument:
+    """Read only supported text and inline styles; never copy RTF attachments or links."""
+    try:
+        parsed = output_rtf.validate_rtf(raw, import_limits=(MAX_NODES, MAX_SEGMENTS))
+        return CanonicalDocument(tuple(
+            Node(id=f'n{i}', kind='paragraph', runs=tuple(
+                Segment(id=f's{i}_{j}',
+                        text=span.text.encode('utf-16-le', 'surrogatepass').decode('utf-16-le'),
+                        bold=span.bold, italic=span.italic, underline=span.underline)
+                for j, span in enumerate(spans, 1)
+            ) or (Segment(id=f's{i}_0', text=''),))
+            for i, spans in enumerate(parsed.styled_paragraphs, 1)
+        ))
+    except (output_rtf.RTFValidationError, RichTextError, UnicodeError) as exc:
+        raise FormatError("malformed") from exc
 
 
 def import_html(raw: str, *, expected_version: int, allowed: bool) -> Import:
@@ -198,17 +223,21 @@ def reload_bundle(
         if exc.code == "active_content":
             raise FormatError("macro_refused") from exc
         raise FormatError("malformed") from exc
+    return document_from_bundle(bundle)
+
+
+def document_from_bundle(bundle: Bundle) -> CanonicalDocument:
+    """Read the canonical document from an already validated archive."""
     _reject_macro_files(bundle.files)
     try:
         payload = json.loads(bundle.files["text/document.json"].decode("utf-8"))
         doc = CanonicalDocument.from_payload(payload)
-    except (KeyError, UnicodeError, ValueError, RichTextError) as exc:
+        plain = bundle.files.get("text/body.txt", b"").decode("utf-8")
+        got = tuple((item["id"], item["start"], item["end"]) for item in bundle.manifest.get("anchors", []))
+    except (KeyError, TypeError, ValueError) as exc:
         raise FormatError("malformed") from exc
-    if bundle.files.get("text/body.txt", b"").decode("utf-8") != to_plain_text(doc):
+    if plain != to_plain_text(doc):
         raise FormatError("identity_mismatch")
-    got = tuple(
-        (item["id"], item["start"], item["end"]) for item in bundle.manifest.get("anchors", [])
-    )
     if got != _anchors(doc) or payload.get("schema_version") != SCHEMA_VERSION:
         raise FormatError("anchor_mismatch")
     return doc
