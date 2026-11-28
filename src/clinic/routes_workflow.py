@@ -548,8 +548,12 @@ def create_blueprint(
             if not staff_pools:
                 raise workflow.WorkflowError('no_staff_pool')
             check_submission(current_user.id, selections)
-            workflow.store_routing_target(db.session(), row.id, actor_id=current_user.id,
-                                          override=override, expected_version=default_version)
+            target = workflow.store_routing_target(db.session(), row.id, actor_id=current_user.id,
+                                                   override=override, expected_version=default_version)
+            if target.mode == 'staff_pool':
+                staff_pools = [pool for pool in staff_pools if pool.id in target.target_ids]
+            elif target.mode != 'all_eligible':
+                staff_pools = []
             note = selection_notes(current_user.id, selections)
             fields = ['workflow_status', 'workflow_send']
             if note:

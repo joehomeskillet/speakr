@@ -40,6 +40,8 @@ def _exercise_submit_defaults():
         pools.add_author_member(author_pool, alpha, actor_id=admin)
         staff = _staff_pool(admin, 'Schreibdienst', [(lead, 'admin'), (typist, 'member')])
         pools.link_staff_pool(author_pool, staff, actor_id=admin)
+        second_staff = _staff_pool(admin, 'Ambulanz', [(lead, 'member')])
+        pools.link_staff_pool(author_pool, second_staff, actor_id=admin)
         pools.allow(lead, 'pool', pool_id=author_pool, actions=['view'], actor_id=admin)
         person, pool, all_staff, chosen, pending = [_draft(alpha, author_pool) for _ in range(5)]
         db.session.commit()
@@ -77,10 +79,12 @@ def _exercise_submit_defaults():
         (all_staff, 'all_eligible', [], [lead, typist]),
     )
     person_key = str(uuid4())
-    for version, (dictation, mode, targets, _) in enumerate(cases):
+    expected_names = ([], ['Schreibdienst'], ['Ambulanz', 'Schreibdienst'])
+    for version, ((dictation, mode, targets, _), names) in enumerate(zip(cases, expected_names, strict=True)):
         set_default(mode, version, targets)
         response = send(dictation, person_key if version == 0 else str(uuid4()), json={})
         assert (response.status_code, response.json['status']) == (200, workflow.TO_WRITE), response.json
+        assert response.json['staff_service_names'] == names
 
     assert_rejected(str(uuid4()), 409, 'STALE_VERSION', json={'expected_version': 2})
     assert_rejected(str(uuid4()), 400, 'ERROR', json={'expected_version': True})
@@ -96,6 +100,7 @@ def _exercise_submit_defaults():
     chosen_key = str(uuid4())
     submitted = send(chosen, chosen_key, json=chosen_body)
     assert submitted.status_code == 200, submitted.json
+    assert submitted.json['staff_service_names'] == []
     assert send(chosen, chosen_key, json={'expected_version': 3}).json['code'] == 'IDEMPOTENCY_CONFLICT'
 
     with app.app_context():

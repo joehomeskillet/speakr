@@ -71,6 +71,8 @@ export const TEXT = Object.freeze({
     retrySave: 'Erneut sichern',
     submitting: 'Diktat wird eingereicht …',
     submitted: 'Eingereicht.',
+    localVisibility: 'Noch nicht gesendet. Die Aufnahme ist nur in diesem Browser auf diesem Gerät.',
+    submittedVisibility: 'Die Standortverwaltung kann die Aufnahme anhören und den Text lesen, sobald er vorliegt. Für alle anderen gelten getrennte Zugriffsrechte für Aufnahme und Text.',
     submitUnknown: 'Einreichung nicht bestätigt. Bitte erneut versuchen.',
     categoriesLoading: 'Pflichtkategorien werden geladen …',
     categoriesFailed: 'Pflichtkategorien konnten nicht geladen werden. Bitte versuchen Sie es erneut.',
@@ -644,8 +646,9 @@ export function createRecordingViewController(options) {
     function model() {
         const s = machine.getState();
         const fileBusy = state.filePhase === 'sending' || state.filePhase === 'sent';
-        const saved = opts.oneButton && state.mode === 'record' && allowed() && created() ? s.receipt : null;
-        const showDestination = opts.oneButton && state.mode === 'record' && allowed()
+        const oneButtonRecording = opts.oneButton && state.mode === 'record' && allowed();
+        const saved = oneButtonRecording && created() ? s.receipt : null;
+        const showDestination = oneButtonRecording && !state.disposed
             && (s.phase === 'review' || (saved && !submission && !submitError));
         const separateSubmit = categorySets.length > 0 || ['loading', 'failed'].includes(categoryLoad);
         let recordActionLabel = s.phase === 'review' ? 'Senden' : 'Erneut senden';
@@ -666,8 +669,10 @@ export function createRecordingViewController(options) {
             authorId: String(user.id),
             title: s.title,
             plannedDestination: showDestination && plannedServices.length
-                ? (opts.draftMetadata ? 'Vorgesehen für: ' : 'Wird gesendet an: ') + (plannedServices.length === 1
+                ? (opts.draftMetadata ? 'Beim Einreichen an ' : 'Wird gesendet an: ') + (plannedServices.length === 1
                     ? singleService(plannedServices[0]) : 'Schreibdienste ' + plannedServices.join(', ')) : '',
+            localVisibility: oneButtonRecording && !state.disposed && s.phase === 'review' ? TEXT.localVisibility : '',
+            submittedVisibility: !state.disposed && submission === 'submitted' && saved ? TEXT.submittedVisibility : '',
             recordingReceipt: saved ? {
                 title: typeof saved.title === 'string' && /^Diktat \d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/.test(saved.title) ? saved.title : '',
                 duration: formatRecordingDuration(saved.audio_duration),
@@ -849,7 +854,7 @@ export const RECORDING_TEMPLATE = `
     <p v-if="!m.showStatusBySend" v-show="m.message" role="status" aria-live="polite" data-testid="status" style="margin: 0 0 var(--ui-space-3)"
        :style="m.phase === 'submitted' ? { fontSize: '1.25rem', fontWeight: 650 } : null">{{ m.message }}</p>
     <div v-if="m.recordingReceipt" role="status" style="margin-bottom: var(--ui-space-4); overflow-wrap: anywhere">
-      <p data-testid="receipt-saved" style="margin: 0; font-weight: 650">Aufnahme gespeichert</p>
+      <p v-if="m.message !== c.text.sent" data-testid="receipt-saved" style="margin: 0; font-weight: 650">Aufnahme gespeichert</p>
       <p v-if="m.recordingReceipt.title || m.recordingReceipt.duration" style="margin: var(--ui-space-2) 0 0">
         <span v-if="m.recordingReceipt.title" data-testid="receipt-title">{{ m.recordingReceipt.title }}</span><template v-if="m.recordingReceipt.title && m.recordingReceipt.duration"> · </template><span v-if="m.recordingReceipt.duration" data-testid="receipt-duration" :aria-label="'Aufnahmedauer ' + m.recordingReceipt.duration">{{ m.recordingReceipt.duration }}</span>
       </p>
@@ -909,6 +914,7 @@ export const RECORDING_TEMPLATE = `
                  @play="c.machine.syncPlayback()" @pause="c.machine.syncPlayback()" @ended="c.machine.syncPlayback()"
                  @error="c.machine.playbackFailed()" style="width: 100%; min-height: 3rem"></audio>
           <p v-if="m.plannedDestination" data-testid="send-destination" style="margin: 0; overflow-wrap: anywhere">{{ m.plannedDestination }}</p>
+          <p v-if="m.localVisibility" data-testid="local-visibility" style="margin: 0">{{ m.localVisibility }}</p>
           <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.sendRecording()">
             {{ m.recordActionLabel }}
           </button>
@@ -935,6 +941,7 @@ export const RECORDING_TEMPLATE = `
         <p v-if="m.showStatusBySend" role="alert" data-testid="status" style="margin: var(--ui-space-3) 0">{{ m.message }}</p>
         <div v-if="m.mode === 'record' && m.phase === 'submitted'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
           <button type="button" class="button primary" data-testid="open-created" style="${TOUCH}; width: 100%; font-size: 1rem" @click="c.openCreated()">Diktat öffnen</button>
+          <p v-if="m.submittedVisibility" role="status" data-testid="submitted-visibility" style="margin: var(--ui-space-2) 0 0">{{ m.submittedVisibility }}</p>
           <a href="#/neu" data-testid="another" style="${LINK}" @click.prevent="c.another()">{{ c.text.title }}</a>
         </div>
         <div v-else class="actions" style="justify-content: center">
