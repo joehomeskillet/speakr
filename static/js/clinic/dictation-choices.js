@@ -32,7 +32,7 @@ export function createDictationChoices({ client, makeState = (s) => s, authorId 
             if (authorId != null && (String(row.dictated_by?.id) !== String(authorId)
                 || ['fertiggestellt', 'zu_archivieren', 'zu_loeschen'].includes(row.workflow_status))) continue;
             seen.add(row.dictation_id);
-            const label = [row.dictated_by?.display_name || 'Name nicht verfügbar',
+            const label = [row.own_title, row.dictated_by?.display_name || 'Name nicht verfügbar',
                 row.case_display, formatDay(row.day), formatTime(row.sort_time)].filter(Boolean).join(' · ');
             state.rows.push({ id: row.dictation_id, label: `${label} · Aufnahme ${state.rows.length + 1}` });
         }
