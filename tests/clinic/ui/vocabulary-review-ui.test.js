@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createVocabularyReviewController } from '../../../static/js/clinic/vocabulary-review-ui.js';
+import { createVocabularyReviewController, SessionVocabularyReview } from '../../../static/js/clinic/vocabulary-review-ui.js';
 
 const ID = '11111111-1111-4111-8111-111111111111';
 const ok = (data) => ({ outcome: 'ok', status: 200, data });
@@ -115,5 +115,175 @@ describe('vocabulary review ui', () => {
         await c.switchContext({ accountId: 'b' });
         expect(client.switchContext).toHaveBeenCalled();
         expect(c.state.history).toHaveLength(0);
+    });
+});
+
+const WORD = { id: ID, written_form: 'Metformin', operation: 'ADD', status: 'PENDING',
+    revision: 3, resource_type: 'vocabulary', can_accept_pool: false };
+const COMMAND = { id: '22222222-2222-4222-8222-222222222222', written_form: 'Neuer Absatz',
+    operation: 'MODIFY', status: 'DEFERRED', revision: 6, resource_type: 'voice_command', can_accept_pool: true };
+
+function session(client) {
+    const hooks = {};
+    const emit = vi.fn();
+    const vue = {
+        ref: (value) => ({ value }), shallowRef: (value) => ({ value }),
+        nextTick: () => Promise.resolve(),
+        computed: (read) => ({ get value() { return read(); } }),
+        onMounted: (fn) => { hooks.mount = fn; },
+        onBeforeUnmount: (fn) => { hooks.unmount = fn; },
+    };
+    const ui = SessionVocabularyReview.setup({ client, userId: 7, vue }, { emit });
+    const dialog = {
+        open: false,
+        ownerDocument: { activeElement: null },
+        contains: vi.fn(() => true),
+        showModal: vi.fn(() => { dialog.open = true; }),
+        close: vi.fn(() => { dialog.open = false; ui.onClose(); }),
+    };
+    ui.dialog.value = dialog;
+    ui.title.value = { focus: vi.fn() };
+    return { ui, dialog, hooks, emit };
+}
+
+function pending() {
+    let resolve;
+    const promise = new Promise((done) => { resolve = done; });
+    return { promise, resolve };
+}
+
+describe('session-end vocabulary review', () => {
+    it('opens a native dialog and dismisses (including Escape) without a write', async () => {
+        const { client } = setup();
+        const { ui, dialog, hooks, emit } = session(client);
+        await hooks.mount();
+        expect(dialog.showModal).toHaveBeenCalledOnce();
+        expect(ui.title.value.focus).toHaveBeenCalledOnce();
+        expect(client.request.mock.calls[0][0]).toContain('scope_type=user&scope_id=7&status=OPEN');
+        expect(SessionVocabularyReview.template).toContain('@cancel.prevent="dismiss"');
+        expect(SessionVocabularyReview.template).toContain('@close="onClose"');
+        ui.dismiss();
+        ui.dismiss();
+        expect(dialog.close).toHaveBeenCalledOnce();
+        expect(emit.mock.calls).toEqual([['close']]);
+        expect(client.command).not.toHaveBeenCalled();
+        expect(client.request).toHaveBeenCalledTimes(1);
+    });
+
+    it('loads every offset page before writes and decides with individual revisions and permissions', async () => {
+        const page = pending();
+        const { client } = setup({ request: vi.fn()
+            .mockResolvedValueOnce(ok({ items: [WORD], revision: 60, next_cursor: '50' }))
+            .mockReturnValueOnce(page.promise) });
+        const { ui, hooks } = session(client);
+        const loading = hooks.mount();
+        await Promise.resolve();
+        expect(client.request.mock.calls[1][0]).toContain('status=OPEN&cursor=50');
+        expect(ui.view.value.items).toEqual([]);
+        expect(await ui.run('acceptUser', WORD.id)).toBe(false);
+        expect(client.command).not.toHaveBeenCalled();
+        page.resolve(ok({ items: [COMMAND], revision: 61, next_cursor: null }));
+        await loading;
+        expect(ui.view.value.items.map(({ resourceType, canAcceptPool }) => [resourceType, canAcceptPool]))
+            .toEqual([['vocabulary', false], ['voice_command', true]]);
+        expect(await ui.run('acceptPool', WORD.id)).toBe(false);
+        expect(await ui.run('defer', COMMAND.id)).toBe(false);
+        expect(await ui.run('acceptUser', WORD.id)).toBe(true);
+        expect(await ui.run('acceptPool', COMMAND.id)).toBe(true);
+        expect(client.command.mock.calls.map(([body]) => [body.expected_revision, body.payload])).toEqual([
+            [3, { proposal_id: WORD.id, decision: 'user' }], [6, { proposal_id: COMMAND.id, decision: 'pool' }],
+        ]);
+        expect([...ui.results.value.values()]).toEqual(['Für mich übernommen', 'Für das Team übernommen']);
+    });
+
+    it('blocks dismiss during a write and offers a deferred row again on the next mount', async () => {
+        const write = pending();
+        const { client } = setup({
+            request: vi.fn().mockResolvedValueOnce(ok({ items: [WORD] }))
+                .mockResolvedValueOnce(ok({ items: [{ ...WORD, status: 'DEFERRED', revision: 4 }] })),
+            command: vi.fn().mockReturnValueOnce(write.promise),
+        });
+        const { ui, hooks, dialog, emit } = session(client);
+        await hooks.mount();
+        const deferring = ui.run('defer', WORD.id);
+        ui.dismiss();
+        expect(dialog.close).not.toHaveBeenCalled();
+        expect(emit).not.toHaveBeenCalled();
+        write.resolve(ok({ revision: 4 }));
+        expect(await deferring).toBe(true);
+        expect(client.command.mock.calls[0][0]).toMatchObject({ expected_revision: 3, payload: { decision: 'defer' } });
+        expect(ui.results.value.get(WORD.id)).toBe('Für später zurückgestellt');
+        ui.dismiss();
+        expect(emit.mock.calls).toEqual([['close']]);
+        const next = session(client);
+        await next.hooks.mount();
+        expect(next.ui.view.value.items[0]).toMatchObject({ id: WORD.id, status: 'DEFERRED' });
+        expect(next.ui.results.value.size).toBe(0);
+    });
+
+    it('retries the same command after a network failure and reloads a conflict before deciding again', async () => {
+        const { client } = setup({
+            request: vi.fn().mockResolvedValueOnce(ok({ items: [WORD] }))
+                .mockResolvedValueOnce(ok({ items: [{ ...WORD, revision: 8 }] })),
+            command: vi.fn().mockResolvedValueOnce(bad('network', 'NETWORK'))
+                .mockResolvedValueOnce(bad('conflict', 'REVISION_CONFLICT')).mockResolvedValueOnce(ok({ revision: 9 })),
+        });
+        const { ui, hooks } = session(client);
+        await hooks.mount();
+        expect(await ui.run('acceptUser', WORD.id)).toBe(false);
+        expect(ui.retryingWrite.value).toBe(true);
+        expect(await ui.run('retry')).toBe(false);
+        expect(client.command.mock.calls[1]).toEqual(client.command.mock.calls[0]);
+        expect(ui.view.value.items[0].stale).toBe(true);
+        expect(await ui.run('acceptUser', WORD.id)).toBe(false);
+        expect(client.command).toHaveBeenCalledTimes(2);
+        expect(await ui.run('load')).toBe(true);
+        expect(await ui.run('acceptUser', WORD.id)).toBe(true);
+        expect(client.command.mock.calls[2][0].expected_revision).toBe(8);
+    });
+
+    it('does not publish a partial page or guess a missing row revision; can reload to empty', async () => {
+        const { client } = setup({ request: vi.fn()
+            .mockResolvedValueOnce(ok({ items: [WORD], next_cursor: '50' }))
+            .mockResolvedValueOnce(ok({ items: [{ ...COMMAND, revision: undefined }], revision: 6 }))
+            .mockResolvedValueOnce(ok({ items: [] })) });
+        const { ui, hooks } = session(client);
+        await hooks.mount();
+        expect(ui.view.value.ready).toBe(false);
+        expect(ui.view.value.error).toMatchObject({ outcome: 'validation', itemId: null });
+        expect(await ui.run('acceptUser', WORD.id)).toBe(false);
+        expect(client.command).not.toHaveBeenCalled();
+        expect(await ui.run('load')).toBe(true);
+        expect(ui.view.value).toMatchObject({ ready: true, items: [], error: null });
+    });
+
+    it('stops loading pages after the dialog is unmounted', async () => {
+        const first = pending();
+        const { client } = setup({ request: vi.fn().mockReturnValue(first.promise) });
+        const { hooks } = session(client);
+        const loading = hooks.mount();
+        hooks.unmount();
+        first.resolve(ok({ items: [WORD], next_cursor: '50' }));
+        expect(await loading).toBe(false);
+        expect(client.request).toHaveBeenCalledOnce();
+    });
+
+    it('requires confirmation before removing a team entry and shows the result', async () => {
+        const confirm = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+        vi.stubGlobal('confirm', confirm);
+        try {
+            const { client } = setup({ request: vi.fn().mockResolvedValue(ok({ items: [
+                { ...COMMAND, operation: 'DELETE', target_pool_name: 'Schreibdienst' },
+            ] })) });
+            const { ui, hooks } = session(client);
+            await hooks.mount();
+            expect(await ui.run('acceptPool', COMMAND.id)).toBe(false);
+            expect(client.command).not.toHaveBeenCalled();
+            expect(await ui.run('acceptPool', COMMAND.id)).toBe(true);
+            expect(confirm).toHaveBeenCalledWith('«Neuer Absatz» für das Team «Schreibdienst» entfernen?');
+            expect(ui.results.value.get(COMMAND.id)).toBe('Für das Team entfernt');
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });

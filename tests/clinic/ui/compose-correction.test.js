@@ -189,18 +189,25 @@ describe('dictation files', () => {
             ['POST ' + importPath]: () => pendingImport,
             ['POST ' + confirmPath]: ok({ id: 'm1', text_revision_id: 'r1', confirmed: true }),
         }));
-        const c = await openForEdit(client, { confirm: () => true });
+        const onSessionEnd = vi.fn();
+        const c = await openForEdit(client, { confirm: () => true, onSessionEnd });
         const opening = c.openSession({ name: 'test.txt' });
         try {
             await vi.waitFor(() => expect(count(client, 'POST', importPath)).toBe(1));
             expect(c.setText('Änderung während des Ladens')).toBe(false);
             expect(await c.close()).toBe(false);
+            expect(await c.leaseRun.release()).toBe(false);
+            expect(count(client, 'POST', '/leases/release')).toBe(0);
+            expect(onSessionEnd).not.toHaveBeenCalled();
             expect(await c.confirmReview('m1')).toMatchObject({ ok: false, code: 'readOnly' });
             expect(count(client, 'POST', confirmPath)).toBe(0);
 
             finishImport(fail('validation', 400, ''));
             expect(await opening).toBe(false);
             expect(await c.confirmReview('m1')).toEqual({ ok: true });
+            expect(await c.leaseRun.release()).toBe(true);
+            expect(count(client, 'POST', '/leases/release')).toBe(1);
+            expect(onSessionEnd.mock.calls).toEqual([[false]]);
         } finally {
             finishImport(fail('validation', 400, ''));
             c.dispose();
@@ -246,8 +253,8 @@ describe('compose-correction contract', () => {
         expect(template).not.toMatch(/patient|Patient|Fall-ID|Titel|Empf/);
     });
 
-    it('re-keys the inner body on the dictation id', () => {
-        expect(CorrectionView.template).toContain(':key="dictationId"');
+    it('re-keys the inner body on account, dictation and mode changes', () => {
+        expect(CorrectionView.template).toContain(':key="JSON.stringify([currentUser?.id, dictationId, openMode])"');
     });
 
     it('requires a dictation id and a current user id', () => {
@@ -258,6 +265,90 @@ describe('compose-correction contract', () => {
     it('uses the 3 second skip step of the tempo block', () => {
         expect(STEP_SECONDS).toBe(3);
         expect(createCorrectionViewController({ client: fakeClient(base()), dictationId: 'd1', currentUser: user }).stepSeconds).toBe(3);
+    });
+});
+
+describe('session-end review', () => {
+    it('waits for an opening edit lease before releasing it and reviewing', async () => {
+        let allowOpen;
+        const opening = new Promise((resolve) => { allowOpen = resolve; });
+        const onSessionEnd = vi.fn();
+        const onClose = vi.fn();
+        const client = fakeClient(base({ 'GET /dictations/d1/leases': () => opening }));
+        const c = controllerFor(client, { openMode: 'correction', contract: 'v8', onSessionEnd, onClose, pedal: false });
+        try {
+            const started = c.start();
+            const closed = c.close();
+            expect(onClose).not.toHaveBeenCalled();
+            allowOpen(ok({ may_acquire: true }));
+            await started;
+            expect(await closed).toBe(true);
+            const writes = client.calls.filter((call) => call.method === 'POST');
+            expect(writes.map((call) => call.path)).toEqual(['/dictations/d1/leases', '/dictations/d1/leases/release']);
+            expect(onSessionEnd.mock.calls).toEqual([[true]]);
+            expect(onSessionEnd.mock.invocationCallOrder[0]).toBeLessThan(onClose.mock.invocationCallOrder[0]);
+        } finally {
+            c.dispose();
+        }
+    });
+
+    it('waits for save and verified release, replays an unknown release, then waits for dismissal', async () => {
+        let dismiss;
+        const dialog = new Promise((resolve) => { dismiss = resolve; });
+        const onSessionEnd = vi.fn(() => dialog);
+        const onClose = vi.fn();
+        const release = vi.fn().mockResolvedValueOnce(fail('network', 0, 'Verbindung unterbrochen'))
+            .mockResolvedValueOnce(ok({}));
+        const client = fakeClient(base({ 'POST /dictations/d1/leases/release': release }));
+        const c = await openForEdit(client, { onSessionEnd, onClose, contract: 'v8', pedal: false });
+        try {
+            c.setText('Ein weiteres Wort');
+            expect(await c.close()).toBe(false);
+            expect(onSessionEnd).not.toHaveBeenCalled();
+            expect(onClose).not.toHaveBeenCalled();
+            expect(c.closeMessage.value).toBe(TEXT.closeReleaseFailed);
+            const closing = c.close();
+            await vi.waitFor(() => expect(onSessionEnd).toHaveBeenCalledOnce());
+            const writes = client.calls.filter((x) => x.method === 'POST').slice(-3);
+            expect(writes.map((x) => x.path.split('/d1')[1])).toEqual(['/correction/save', '/leases/release', '/leases/release']);
+            expect(writes[2].options).toEqual(writes[1].options);
+            expect(await c.close()).toBe(false);
+            expect(onClose).not.toHaveBeenCalled();
+            dismiss();
+            expect(await closing).toBe(true);
+            expect(onClose).toHaveBeenCalledOnce();
+        } finally {
+            c.dispose();
+        }
+    });
+
+    it('ends editing without leaving the editor', async () => {
+        const onSessionEnd = vi.fn();
+        const onClose = vi.fn();
+        const c = await openForEdit(fakeClient(base()), { onSessionEnd, onClose, pedal: false });
+        try {
+            expect(await c.leaseRun.release()).toBe(true);
+            expect(onSessionEnd).toHaveBeenCalledOnce();
+            expect(onClose).not.toHaveBeenCalled();
+            expect(await c.close()).toBe(true);
+            expect(onSessionEnd).toHaveBeenCalledOnce();
+        } finally {
+            c.dispose();
+        }
+    });
+
+    it('closes a read-only view without a review or a release request', async () => {
+        const onSessionEnd = vi.fn();
+        const client = fakeClient(base());
+        const c = controllerFor(client, { onSessionEnd, pedal: false });
+        try {
+            await c.start();
+            expect(await c.close()).toBe(true);
+            expect(onSessionEnd).not.toHaveBeenCalled();
+            expect(count(client, 'POST', '/leases/release')).toBe(0);
+        } finally {
+            c.dispose();
+        }
     });
 });
 

@@ -8,7 +8,7 @@ from collections.abc import Iterator
 import pytest
 from playwright.sync_api import Browser, Locator, Page, Route, expect, sync_playwright
 
-from test_wp_mount_correction import ROOT, TYPIST, _launch, _login, _open_from_worklist
+from test_wp_mount_correction import ROOT, TYPIST, _dismiss_session_review, _launch, _login, _open_from_worklist
 from test_wp_mount_correction import live_server  # noqa: F401 (fixture)
 
 STOP = "Auf zu hörendes Wort zeigen"
@@ -164,7 +164,8 @@ def test_typing_and_manual_restart(mounted: tuple[Page, str], mode: str, seconds
     _assert_backstep(audio, paused_at, seconds)
 
     editor.fill(original)
-    view.locator("[data-action=release]").click()
+    view.get_by_test_id("lease-bar").locator("[data-action=release]").click()
+    _dismiss_session_review(page)
     expect(view.locator("[data-action=acquire]")).to_be_enabled()
     assert not page.js_errors, page.js_errors
 

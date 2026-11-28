@@ -82,6 +82,7 @@ def test_named_indices_survive_reopen_seek_remove_and_become_historical(audio_se
 
             # Reopen: both names come back from the server and can be jumped to.
             page.get_by_test_id("close").click()
+            mount._dismiss_session_review(page)
             _open(page)
             panel = _marks(page)
             items = panel.locator("li")
@@ -127,7 +128,8 @@ def test_name_input_without_lease_sends_nothing_and_needs_no_aligned_text(audio_
             page.on("response", lambda r: replies.append((r.status, r.text())) if r.url.endswith("/markers") and r.request.method == "POST" else None)
             _open(page)
             expect(page.get_by_test_id("text")).to_be_editable()
-            page.locator("[data-action=release]").click()
+            page.get_by_test_id("lease-bar").locator("[data-action=release]").click()
+            mount._dismiss_session_review(page)
             panel = _marks(page)
             name = panel.get_by_label("Name des Index", exact=True)
             expect(name).to_be_disabled()
