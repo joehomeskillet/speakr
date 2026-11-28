@@ -98,7 +98,7 @@ def _picker(page: Page, base: str) -> None:
     expect(page.get_by_test_id("clinic-live-picker")).to_be_visible()
 
 
-def _capture(page: Page, state: str) -> None:
+def _capture(page: Page, state: str, *, prefix: str = "p215-live-drafts", scroll_to=None) -> None:
     previous = page.viewport_size
     ART.mkdir(parents=True, exist_ok=True)
     for width, height in VIEWPORTS:
@@ -106,7 +106,9 @@ def _capture(page: Page, state: str) -> None:
         for theme in ("light", "dark"):
             _theme(page, theme)
             page.evaluate("scrollTo(0, 0)")
-            stem = ART / f"p215-live-drafts-{state}-{width}x{height}-{theme}"
+            if scroll_to is not None:
+                scroll_to.scroll_into_view_if_needed()
+            stem = ART / f"{prefix}-{state}-{width}x{height}-{theme}"
             page.screenshot(path=stem.with_suffix(".png"), full_page=True, animations="disabled", caret="hide")
             # Clone the mounted DOM, including form values, without executable scripts or CSRF tokens.
             html = page.evaluate(r'''(local) => {
@@ -133,8 +135,9 @@ def _capture(page: Page, state: str) -> None:
             stem.with_suffix(".html").write_text(html, encoding="utf-8")
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), (state, width, theme)
             assert page.get_by_test_id("clinic-live-picker").evaluate('''root =>
-                [...root.querySelectorAll('button, input')].every(control => !control.getClientRects().length
-                    || control.getBoundingClientRect().height >= 48)'''), (state, width, theme)
+                [...root.querySelectorAll('button, input')].every(control =>
+                    !control.getClientRects().length || (control.offsetHeight >= 48 && control.offsetWidth >= 48))
+                '''), (state, width, theme)
     assert previous is not None
     page.set_viewport_size(previous)
     _theme(page, "light")

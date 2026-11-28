@@ -1,4 +1,6 @@
 import { createDictationChoices } from './dictation-choices.js';
+import { liveDraftFence, LiveBindingStatus } from './live-binding-ui.js';
+import { releaseLiveHolder } from './live-capture-ui.js';
 
 const DRAFTS = '/api/clinic/v1/live/drafts';
 const MIN_TARGET = 'min-height: 48px; font-size: 14px';
@@ -11,9 +13,10 @@ function draftError(result, fallback) {
 }
 
 const LiveDraftPicker = {
-    props: { client: { type: Object, required: true }, authorId: { type: String, required: true } },
+    components: { LiveBindingStatus },
+    props: { client: { type: Object, required: true }, authorId: { type: String, required: true }, speakerName: String },
     setup(props, { expose }) {
-        const { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref } = globalThis.Vue;
+        const { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, shallowRef } = globalThis.Vue;
         const rows = ref([]);
         const active = ref(null);
         const text = ref('');
@@ -33,17 +36,21 @@ const LiveDraftPicker = {
         const entry = history.state?.liveDraft;
         const restored = performance.getEntriesByType('navigation')[0]?.type === 'reload' && entry?.authorId === props.authorId ? entry : null;
         const tabId = restored?.tabId || crypto.randomUUID();
-        let holder = restored?.holder || null;
+        const holder = shallowRef(restored?.holder || null);
+        const bindingUncertain = ref(!!restored?.uncertain);
         let controller = null;
         let destination = null;
         let trigger = null;
         let disposed = false;
+        let hidden = false;
 
         function remember(draftId) {
             // Same-document history carries only the selection and API correlation fields for reload.
             const state = { ...history.state };
             delete state.liveDraft;
-            if (draftId) state.liveDraft = { authorId: props.authorId, draftId, tabId, holder };
+            if (draftId) state.liveDraft = {
+                authorId: props.authorId, draftId, tabId, holder: holder.value, uncertain: bindingUncertain.value,
+            };
             const url = new URL(location.href);
             url.searchParams.delete('dictation');
             history.replaceState(state, '', url);
@@ -81,46 +88,108 @@ const LiveDraftPicker = {
         async function claim(id) {
             const path = '/' + encodeURIComponent(id) + '/switch';
             const body = { tab_id: tabId };
-            let result = await request(path, 'POST', holder ? { ...body, acknowledged_holder: holder } : body);
+            const previous = holder.value;
+            let result = await request(path, 'POST', previous ? { ...body, acknowledged_holder: previous } : body);
             // An expired or stopped holder cannot be acknowledged. The API still refuses another tab's active holder.
-            if (holder && result.outcome === 'permission') result = await request(path, 'POST', body);
-            if (result.outcome !== 'ok' || disposed) return report(result, 'Der Entwurf konnte nicht geöffnet werden.');
-            holder = { session_id: result.data.session_id, client_id: tabId, generation: result.data.generation };
+            const oldFenceRefused = previous && result.code === 'POLICY_DENIED';
+            if (oldFenceRefused) result = await request(path, 'POST', body);
+            const fence = liveDraftFence(result.data, id, tabId);
+            if (!fence) {
+                if (oldFenceRefused || ['network', 'UNKNOWN', 'cancelled', 'ok'].includes(result.outcome)) {
+                    bindingUncertain.value = true;
+                    if (active.value) remember(active.value.draft_id);
+                }
+                error.value = result.outcome === 'conflict'
+                    ? 'Der Entwurf konnte nicht verbunden werden. Prüfen Sie, ob Sie in einem anderen Browserfenster diktieren.'
+                    : 'Der Entwurf konnte nicht zum Diktieren verbunden werden.';
+                return false;
+            }
+            if (disposed || hidden) {
+                releaseOnExit(fence);
+                return false;
+            }
+            holder.value = fence;
+            bindingUncertain.value = false;
             remember(id);
             return true;
         }
 
         const draftSession = {
             tabId,
-            get position() { return holder; },
+            get position() { return holder.value; },
+            get uncertain() { return bindingUncertain.value; },
             claim: () => run(() => claim(active.value.draft_id)),
+            release: releaseFromEditor,
             ended(sessionId) {
-                if (holder?.session_id !== sessionId) return;
-                holder = null;
+                if (holder.value?.session_id !== sessionId) return;
+                holder.value = null;
+                bindingUncertain.value = false;
                 remember(active.value.draft_id);
             },
         };
 
-        async function open(id) {
+        async function open(id, bind = true) {
             const result = await request('/' + encodeURIComponent(id));
             if (result.outcome !== 'ok' || result.data.discarded_at) return report(result, 'Der Entwurf konnte nicht geladen werden.');
-            if (!await claim(id)) return false;
+            if (bind && !await claim(id)) return false;
             active.value = result.data;
             text.value = result.data.text;
-            message.value = 'Entwurf «' + result.data.title + '» geöffnet.';
+            remember(id);
+            message.value = '';
             return true;
         }
 
+        async function readyToLeave() {
+            if (!controller || await controller.prepareRelease()) return true;
+            error.value = 'Die Aufnahme konnte noch nicht angehalten werden. Bitte versuchen Sie es erneut.';
+            return false;
+        }
+
+        async function releaseFromEditor() {
+            if (await run(async () => await readyToLeave() && release())) {
+                await nextTick(() => document.getElementById('clv-title')?.focus());
+            }
+        }
+
         async function release() {
-            if (!holder) return true;
-            const { session_id, ...body } = holder;
+            if (!holder.value) return true;
+            const { session_id, ...body } = holder.value;
             const result = await props.client.request('/api/clinic/v1/live/sessions/' + encodeURIComponent(session_id) + '/pause', {
                 method: 'POST', body: { ...body, release: true }, idempotencyKey: crypto.randomUUID(),
             });
-            if (!['ok', 'conflict', 'permission'].includes(result.outcome)) return report(result, 'Der Entwurf konnte nicht geschlossen werden.');
-            holder = null;
+            const confirmed = result.outcome === 'ok' && result.data?.state === 'PAUSED'
+                && result.data.session_id === session_id && result.data.dictation_id === active.value.draft_id;
+            if (!confirmed && !['POLICY_DENIED', 'REVISION_CONFLICT'].includes(result.code)) {
+                bindingUncertain.value = true;
+                remember(active.value.draft_id);
+                error.value = 'Das Lösen der Bindung wurde nicht bestätigt. Bitte versuchen Sie es erneut.';
+                return false;
+            }
+            holder.value = null;
+            bindingUncertain.value = false;
+            remember(active.value.draft_id);
+            controller?.released();
+            message.value = confirmed ? 'Bindung gelöst.' : 'Dieses Browserfenster kann den Entwurf nicht mehr zum Diktieren verwenden.';
             return true;
         }
+
+        function releaseOnExit(fence) {
+            const { session_id, ...body } = fence;
+            releaseLiveHolder({ sessionId: session_id }, body);
+        }
+
+        function pageHide(event) {
+            hidden = true;
+            // A paused draft can keep its fence through reload. An active capture must let it go.
+            if (!holder.value || (!event.persisted && controller?.getState().phase !== 'live')) return;
+            releaseOnExit(holder.value);
+            if (event.persisted) {
+                bindingUncertain.value = true;
+                remember(active.value?.draft_id);
+            }
+        }
+
+        function pageShow() { hidden = false; }
 
         async function save() {
             if (dirtyPhrases()) {
@@ -151,7 +220,8 @@ const LiveDraftPicker = {
             });
             if (result.outcome !== 'ok') return report(result, 'Der Entwurf konnte nicht verworfen werden.');
             rows.value = rows.value.filter(row => row.draft_id !== draft.draft_id);
-            holder = null;
+            holder.value = null;
+            bindingUncertain.value = false;
             clearEditor();
             message.value = 'Entwurf «' + draft.title + '» verworfen. Die Originalaufnahme bleibt erhalten.';
             return true;
@@ -184,6 +254,7 @@ const LiveDraftPicker = {
         async function finish(action, { saveFirst = false, discard = false } = {}) {
             let moved = false;
             await run(async () => {
+                if (!await readyToLeave()) return;
                 if (saveFirst && !await save()) return;
                 if (discard && !await archive()) return;
                 if (action.id) {
@@ -192,8 +263,12 @@ const LiveDraftPicker = {
                     if ((saveFirst || discard) && saved) message.value = [saved, moved ? message.value : ''].filter(Boolean).join(' ');
                     if (!moved && !discard) return;
                 } else {
-                    if (active.value && !await release()) return;
-                    if (active.value && !saveFirst) message.value = 'Entwurf «' + active.value.title + '» geschlossen.';
+                    if (active.value) {
+                        const saved = message.value;
+                        if (!await release()) return;
+                        message.value = [saved && saveFirst ? saved : 'Entwurf «' + active.value.title + '» geschlossen.',
+                            message.value !== saved ? message.value : ''].filter(Boolean).join(' ');
+                    }
                     clearEditor();
                 }
                 closeDialog(false);
@@ -236,11 +311,23 @@ const LiveDraftPicker = {
             }
             rows.value = result.data.drafts.map(({ draft_id, title }) => ({ draft_id, title }));
             loaded.value = true;
-            if (rows.value.some(row => row.draft_id === initial)) await finish({ id: initial });
+            if (rows.value.some(row => row.draft_id === initial)) {
+                await run(() => open(initial, !!restored?.holder && !restored.uncertain));
+            }
         }
 
-        onMounted(() => { void load(); void choices.load(); });
-        onBeforeUnmount(() => { disposed = true; choices.clear(); });
+        onMounted(() => {
+            void load();
+            void choices.load();
+            globalThis.addEventListener('pagehide', pageHide);
+            globalThis.addEventListener('pageshow', pageShow);
+        });
+        onBeforeUnmount(() => {
+            disposed = true;
+            choices.clear();
+            globalThis.removeEventListener('pagehide', pageHide);
+            globalThis.removeEventListener('pageshow', pageShow);
+        });
         expose({ isDirty, needsLeave: () => !!active.value || busy.value, leave: after => choose({ after }) });
         return { rows, active, text, title, dictation, busy, loaded, message, error, heading, dialog, cancelButton, mode, choices,
             available, readyToCreate, draftSession, minTarget: MIN_TARGET, dangerTarget: DANGER, choose, create, load, ask,
@@ -266,6 +353,9 @@ const LiveDraftPicker = {
                             @click="choose({ id: row.draft_id })">{{ row.title }}</button>
                 </li>
             </ul>
+            <p v-if="draftSession.position && rows.length > 1" style="margin: 0">
+                Wählen Sie einen anderen Entwurf, um das Diktatziel zu wechseln.
+            </p>
             <form v-if="loaded && !active" class="actions" style="align-items: end" @submit.prevent="create">
                 <label style="flex: 1 1 220px; min-width: 0; display: grid; gap: 4px; font-weight: 650">
                     <span>Eigene Aufnahme</span>
@@ -289,8 +379,13 @@ const LiveDraftPicker = {
         </section>
         <clinic-live-view v-if="active" :key="active.draft_id" :client="client" :dictation-id="active.draft_id"
                           :draft-title="active.title" :draft-session="draftSession" :draft-busy="busy" :on-ready="setController">
+            <template #binding="{ phase, busy: recordingBusy }">
+                <LiveBindingStatus :draft-title="active.title" :speaker-name="speakerName" :phase="phase"
+                                   :bound="!!draftSession.position" :uncertain="draftSession.uncertain"
+                                   :busy="busy || recordingBusy" @release="draftSession.release()" />
+            </template>
             <template #draft-actions>
-                <button type="button" class="button primary" :style="minTarget" data-testid="live-draft-save" :disabled="busy" @click="saveNow">Speichern</button>
+                <button type="button" class="button" :style="minTarget" data-testid="live-draft-save" :disabled="busy" @click="saveNow">Speichern</button>
                 <button type="button" class="button" :style="minTarget" data-testid="live-draft-close" :disabled="busy" @click="choose({})">Schliessen</button>
                 <button type="button" class="button" :style="dangerTarget" data-testid="live-draft-discard" :disabled="busy" @click="ask({}, 'discard')">Verwerfen</button>
             </template>

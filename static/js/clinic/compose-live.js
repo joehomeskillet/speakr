@@ -22,7 +22,7 @@
  * Persistence: none in the browser. Phrases, partial text and audio references
  * stay in memory and are cleared on dispose. Durable draft state is server-side
  * (src/clinic/live_drafts.py LiveDrafts, live_phrases) and comes back through the
- * resume call. Draft switching (POST live/drafts/<id>/switch) is not wired here.
+ * resume call. The draft picker owns the tab's acknowledged binding.
  * Switching "dictationId" re-keys the body, which disposes the previous one.
  * No patient data is shown: the view shows the dictation id only.
  *
@@ -163,7 +163,7 @@ export function createLiveViewController(options) {
     let lost = false; // the last request ended without an answer
     let lastOutcome;
     let disposed = false;
-    let recovering = false;
+    let recovering = null;
 
     const client = {
         async request(path, o) {
@@ -185,7 +185,7 @@ export function createLiveViewController(options) {
 
     function snapshot() {
         const s = session.getState();
-        return { phase, announcement, note: pendingNote || note, dictationId, session: s, actions: [] };
+        return { phase, announcement, note: pendingNote || note, dictationId, session: s, busy, actions: [] };
     }
 
     function state() {
@@ -231,18 +231,25 @@ export function createLiveViewController(options) {
     }
 
     async function adoptSession(autoContinue = false) {
-        recovering = true;
-        const generation = draftSession?.position?.generation ?? (captureModule && phase !== 'recovering' ? session.getState().generation : undefined);
-        const snap = await session.resume(draftSession && !draftSession.position ? undefined : clientId, generation);
-        recovering = false;
+        const position = draftSession?.position;
+        if (draftSession && (!position || draftSession.uncertain)) return state();
+        const generation = position?.generation ?? (captureModule && phase !== 'recovering' ? session.getState().generation : undefined);
+        recovering = session.resume(clientId, generation);
+        const snap = await recovering;
+        recovering = null;
         if (disposed) {
-            if (captureModule && snap.sessionId) captureModule.releaseLiveHolder(snap, fence());
+            if (!draftSession && captureModule && snap.sessionId) captureModule.releaseLiveHolder(snap, fence());
             session.dispose();
             return state();
         }
         if (lost) setPhase('reconnecting', NOTES.retry);
         else if (snap.recovery === 'failed') setPhase('reconnecting', NOTES.recoveryFailed);
         else if (captureModule && lastOutcome !== 'ok' && snap.status !== 'stale') setPhase('reconnecting', NOTES.checkSaved);
+        else if (position && (snap.sessionId !== position.session_id || snap.generation !== position.generation
+                || snap.status !== 'paused')) {
+            session.holderLost();
+            setPhase('stale');
+        }
         else if (snap.status === 'paused') {
             holderInactive = false;
             if (!autoContinue) setPhase('paused', snap.phrases.some((p) => p.state === 'server_saved') ? NOTES.restored : '');
@@ -325,25 +332,26 @@ export function createLiveViewController(options) {
         return state();
     }
 
-    return {
+    const controller = {
         getState: state,
         subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
         session,
 
         async restore() {
             if (disposed || recovering || phase !== 'idle') return state();
+            if (draftSession && (!draftSession.position || draftSession.uncertain)) return state();
             setPhase('recovering');
             return adoptSession();
         },
 
         async start() {
-            if (phase !== 'idle' && phase !== 'stopped' && phase !== 'error') return state();
-            if (draftSession) {
+            if (draftSession && ['idle', 'stopped', 'error', 'stale'].includes(phase)) {
                 setPhase('starting');
                 if (await draftSession.claim()) return adoptSession();
                 if (!disposed) setPhase('error');
                 return state();
             }
+            if (phase !== 'idle' && phase !== 'stopped' && phase !== 'error') return state();
             if (captureModule) return exclusive(async () => {
                 if (!canWriteOuter()) return setPhase('error', NOTES.denied);
                 session.reset();
@@ -407,7 +415,7 @@ export function createLiveViewController(options) {
         },
 
         async continueRecording() {
-            if (phase !== 'paused') return state();
+            if (phase !== 'paused' || draftSession?.uncertain) return state();
             if (captureModule) return exclusive(async () => {
                 if (!canWriteOuter()) return captureFailed('POLICY_DENIED');
                 if (await prepareCapture() && !disposed && capture) await continueWithCapture();
@@ -484,6 +492,7 @@ export function createLiveViewController(options) {
 
         /** Resume from the durable checkpoint, then retry the unsaved phrases of the adopted generation. */
         async reconnect() {
+            if (draftSession && (!draftSession.position || draftSession.uncertain || phase === 'stale')) return state();
             if (disposed || recovering || !['reconnecting', 'stale', 'live', 'paused'].includes(phase)) return state();
             if (captureModule) return exclusive(async () => {
                 closeCapture();
@@ -523,6 +532,17 @@ export function createLiveViewController(options) {
 
         saveUnsaved,
 
+        async prepareRelease() {
+            if (recovering) await recovering;
+            if (disposed || busy || phase === 'starting' || phase === 'stopping') return false;
+            if (phase === 'reconnecting' && !draftSession?.uncertain) return false;
+            if (phase !== 'live') return true;
+            await controller.pause();
+            return phase === 'paused';
+        },
+
+        released() { setPhase('idle'); },
+
         dispose() {
             if (disposed) return;
             disposed = true;
@@ -533,6 +553,7 @@ export function createLiveViewController(options) {
             session.dispose(); // clears phrases, partial and session id from memory
         },
     };
+    return controller;
 }
 
 const BODY_PROPS = {
@@ -590,7 +611,16 @@ const LiveBody = {
         });
         const confirmed = V.computed(() => state.value.session.phrases.filter((p) => p.state === 'server_saved'));
         const local = V.computed(() => state.value.session.phrases.filter((p) => p.state !== 'server_saved'));
-        return { c, state, confirmed, local, pending, FOCUS, DISABLED, box, TEXT, ICON_PATHS };
+        const actions = V.computed(() => {
+            const { actions, phase } = state.value;
+            if (!props.draftSession) return actions;
+            if (props.draftSession.uncertain && props.draftSession.position) return [];
+            if (phase === 'stale' || (!props.draftSession.position && ['idle', 'stopped', 'error'].includes(phase))) {
+                return [{ id: 'start', label: 'Zum Diktieren binden' }];
+            }
+            return actions;
+        });
+        return { c, state, actions, confirmed, local, pending, FOCUS, DISABLED, box, TEXT, ICON_PATHS };
     },
     template: `
 <section class="clinic-live-view v8-page" data-testid="clinic-live-view" aria-labelledby="clv-title" :data-phase="state.phase" style="width: 100%; max-width: 1440px; margin-inline: auto">
@@ -615,9 +645,10 @@ const LiveBody = {
       </div>
       <span class="tag neutral dot">{{ TEXT.count(confirmed.length) }} · {{ TEXT.saved }}</span>
     </div>
-    <div class="recorder compact-recorder" :class="{ recording: state.phase === 'live' && !state.actions[0]?.disabled }">
+    <slot name="binding" :phase="state.phase" :busy="state.busy" />
+    <div class="recorder compact-recorder" :class="{ recording: state.phase === 'live' && !state.busy }">
       <div class="recorder-controls" style="flex-wrap: wrap; gap: 8px" role="group" :aria-label="TEXT.controls" data-testid="live-controls">
-        <template v-for="a in state.actions" :key="a.id">
+        <template v-for="a in actions" :key="a.id">
           <button type="button" class="button" style="min-width: 48px; min-height: 48px"
                   :class="{ primary: a.id === 'start' || a.id === 'continueRecording' || a.id === 'reconnect' }"
                   :style="[FOCUS, (a.disabled || pending || draftBusy) ? DISABLED : null]"
@@ -647,8 +678,8 @@ const LiveBody = {
                    style="width: 100%; max-width: 300px; height: 54px; color-scheme: light dark"></audio>
           </li>
         </ol>
-        <p v-if="!confirmed.length && !local.length && !state.session.partial && (state.phase === 'idle' || state.phase === 'read_only' || state.phase === 'stopped')"
-           role="note" class="hint" style="margin: 0; padding: 22px 28px">{{ state.phase === 'idle' ? TEXT.empty : 'Keine gespeicherten Sätze.' }}</p>
+        <p v-if="!confirmed.length && !local.length && !state.session.partial && (draftSession || ['idle', 'read_only', 'stopped'].includes(state.phase))"
+           role="note" class="hint" style="margin: 0; padding: 22px 28px">{{ !draftSession && state.phase === 'idle' ? TEXT.empty : 'Keine gespeicherten Sätze.' }}</p>
         <section v-if="local.length || state.session.partial" aria-labelledby="clv-local" style="padding: 12px 28px">
           <h3 id="clv-local" style="${H2}">{{ TEXT.unsaved }}</h3>
           <ul style="list-style: none; margin: 0; padding: 0; overflow-wrap: anywhere">
@@ -679,6 +710,7 @@ export const LiveView = {
         return { visit };
     },
     template: `<LiveBody :key="dictationId + ':' + visit" v-bind="$props">
+      <template #binding="status"><slot name="binding" v-bind="status" /></template>
       <template #draft-actions><slot name="draft-actions" /></template>
       <template #draft-text><slot name="draft-text" /></template>
     </LiveBody>`,
