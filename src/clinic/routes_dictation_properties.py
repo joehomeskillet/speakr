@@ -185,6 +185,14 @@ class DictationPropertyRoutes:
         return (loaded is not None and self.store.acl_allows(user_id, dictation_id)
                 and self._unlocked(user_id, dictation_id, loaded))
 
+    def _grant_session(self, user_id: int, dictation_id: str, version: int, now: datetime) -> datetime:
+        grant = dictation_lock.grant(user_id, dictation_id, now, self.grant_seconds)
+        grants = {key: value for key, value in session.get(_SESSION_GRANTS, {}).items()
+                  if key != dictation_id and value[0] == user_id and value[2] > now.timestamp()}
+        grants[dictation_id] = [user_id, version, grant.expires_at.timestamp()]
+        session[_SESSION_GRANTS] = dict(list(grants.items())[-16:])
+        return grant.expires_at
+
     def blueprint(self) -> Blueprint:
         bp = Blueprint("clinic_dictation_properties", __name__)
 
@@ -231,26 +239,35 @@ class DictationPropertyRoutes:
 
         @bp.put(PREFIX + "/<dictation_id>/protection")
         def set_protection(dictation_id: str):
-            loaded = self._visible(current_user.id, dictation_id)
+            uid = current_user.id
+            loaded = self._visible(uid, dictation_id)
             if loaded is None:
                 return _problem("unknown_dictation")
-            if (not self.store.can_manage(current_user.id, dictation_id)
-                    or not self._unlocked(current_user.id, dictation_id, loaded)):
+            if not self.store.can_manage(uid, dictation_id):
                 return _problem("unauthorized")
             body = request.get_json(silent=True)
             if (not isinstance(body, dict) or _FORBIDDEN_KEYS & body.keys()
                     or isinstance(body.get("version"), bool) or not isinstance(body.get("version"), int)
                     or "secret" not in body or not isinstance(body["secret"], (str, type(None)))):
                 return _problem("invalid_payload")
+            if body["version"] != loaded[1]:
+                return _problem("stale_version", current_version=loaded[1])
+            if not self._unlocked(uid, dictation_id, loaded):
+                return _problem("unauthorized")
             try:
                 # A null secret removes the protection; a string sets it.
                 record = None if body["secret"] is None else dictation_lock.set_protection(body["secret"])
             except dictation_lock.LockError:
                 return _problem("invalid_payload")
-            new_version = (self.store.put(dictation_id, record, body["version"])
-                           if body["version"] == loaded[1] else None)
+            new_version = self.store.put(dictation_id, record, body["version"])
             if new_version is None:
-                return _problem("stale_version", current_version=self.store.get(dictation_id)[1])
+                current = self._visible(uid, dictation_id)
+                if current is None:
+                    return _problem("unknown_dictation")
+                return _problem("stale_version", current_version=current[1])
+            if record is not None:
+                # The managing session just supplied the code for this version.
+                self._grant_session(uid, dictation_id, new_version, self.clock())
             return jsonify(protected=record is not None, version=new_version)
 
         @bp.post(PREFIX + "/<dictation_id>/unlock")
@@ -277,12 +294,8 @@ class DictationPropertyRoutes:
                 if until is not None:
                     return _problem("locked", locked_until=until.isoformat())
                 return _problem("invalid_secret")
-            grant = dictation_lock.grant(uid, dictation_id, now, self.grant_seconds)
-            grants = {key: value for key, value in session.get(_SESSION_GRANTS, {}).items()
-                      if key != dictation_id and value[0] == uid and value[2] > now.timestamp()}
-            grants[dictation_id] = [uid, loaded[1], grant.expires_at.timestamp()]
-            session[_SESSION_GRANTS] = dict(list(grants.items())[-16:])
-            return jsonify(unlocked=True, expires_at=grant.expires_at.isoformat())
+            expires_at = self._grant_session(uid, dictation_id, loaded[1], now)
+            return jsonify(unlocked=True, expires_at=expires_at.isoformat())
 
         return bp
 

@@ -1468,6 +1468,10 @@ def register_clinic_audio(flask_app):
     def managed_client():
         return config.client_capabilities()['profiles'][config.client_profile()].get('document_export') is not False
 
+    def may_edit_live(actor, dictation_id):
+        return (may(actor, 'edit', db.session.get(ClinicDictation, dictation_id))
+                and routes_dictation_properties.content_unlocked(actor, dictation_id))
+
     def tts_load(actor, kind, object_id):
         dictation = db.session.get(ClinicDictation, object_id) if kind == routes_tts.SELECTION_KIND else None
         head = None if dictation is None else revisions.current_revision(dictation)
@@ -1478,8 +1482,7 @@ def register_clinic_audio(flask_app):
             subject=policy.build_subject(actor),
             recording=policy.build_facts(dictation.recording_id, dictation.author_user_id))
 
-    routes_live.register_live_commands(
-        dispatch, lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)))
+    routes_live.register_live_commands(dispatch, may_edit_live)
     flask_app.register_blueprint(routes_audio.create_blueprint(
         authorize=authorize, run_once=run_once, load_sources=load_sources))
     protection = routes_dictation_properties.DictationPropertyRoutes(protection_store)
@@ -1489,9 +1492,7 @@ def register_clinic_audio(flask_app):
         bundle_load, lambda actor, dictation_id, action: may(actor, action, db.session.get(ClinicDictation, dictation_id)),
         bundle_persist, lambda scope, digest, operation: bundle_store.run_locked(scope, digest, operation, run_once, may),
         managed_client))
-    flask_app.register_blueprint(routes_live.create_blueprint(
-        lambda actor, dictation_id: may(actor, 'edit', db.session.get(ClinicDictation, dictation_id)),
-        IngestService(startup.originals_root(flask_app))))
+    flask_app.register_blueprint(routes_live.create_blueprint(may_edit_live, IngestService(originals_root)))
     flask_app.register_blueprint(routes_correction.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         run_once=run_once, require_if_match=True))

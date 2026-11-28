@@ -183,6 +183,9 @@ def test_protect_unlock_and_grant_expiry(world):
     uid = world["author"].id
     r = _protect(world, c, h)
     assert (r.status_code, r.json) == (200, {"protected": True, "version": 2})
+    setter = c
+    assert setter.get(f"{PREFIX}/d1/protection").json == {"protected": True, "version": 2, "access": True}
+    c, h = world["client"](world["author"])
     assert c.get(f"{PREFIX}/d1/protection").json == {"protected": True, "version": 2, "access": False}
     assert world["routes"].access_allowed(uid, "d1") is False
     ok = c.post(f"{PREFIX}/d1/unlock", headers=h, json={"secret": SECRET})
@@ -192,6 +195,8 @@ def test_protect_unlock_and_grant_expiry(world):
         assert world["routes"].access_allowed(uid, "d1") is True
         world["clock"].now += timedelta(seconds=601)
     assert world["routes"].access_allowed(uid, "d1") is False
+    assert c.get(f"{PREFIX}/d1/protection").json['access'] is False
+    assert setter.get(f"{PREFIX}/d1/protection").json['access'] is False
     # A stored record never contains the secret.
     assert SECRET not in dictation_lock.record_to_json(world["store"].rows["d1"][0])
 
@@ -201,8 +206,10 @@ def test_pin_never_grants_unrelated_object(world):
     uid = world["author"].id
     _protect(world, c, h, "d1")
     _protect(world, c, h, "d2", secret="other pin")
+    c, h = world["client"](world["author"])
     assert c.post(f"{PREFIX}/d1/unlock", headers=h, json={"secret": SECRET}).status_code == 200
     assert world["routes"].access_allowed(uid, "d2") is False
+    assert c.get(f"{PREFIX}/d2/protection").json['access'] is False
     # Unlocking with d1's secret does not open d2.
     assert c.post(f"{PREFIX}/d2/unlock", headers=h, json={"secret": SECRET}).status_code == 403
     # A user without ACL cannot unlock or even see the object, whatever the secret.
@@ -244,8 +251,11 @@ def test_set_protection_stale_version_and_unauthorized(world):
 
 
 def test_clear_protection_drops_grants(world):
+    setter, setter_headers = world["client"](world["author"])
+    _protect(world, setter, setter_headers)
     c, h = world["client"](world["author"])
-    _protect(world, c, h)
+    stale = _protect(world, c, h, secret=None, version=1)
+    assert (stale.status_code, stale.json["code"], stale.json["current_version"]) == (409, "stale_version", 2)
     assert _protect(world, c, h, secret=None, version=2).status_code == 403
     c.post(f"{PREFIX}/d1/unlock", headers=h, json={"secret": SECRET})
     cleared = _protect(world, c, h, secret=None, version=2)
@@ -255,3 +265,4 @@ def test_clear_protection_drops_grants(world):
     # Re-protecting invalidates an earlier grant.
     _protect(world, c, h, version=3)
     assert world["routes"].access_allowed(world["author"].id, "d1") is False
+    assert setter.get(f"{PREFIX}/d1/protection").json['access'] is False

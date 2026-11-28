@@ -29,6 +29,7 @@ _LOCK_CONTROL_ENDPOINTS = {
     'clinic_dictation_detail.get_detail', 'clinic_workflow.send',
     'clinic_dictation_properties.protection_state', 'clinic_dictation_properties.set_protection',
     'clinic_dictation_properties.unlock',
+    'clinic_live.resume',  # The live blueprint checks CSRF before object access.
 }
 _ADMIN_CONTENT_ENDPOINTS = {'clinic_admin_dictations.audio', 'clinic_admin_dictations.transcript'}
 

@@ -61,9 +61,11 @@ from src.app import app
 
 uid, did, phase = int(sys.argv[1]), sys.argv[2], sys.argv[3]
 c = app.test_client()
-with c.session_transaction() as s:
-    s["_user_id"] = str(uid); s["_fresh"] = True
-h = {"X-CSRF-Token": c.get("/api/csrf-token").json["csrf_token"]}
+def sign_in(client):
+    with client.session_transaction() as s:
+        s["_user_id"] = str(uid); s["_fresh"] = True
+    return {"X-CSRF-Token": client.get("/api/csrf-token").json["csrf_token"]}
+h = sign_in(c)
 P = f"/api/clinic/v1/dictations/{did}/protection"
 out = {}
 if phase == "one":
@@ -74,6 +76,9 @@ if phase == "one":
             out["wav"] = [w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()]
     out["before"] = c.get(P).get_json()
     out["set"] = c.put(P, headers=h, json={"secret": "synthetic-secret", "version": 1}).get_json()
+    assert c.get(f"/api/clinic/v1/dictations/{did}/audio/derived").status_code == 200
+    c = app.test_client()
+    h = sign_in(c)
     out["locked_audio"] = c.get(f"/api/clinic/v1/dictations/{did}/audio/derived").status_code
     correction = f"/api/clinic/v1/dictations/{did}/correction"
     wrong = c.post(P.removesuffix('/protection') + '/unlock', headers=h, json={'secret': 'wrong-code'})
