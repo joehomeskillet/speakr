@@ -605,10 +605,11 @@ def serve_clinic_manifest() -> Response | None:
     with app.open_resource('../static/manifest.json', 'r', encoding='utf-8') as source:
         manifest = json.load(source)
     manifest['lang'] = 'de'
-    manifest['description'] = 'Speakr für Klinikdiktate'
+    manifest['description'] = 'Aufnahmen und Diktate erfassen, verschriftlichen und wiederfinden.'
     manifest.pop('screenshots', None)
+    shortcut_icons = manifest['shortcuts'][0]['icons']
     manifest['shortcuts'] = [
-        {'name': label, 'url': url}
+        {'name': label, 'url': url, 'icons': shortcut_icons}
         for label, url in (
             ('Neue Aufnahme', '/#/neu'),
             ('Aufnahmen', '/#/aufnahmen'),
