@@ -88,11 +88,11 @@ def add_human_revision(
     original_version: ClinicOriginal | None = None,
     force_new: bool = False,
 ) -> ClinicTranscriptRevision:
-    """Append a human correction, or return the tip when the text is unchanged.
+    """Append a human correction, or keep the tip for unchanged text and provenance.
 
     A new row is flushed, so its ID is available to other writes in the same
-    session. The caller owns the commit or rollback. Bundle imports use
-    ``force_new`` because audio and formatting can differ with identical text.
+    session. The caller owns the commit or rollback. Use ``force_new`` when
+    audio, formatting or provenance changes with identical text.
 
     ``author_user_id`` must be an existing user. It is stored as
     ``revision_author_user_id``, separate from the dictating person.
