@@ -383,7 +383,14 @@ def test_dictation_files_round_trip(file_server, tmp_path):
                 for width, height in ((1440, 900), (1280, 720), (390, 844)):
                     page.set_viewport_size({'width': width, 'height': height})
                     page.evaluate("() => document.querySelector('[data-testid=clinic-correction-mount]').scrollTop = 0")
-                    assert files.locator('button').evaluate_all('buttons => buttons.every(button => { const r = button.getBoundingClientRect(); return r.height >= 48 && r.left >= 0 && r.right <= innerWidth; })')
+                    if width < 1440:
+                        files.evaluate("element => element.scrollIntoView({ block: 'start' })")
+                    assert files.locator('summary, button').evaluate_all(
+                        "controls => controls.every(control => {"
+                        " const r = control.getBoundingClientRect();"
+                        " return r.height >= 48 && r.left >= 0 && r.right <= innerWidth"
+                        " && r.top >= 0 && r.bottom <= innerHeight; })"
+                    )
                     name = f'p124-{state}-{theme}-{width}x{height}'
                     page.screenshot(path=artifacts / f'{name}.png')
                     if width == 390:

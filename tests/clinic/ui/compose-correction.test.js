@@ -176,6 +176,34 @@ describe('dictation files', () => {
             expect(c.fileMessage.value).toContain('nicht geöffnet');
         } finally { c.dispose(); }
     });
+
+    it('pauses review confirmations while a file is being opened', async () => {
+        const importPath = '/bundles/d1/import?format=txt';
+        const markerPath = '/dictations/d1/correction/review-markers';
+        const confirmPath = markerPath + '/m1/confirm';
+        let finishImport;
+        const pendingImport = new Promise((resolve) => { finishImport = resolve; });
+        const client = fakeClient(base({
+            'GET /dictations/d1/correction': snapshot(),
+            ['GET ' + markerPath]: ok({ text_revision_id: 'r1', review_markers: [{ id: 'm1', label: 'Hallo', anchor_offset: 0 }] }),
+            ['POST ' + importPath]: () => pendingImport,
+            ['POST ' + confirmPath]: ok({ id: 'm1', text_revision_id: 'r1', confirmed: true }),
+        }));
+        const c = await openForEdit(client, { confirm: () => true });
+        const opening = c.openSession({ name: 'test.txt' });
+        try {
+            await vi.waitFor(() => expect(count(client, 'POST', importPath)).toBe(1));
+            expect(await c.confirmReview('m1')).toMatchObject({ ok: false, code: 'readOnly' });
+            expect(count(client, 'POST', confirmPath)).toBe(0);
+
+            finishImport(fail('validation', 400, ''));
+            expect(await opening).toBe(false);
+            expect(await c.confirmReview('m1')).toEqual({ ok: true });
+        } finally {
+            finishImport(fail('validation', 400, ''));
+            c.dispose();
+        }
+    });
 });
 
 describe('compose-correction contract', () => {
@@ -187,16 +215,17 @@ describe('compose-correction contract', () => {
         expect(CorrectionView.emits).toContain('close');
     });
 
-    it('composes exactly the eight building blocks and reuses tokens and api-client', () => {
+    it('composes the editor and finish building blocks and reuses tokens and api-client', () => {
         for (const mod of [
             'correction-editor-ui', 'correction-alignment-ui', 'correction-waveform-ui', 'playback-tempo-ui',
             'correction-modes-ui', 'correction-save-ui', 'audio-markers-ui', 'playback-gain-ui',
+            'finish-options-ui', 'workflow-actions-ui',
         ]) expect(source).toContain(`./${mod}.js`);
         expect(source).toContain("from './tokens.js'");
         expect(source).toContain("from './api-client.js'");
-        const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
+        const imports = [...source.matchAll(/from '(\.\/(?!correction-player-position\.js')[^']+)'/g)].map((m) => m[1]);
         expect(imports).toHaveLength(new Set(imports).size);
-        expect(imports).toHaveLength(11);
+        expect(imports).toHaveLength(13);
     });
 
     it('uses German labels, tokens only, keyboard-operable native controls and no browser storage', () => {
