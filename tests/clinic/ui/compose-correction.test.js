@@ -167,6 +167,8 @@ describe('compose-correction contract', () => {
         ].map((mod) => `./${mod}.js`).sort();
         const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
         expect(imports).toHaveLength(new Set(imports).size);
+        expect(imports).toContain('./vocabulary-ui.js');
+        expect(imports).toHaveLength(19);
         expect(imports.sort()).toEqual(expected);
     });
 
