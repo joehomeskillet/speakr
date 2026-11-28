@@ -30,7 +30,7 @@ from sqlalchemy import tuple_
 from sqlalchemy.orm import aliased
 from wtforms.validators import ValidationError
 
-from src.clinic import live_phrases, live_session, vocabulary
+from src.clinic import live_phrases, live_session, vocabulary, workflow
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.draft_registry import DraftError
 from src.clinic.draft_store import ClinicDraft, DraftStore
@@ -113,6 +113,11 @@ def _require_undiscarded(dictation_id: str) -> None:
     draft = db.session.get(ClinicDraft, dictation_id, populate_existing=True)
     if draft is not None and draft.discarded_at is not None:
         raise DraftError("discarded")
+
+
+def _may_start_workflow(dictation_id: str) -> bool:
+    item = db.session.get(workflow.ClinicWorkflowDictation, dictation_id, populate_existing=True)
+    return item is None or item.status == workflow.DRAFT
 
 
 def _code(error: Exception) -> str:
@@ -234,6 +239,9 @@ def register_live_commands(
             raise CommandProblem("INVALID_PAYLOAD")
         try:
             row = live_session.start(target.split(":", 1)[1], actor, now(), client_id=client_id)
+            # start holds the dictation lock shared with send until dispatch commits.
+            if not _may_start_workflow(row.dictation_id):
+                raise CommandProblem("POLICY_DENIED")
             if client_id is not None:
                 row.holder_generation = 1
             _require_undiscarded(row.dictation_id)
@@ -402,6 +410,7 @@ def create_blueprint(
             row = (_history(dictation_id)
                    .order_by(model.started_at.desc(), model.created_at.desc(), model.id.desc()).first())
             can_start = (authorize_dictation(actor, dictation_id)
+                         and _may_start_workflow(dictation_id)
                          and not live_session.author_holders(actor, now()))
             if row is None:
                 return jsonify(session_id=None, read_only=not can_start)

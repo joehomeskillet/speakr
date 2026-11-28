@@ -36,6 +36,7 @@
 import { createClinicApiClient } from './api-client.js';
 import { scopedClient } from './compose-correction.js';
 import { createLeaseController } from './lease-ui.js';
+import { LiveHandoff } from './live-handoff-ui.js';
 import { RichTextEditor } from './richtext-editor-ui.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { createLiveSessionController, liveActions } from './live-session-ui.js';
@@ -611,7 +612,8 @@ function useLiveDocument(V, props, state) {
         if (!data?.document || !Number.isInteger(data.document_version) || typeof data.etag !== 'string'
             || typeof data.text_revision_id !== 'string') return { outcome: 'UNKNOWN' };
         pending = null;
-        base = { ...data, state: { version: data.state_version, audio_position_ms: data.audio_position_ms } };
+        base = { ...data, audio_revision_id: base.audio_revision_id,
+            state: { version: data.state_version, audio_position_ms: data.audio_position_ms } };
         return { ...res, sent: request.sent };
     }
 
@@ -624,6 +626,7 @@ function useLiveDocument(V, props, state) {
     }
 
     V.watch(() => state.value.session.checkpoint, () => { void load(); });
+    V.watch(() => state.value.phase, (phase) => { if (phase === 'stopped') void load(); });
     function warnOnLeave(event) {
         if (editor.value?.dirty) { event.preventDefault(); event.returnValue = ''; }
     }
@@ -637,6 +640,12 @@ function useLiveDocument(V, props, state) {
         else void release();
     });
     return { client, editor, document, loading, loadFailed, held, writable, load, save, addGraphic,
+        confirmedCorrection: () => base && (held.value.status === 'idle' || lease.canWrite())
+            ? { ...base, lease_generation: held.value.generation } : null,
+        refreshAfterHandoffConflict: (code) => {
+            if (code === 'LEASE_CONFLICT') lease.notifyGeneration(-1);
+            void load();
+        },
         graphicsPath: '/api/clinic/v1' + graphicsPath,
         acquire: () => {
             acquiring = lease.acquire().then((lock) => {
@@ -650,7 +659,7 @@ function useLiveDocument(V, props, state) {
 const LiveBody = {
     name: 'ClinicLiveBody',
     props: BODY_PROPS,
-    components: { RichTextEditor },
+    components: { LiveHandoff, RichTextEditor },
     setup(props) {
         const V = props.vue || globalThis.Vue;
         if (!V) throw new Error('Vue is required to mount the live view');
@@ -696,9 +705,20 @@ const LiveBody = {
         const local = V.computed(() => state.value.session.phrases.filter((p) => p.state !== 'server_saved'));
         const writing = props.currentUser?.id != null ? useLiveDocument(V, props, state) : null;
         const richEditor = writing?.editor;
+        const handoffLocked = V.ref(false);
+        const submitted = V.ref(false);
+        const mayEdit = V.computed(() => !submitted.value && state.value.phase !== 'read_only');
+        const showHandoff = V.computed(() => writing && state.value.phase === 'stopped' && confirmed.value.length > 0
+            && (!props.canWrite || props.canWrite()));
+        const handoffReady = V.computed(() => showHandoff.value && !state.value.session.hasUnsaved
+            && state.value.actions.every((action) => !action.disabled) && writing.document.value
+            && !writing.loading.value && !writing.loadFailed.value && ['idle', 'held'].includes(writing.held.value.status)
+            && !richEditor.value?.dirty && !richEditor.value?.uploading && richEditor.value?.status !== 'saving');
+        const markSubmitted = () => { submitted.value = true; void writing.release(); };
         const canLeave = () => !richEditor?.value?.dirty
             || globalThis.confirm('Ungespeicherte Änderungen gehen verloren. Live-Diktat verlassen?');
-        return { c, state, pending, confirmed, local, writing, richEditor, canLeave, FOCUS, DISABLED, box, TEXT, ICON_PATHS };
+        return { c, state, pending, confirmed, local, writing, richEditor, canLeave, handoffLocked, submitted,
+            mayEdit, showHandoff, handoffReady, markSubmitted, FOCUS, DISABLED, box, TEXT, ICON_PATHS };
     },
     template: `
 <section class="clinic-live-view v8-page" data-testid="clinic-live-view" aria-labelledby="clv-title" :data-phase="state.phase" style="width: 100%; max-width: 1440px; margin-inline: auto">
@@ -709,7 +729,11 @@ const LiveBody = {
       <h1 id="clv-title" style="${H1}">{{ TEXT.title }}</h1>
       <p class="subline">{{ TEXT.subline }}</p>
     </div>
-    <div class="head-actions"></div>
+    <div class="head-actions">
+      <LiveHandoff v-if="showHandoff || submitted" :client="writing.client" :dictation-id="state.dictationId"
+        :ready="Boolean(handoffReady)" :current-correction="writing.confirmedCorrection"
+        @lock="handoffLocked = $event" @refresh="writing.refreshAfterHandoffConflict" @submitted="markSubmitted" />
+    </div>
   </div>
   <section class="editor-workspace" :aria-label="TEXT.transcript">
     <div class="editor-heading" style="flex-wrap: wrap; gap: 8px 16px">
@@ -721,11 +745,11 @@ const LiveBody = {
     </div>
     <div class="recorder compact-recorder" :class="{ recording: state.phase === 'live' && !state.actions[0]?.disabled }">
       <div class="recorder-controls" style="flex-wrap: wrap; gap: 8px" role="group" :aria-label="TEXT.controls" data-testid="live-controls">
-        <template v-for="a in state.actions" :key="a.id">
+        <template v-for="a in submitted ? [] : state.actions" :key="a.id">
           <button type="button" class="button" style="min-width: 48px; min-height: 48px"
-                  :class="{ primary: a.id === 'start' || a.id === 'continueRecording' || a.id === 'reconnect' }"
-                  :style="[FOCUS, (a.disabled || pending) ? DISABLED : null]"
-                  :disabled="a.disabled || pending" :data-action="a.id" @click="c[a.id]()">
+                  :class="{ primary: (a.id === 'start' && !showHandoff) || a.id === 'continueRecording' || a.id === 'reconnect' }"
+                  :style="[FOCUS, (a.disabled || pending || handoffLocked) ? DISABLED : null]"
+                  :disabled="a.disabled || pending || handoffLocked" :data-action="a.id" @click="c[a.id]()">
             <svg v-if="ICON_PATHS[a.id]" viewBox="0 0 24 24" width="19" height="19" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false"><path :d="ICON_PATHS[a.id]"></path></svg>
             {{ a.label }}
           </button>
@@ -762,19 +786,19 @@ const LiveBody = {
             <li v-if="state.session.partial" data-state="partial"><em>{{ state.session.partial }}</em> <small class="tag neutral">{{ TEXT.partial }}</small></li>
           </ul>
         </section>
-        <div v-if="writing" style="display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:8px 16px;border-bottom:1px solid var(--v8-line-2)">
+        <div v-if="writing && mayEdit" style="display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:8px 16px;border-bottom:1px solid var(--v8-line-2)">
           <p role="status" style="margin:0">{{ writing.held.value.message }}</p>
           <p v-if="writing.loading.value && !writing.document.value" role="status">Text wird geladen …</p>
           <button v-if="writing.document.value && ['idle', 'lost', 'error'].includes(writing.held.value.status) && writing.held.value.mayAcquire !== false"
-            type="button" class="button" style="min-height:48px" @click="writing.acquire">Bearbeiten</button>
+            type="button" class="button" style="min-height:48px" :disabled="handoffLocked" @click="writing.acquire">Bearbeiten</button>
           <button v-if="writing.held.value.status === 'held'"
-            type="button" class="button" style="min-height:48px" @click="writing.release">Bearbeitung beenden</button>
+            type="button" class="button" style="min-height:48px" :disabled="handoffLocked" @click="writing.release">Bearbeitung beenden</button>
           <p v-if="writing.loadFailed.value" role="alert">Der Text konnte nicht geladen werden.</p>
           <button v-if="writing.loadFailed.value && !writing.document.value" type="button" class="button"
             style="min-height:48px" @click="writing.load()">Erneut laden</button>
         </div>
         <RichTextEditor v-if="writing?.document.value" ref="richEditor"
-          :client="writing.client" :document="writing.document.value" :can-edit="writing.writable.value"
+          :client="writing.client" :document="writing.document.value" :can-edit="writing.writable.value && mayEdit && !handoffLocked"
           :save-document="writing.save" :reload-document="() => writing.load(true)"
           :add-graphic="writing.addGraphic" :graphics-path="writing.graphicsPath" />
       </div>
