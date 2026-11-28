@@ -339,6 +339,7 @@ def recover(
     client_id: str | None = None,
     timeout: float | None = None,
     *, generation: int | None = None, allow_ended: bool = True,
+    reclaim_browser_holder: bool = False,
 ) -> tuple[ClinicLiveSession, ResumePoint]:
     """Reopen this holder's interrupted session and return the last receipt.
 
@@ -347,6 +348,7 @@ def recover(
     since, unless ``allow_ended`` is false. A session the holder ended on purpose
     is not recovered. An open, unexpired session of someone else raises
     ``active_session``. With nothing to recover it raises ``no_session``.
+    Stream clients can claim an available browser binding with a new generation.
     """
     now = _require_now(now)
     seconds = lock_timeout(timeout)
@@ -376,8 +378,16 @@ def recover(
             or session.end_reason != END_EXPIRED
         ):
             raise LiveSessionError(NO_SESSION, session)
-    check_fence(session, client_id, generation)
+    reclaim = (reclaim_browser_holder
+               and client_id is not None and type(generation) is int and generation > 0
+               and (_expiry(session) <= now or (session.state == PAUSED and session.client_id is None))
+               and (session.client_id != client_id or session.holder_generation is None)
+               and not any(row.dictation_id != dictation_id for row in author_holders(user_id, now)))
+    if not reclaim:
+        check_fence(session, client_id, generation)
     assert_no_other_holder(dictation_id, user_id, now)
+    if reclaim:
+        session.holder_generation = max(session.holder_generation or 0, 1) + 1
     if current is None:
         session.end_reason = None
         session.ended_at = None
