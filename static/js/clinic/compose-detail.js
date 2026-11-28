@@ -30,6 +30,7 @@ import { createDetailClient, ensureHostedStyles, statusTone } from './compose-wo
 import { WORKFLOW_ACTIONS_TEMPLATE, createWorkflowActions } from './workflow-actions-ui.js';
 import { DictationSummary } from './dictation-summary-ui.js';
 import { DetailPlayback } from './detail-playback-ui.js';
+import { DictationProtectionComponent } from './dictation-protection-ui.js';
 import { readAudioRevision } from './correction-editor-ui.js';
 import { createHistoryComponent, isHistoryShortcut } from './history-ui.js';
 import { createLeaseController, createLeaseStatusComponent } from './lease-ui.js';
@@ -191,6 +192,7 @@ export function createDetailViewController(options) {
     const audio = shallowRef(null);
     let lease = null; // { ctrl, unsubscribe }
     let handedOff = false;
+    let openingEditor = false;
     let disposed = false;
     let seq = 0;
 
@@ -255,6 +257,12 @@ export function createDetailViewController(options) {
         const res = await detailClient.request('/dictations/' + encodeURIComponent(dictationId) + '/detail');
         if (disposed || mine !== seq || res.outcome === 'cancelled') return res;
         if (res.outcome === 'ok' && res.data && res.data.dictation_id === dictationId) {
+            if (res.data.protection_required === true) {
+                data.value = null;
+                applyWorkflow(null);
+                status.value = 'protected';
+                return res;
+            }
             data.value = res.data;
             confirmedAt.value = Date.now();
             status.value = 'ready';
@@ -311,17 +319,26 @@ export function createDetailViewController(options) {
         return s === 'foreign' || s === 'lost';
     };
     const offline = () => status.value === 'offline';
-    const canOpenEditor = () => status.value === 'ready' && !leaseBlocksOpen();
+    const canOpenEditor = () => status.value === 'ready' && !leaseBlocksOpen()
+        && leaseState.value?.mayAcquire !== false && leaseState.value?.status !== 'acquiring'
+        && leaseState.value?.status !== 'releasing';
 
     // --- actions ------------------------------------------------------------
     /** Requests the lease (idempotent for the holder) and tells the page to open the editor; the editor holds the lease from there. */
     async function openEditor() {
-        if (disposed || !canOpenEditor()) return false;
-        const snap = await ctrl.acquire();
-        if (disposed || !snap || snap.status !== 'held') return false;
-        handedOff = true; // the editor re-acquires as holder; releasing here would drop what it is about to use
-        if (typeof opts.onOpenEditor === 'function') opts.onOpenEditor({ dictationId });
-        return true;
+        if (disposed || handedOff || openingEditor || !canOpenEditor()) return false;
+        openingEditor = true;
+        try {
+            const snap = leaseState.value?.writable ? leaseState.value : await ctrl.acquire();
+            if (disposed || !snap?.writable) return false;
+            if (typeof opts.onOpenEditor === 'function') {
+                handedOff = true;
+                opts.onOpenEditor({ dictationId });
+            }
+            return true;
+        } finally {
+            openingEditor = false;
+        }
     }
 
     /** Returns the caller's own origin object unchanged so the list can restore filter, page, scroll and focus. */
@@ -378,6 +395,7 @@ export function createDetailViewController(options) {
 function buildParts(V) {
     return {
         Lease: createLeaseStatusComponent(V),
+        Protection: DictationProtectionComponent(V),
         Workflow: { name: 'ClinicWorkflowPanel', props: { wf: { type: Object, required: true } }, template: WORKFLOW_ACTIONS_TEMPLATE },
         History: createHistoryComponent(V),
         ContextBinding: { props: { binding: { type: Object, required: true } }, template: CONTEXT_BIND_TEMPLATE },
@@ -469,6 +487,10 @@ const DetailBody = {
     <button type="button" class="secondary" @click="c.load()">{{ TEXT.retry }}</button>
   </div>
 
+  <div v-if="status === 'protected'" style="max-width: 28rem">
+    <component :is="parts.Protection" :client="client"
+               :dictation-id="dictationId" unlock-only @unlocked="c.load()" />
+  </div>
   <template v-if="c.header()">
     <header class="record-detail-heading" data-testid="detail-header">
       <div>
