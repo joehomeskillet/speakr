@@ -252,6 +252,16 @@ export function createCorrectionToolbar(options) {
         /** Call from the text area input handler and when the lease changes. */
         notifyChange() { sync(); recount(); emit(); },
         refresh() { emit(); },
+        insertText(value, range = editor.read(), offset = value.length) {
+            if (blocked()) return false;
+            sync();
+            const start = Math.min(range.start, range.end);
+            const end = Math.max(range.start, range.end);
+            history.syncSelection(start, end, range.direction);
+            const caret = start + offset;
+            commit(range.text.slice(0, start) + value + range.text.slice(end), caret, caret);
+            return true;
+        },
         undo() {
             if (blocked()) return false;
             sync();
@@ -268,17 +278,15 @@ export function createCorrectionToolbar(options) {
             applyEntry(e); recount(); state.message = ''; emit();
             return true;
         },
-        insertText(value, range = editor.read(), offset = value.length) {
+        insertParagraph() {
             if (blocked()) return false;
-            sync();
-            const start = Math.min(range.start, range.end);
-            const end = Math.max(range.start, range.end);
-            history.syncSelection(start, end);
-            const caret = start + offset;
-            commit(range.text.slice(0, start) + value + range.text.slice(end), caret, caret);
+            const cur = sync();
+            const caret = Math.min(cur.start, cur.end);
+            const text = cur.text.slice(0, caret) + PARAGRAPH_BREAK + cur.text.slice(Math.max(cur.start, cur.end));
+            const next = caret + PARAGRAPH_BREAK.length;
+            commit(text, next, next);
             return true;
         },
-        insertParagraph() { return api.insertText(PARAGRAPH_BREAK); },
         // Review marks (W11) are server-side flags that block release. The toolbar never writes demo text into
         // the clinical transcript; until it is wired to the server mark path it only explains why it does nothing.
         insertMarker() {

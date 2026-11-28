@@ -188,6 +188,7 @@ export function createClinicApiClient() {
         const controller = new AbortController();
         inflight.add(controller);
         const unsafe = method !== 'GET' && method !== 'HEAD';
+        const readOnlyPreview = method === 'POST' && /^\/dictations\/[^/?]+\/documents\/preview(?:\?.*)?$/.test(url.slice(ROOT.length));
         try {
             const token = unsafe ? await getUploadCsrfToken() : null;
             if (seen !== generation || controller.signal.aborted) return result('cancelled', { code: 'CANCELLED' });
@@ -232,10 +233,8 @@ export function createClinicApiClient() {
                 if (seen !== generation) return result('cancelled', { code: 'CANCELLED' });
             }
             const response = classify(sent.response, text);
-            const readOnlyPreview = method === 'POST' && /^\/dictations\/[^/?]+\/documents\/preview(?:\?.*)?$/.test(url.slice(ROOT.length));
-            if (unsafe && response.outcome === 'ok' && !readOnlyPreview
-                && (url.startsWith(ROOT + '/dictations/') || url === PARITY_COMMANDS)) {
-                dictationChanges += 1;
+            if (unsafe && response.outcome === 'ok' && (url.startsWith(ROOT + '/dictations/') || url === PARITY_COMMANDS)) {
+                if (!readOnlyPreview) dictationChanges += 1;
             }
             return response;
         } finally {

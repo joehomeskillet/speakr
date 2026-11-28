@@ -24,7 +24,8 @@ SEED = '''
 def capture(page: Page, state: str) -> None:
     if not (target := os.environ.get("P064_ARTIFACTS")):
         return
-    dest = Path(target)
+    mode = "document" if page.get_by_test_id("correction-document").count() else "plain"
+    dest = Path(target) / mode
     dest.mkdir(parents=True, exist_ok=True)
     view = page.get_by_test_id("toolbar" if state == "editor-closed" else "template-menu")
     for theme in ("light", "dark"):
@@ -33,6 +34,9 @@ def capture(page: Page, state: str) -> None:
             page.set_viewport_size({"width": width, "height": height})
             view.evaluate("el => el.scrollIntoView({block: 'center', behavior: 'instant'})")
             assert view.evaluate("el => el.scrollWidth === el.clientWidth")
+            if mode == "document" and state != "editor-closed":
+                assert view.evaluate('''el => el.getBoundingClientRect().bottom <= el.parentElement
+                    .querySelector('[data-testid=correction-document]').getBoundingClientRect().top''')
             targets = view.locator(".button, .snippet-option") if state != "editor-closed" else view.locator("[data-tool=template]")
             for target in targets.all():
                 assert target.evaluate("el => el.offsetWidth >= 48 && el.offsetHeight >= 48")
@@ -64,18 +68,36 @@ def capture(page: Page, state: str) -> None:
 
 
 @pytest.mark.parametrize("with_rows", [True, False], ids=["author-and-team", "no-templates"])
-def test_case_document_choice(tmp_path: Path, with_rows: bool) -> None:
+@pytest.mark.parametrize("workflow_status", ["TO_WRITE", "TO_CORRECT"], ids=["write", "correct"])
+def test_case_document_choice(tmp_path: Path, with_rows: bool, workflow_status: str) -> None:
     seed = SEED.replace("WITH_ROWS", str(with_rows))
     source = SERVER.replace('\nserver = make_server', seed + '\nserver = make_server')
+    source = source.replace('status=workflow.TO_WRITE', f'status=workflow.{workflow_status}')
     with _live_correction_server(tmp_path, source) as (base, did), sync_playwright() as playwright:
         browser = _launch(playwright)
         try:
             page = _login(browser, base, TYPIST)
             _open_from_worklist(page, base)
             editor = page.get_by_test_id("text")
-            page.locator("[data-action=acquire]").click()
-            expect(editor).to_be_editable()
-            editor.evaluate("el => el.setSelectionRange(0, 8)")
+            if os.environ.get("P064_EXPECT_CANONICAL") and workflow_status == "TO_CORRECT":
+                expect(page.get_by_test_id("correction-document").get_by_test_id("text")).to_be_visible()
+
+            def take_lease() -> None:
+                expect(editor).to_be_visible()
+                if workflow_status == "TO_WRITE" or not editor.is_editable():
+                    page.locator("[data-action=acquire]").click()
+                expect(editor).to_be_editable()
+
+            take_lease()
+            canonical = editor.evaluate("el => el.hasAttribute('data-run-id')")
+            if workflow_status == "TO_WRITE":
+                assert not canonical
+
+            def select_text() -> None:
+                editor.focus()
+                editor.evaluate("el => el.setSelectionRange(0, 8, 'backward')")
+
+            select_text()
             original = editor.input_value()
             correction = f"{base}/api/clinic/v1/dictations/{did}/correction"
             before = page.request.get(correction).json()
@@ -126,6 +148,7 @@ def test_case_document_choice(tmp_path: Path, with_rows: bool) -> None:
             expect(trigger).to_be_focused()
             expect(editor).to_have_value(original)
             assert editor.evaluate("el => [el.selectionStart, el.selectionEnd]") == [0, 8]
+            assert editor.evaluate("el => el.selectionDirection") == "backward"
             expect(workspace).to_have_attribute("data-dirty", "false")
             assert lease.inner_text() == lease_label
             server_draft = page.request.get(correction).json()
@@ -142,15 +165,15 @@ def test_case_document_choice(tmp_path: Path, with_rows: bool) -> None:
             expect(editor).not_to_be_editable()
             expect(editor).to_have_value(original)
             expect(page.get_by_role("status").filter(has_text="Bitte öffnen Sie die Vorschau erneut.")).to_be_visible()
-            page.locator("[data-action=acquire]").click()
-            expect(editor).to_be_editable()
-            editor.evaluate("el => el.setSelectionRange(0, 8)")
+            take_lease()
+            select_text()
             trigger.click()
             choose()
             insert.evaluate("el => { el.click(); el.click(); }")
             combined = preview + original[8:]
             expect(editor).to_have_value(combined)
             expect(editor).to_be_focused()
+            expect(page.get_by_role("status").filter(has_text="Text eingefügt.")).to_be_visible()
             assert editor.evaluate("el => el.selectionStart") == caret
             page.get_by_test_id("save").click()
             expect(page.get_by_test_id("save-state")).to_have_attribute("data-state", "saved")
@@ -158,15 +181,16 @@ def test_case_document_choice(tmp_path: Path, with_rows: bool) -> None:
             page.locator('[data-tool="undo"]').click()
             expect(editor).to_have_value(original)
             assert editor.evaluate("el => [el.selectionStart, el.selectionEnd]") == [0, 8]
+            if canonical:
+                assert editor.evaluate("el => el.selectionDirection") == "backward"
             page.get_by_test_id("save").click()
             expect(page.get_by_test_id("save-state")).to_have_attribute("data-state", "saved")
             page.get_by_test_id("clinic-correction-back").click()
             _open_from_worklist(page, base)
             expect(editor).to_have_value(original)
 
-            page.locator("[data-action=acquire]").click()
-            expect(editor).to_be_editable()
-            editor.evaluate("el => el.setSelectionRange(0, 8)")
+            take_lease()
+            select_text()
             trigger.click()
             choose()
             insert.click()

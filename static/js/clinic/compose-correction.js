@@ -32,7 +32,7 @@
 import { formatDictationReference } from './worklist-ui.js';
 import { createClinicApiClient } from './api-client.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
-import { CorrectionAudioPanel, DictationSummary, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT } from './correction-editor-ui.js';
+import { CorrectionAudioPanel, DictationSummary, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT, insertDocumentChoiceRun } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
 import { CorrectionWaveform } from './correction-waveform-ui.js';
 import { PlaybackTempo, usePlaybackTempo } from './playback-tempo-ui.js';
@@ -689,6 +689,7 @@ const UiIcon = {
  */
 const LOCAL_CSS = `
 .v8-ui .editor-page .document-choice{color:var(--v8-text)}
+.v8-ui .editor-page .document-choice[data-inline]{position:static;margin:8px 12px}
 .v8-ui .document-choice :is(.button,.snippet-option),.v8-ui .editor-page [data-tool=template]{min-height:48px;min-width:48px}
 .v8-ui .document-choice .snippet-option{overflow-wrap:anywhere;display:block}
 .v8-ui .document-choice :is(h3,h4,.document-preview):focus-visible,.v8-ui .document-choice label:focus-within{outline:var(--focus-outline);outline-offset:var(--focus-offset)}
@@ -900,35 +901,57 @@ export const CorrectionBody = {
         const WORKER = { held: TEXT.workerHeld, foreign: TEXT.workerForeign, lost: TEXT.workerLost };
         const workerLabel = () => WORKER[e.lease.value.status] || TEXT.workerFree;
         const choice = V.shallowRef(null);
+        const templatesOpen = V.computed(() => Boolean(choice.value));
         const choiceHeading = V.shallowRef(null);
         const previewHeading = V.shallowRef(null);
         const choiceNotice = V.ref('');
+        const documentEditor = s.document;
+        const choiceDocument = () => documentEditor?.available.value ? documentEditor.doc.value : null;
+        const choiceWritable = () => e.canEdit.value && !c.documentLoading?.value && e.leaseController.canWrite();
         let choiceOpener;
         const staleChoice = 'Der Text oder die Bearbeitung hat sich geändert. Bitte öffnen Sie die Vorschau erneut.';
         const closeChoice = (message = 'Nicht eingefügt. Der Text wurde nicht geändert.', focusEditor = false) => {
             if (!choice.value) return;
+            const field = choice.value.draft.field || textEl.value;
             const heading = choiceHeading.value;
             const restoreFocus = heading?.parentElement?.contains(heading.ownerDocument.activeElement);
             choice.value = null;
             choiceNotice.value = message;
             if (focusEditor || restoreFocus) {
-                later(() => (focusEditor || choiceOpener?.disabled ? textEl.value : choiceOpener)?.focus());
+                later(() => (focusEditor || choiceOpener?.disabled ? field : choiceOpener)?.focus());
             }
         };
+        function readChoiceDraft(opener, document) {
+            if (!document) return editorPort.read();
+            const { nodeId, runId } = documentEditor.selection.value;
+            const node = document.nodes.find((item) => item.id === nodeId && item.runs.length)
+                || document.nodes.find((item) => item.runs.length);
+            const run = node?.runs.find((item) => item.id === runId) || node?.runs[0];
+            const field = run && opener?.closest('.editor-document')?.querySelector('[data-run-id="' + run.id + '"]');
+            if (!field || field.value !== run.text) return null;
+            return { field, nodeId: node.id, runId: run.id, text: run.text,
+                start: field.selectionStart, end: field.selectionEnd, direction: field.selectionDirection };
+        }
         const toggleChoice = async (opener) => {
             if (choice.value) return closeChoice();
-            if (!e.canEdit.value || !e.leaseController.canWrite()) return;
+            if (!choiceWritable()) return;
+            const document = choiceDocument();
+            const draft = readChoiceDraft(opener, document);
+            if (!draft) {
+                choiceNotice.value = 'Wählen Sie zuerst einen Textabschnitt aus.';
+                return;
+            }
             choiceOpener = opener;
             choiceNotice.value = '';
             shortcutsOpen.value = false;
-            choice.value = { draft: editorPort.read(), revision: e.textRevisionId.value,
+            choice.value = { draft, document, text: e.text.value, revision: e.textRevisionId.value,
                 generation: e.lease.value.generation, load: c.loadGeneration.value };
             later(() => choiceHeading.value?.focus());
             await e.loadTemplates();
         };
-        const sameDraft = (current) => e.canEdit.value && e.leaseController.canWrite()
+        const sameDraft = (current) => choiceWritable()
             && current.generation === e.lease.value.generation && current.revision === e.textRevisionId.value
-            && current.load === c.loadGeneration.value && current.draft.text === e.text.value;
+            && current.load === c.loadGeneration.value && current.text === e.text.value && current.document === choiceDocument();
         async function chooseSource(source) {
             const current = choice.value;
             if (!current || !sameDraft(current)) return closeChoice(staleChoice);
@@ -967,18 +990,28 @@ export const CorrectionBody = {
             const current = choice.value;
             if (!current?.preview) return;
             if (!sameDraft(current)) return closeChoice(staleChoice);
-            const { text, start, end } = current.draft;
+            const { draft, document } = current;
+            const { text, start, end } = draft;
             const next = text.slice(0, start) + current.preview + text.slice(end);
             if (next === text) return closeChoice('Der ausgewählte Text ist bereits im Diktat.');
-            // The 2 MiB save limit covers the JSON body, including revision and position fields.
-            if (new TextEncoder().encode(JSON.stringify(next)).length > 2 * 1024 * 1024 - 512) {
+            // A document sends both its structure and its plain text in the correction save.
+            const encoder = new TextEncoder();
+            const size = (value) => encoder.encode(JSON.stringify(value)).length;
+            const bytes = document ? size({ text: current.text, document }) + 2 * (size(next) - size(text)) : size(next);
+            const tooManyCharacters = document && [...current.text].length - [...text].length + [...next].length > 1_000_000;
+            if (tooManyCharacters || bytes > 2 * 1024 * 1024 - 512) {
                 choice.value = { ...current, preview: null, error: 'Der Text wäre zu lang zum Speichern. Wählen Sie eine kürzere Datei oder Vorlage.' };
                 return;
             }
-            closeChoice('Text eingefügt. Mit «Rückgängig» stellen Sie den vorherigen Text wieder her.', true);
-            tb.insertText(current.preview, current.draft, current.caret);
+            closeChoice('', true);
+            const caret = start + current.caret;
+            const inserted = document ? insertDocumentChoiceRun(documentEditor, draft, next, caret)
+                : tb.insertText(current.preview, draft, current.caret);
+            if (inserted && document) later(() => draft.field.setSelectionRange(caret, caret));
+            choiceNotice.value = inserted ? 'Text eingefügt. Mit «Rückgängig» stellen Sie den vorherigen Text wieder her.'
+                : 'Dieser Text kann hier nicht unverändert eingefügt werden.';
         }
-        V.watch?.([e.canEdit, e.text, e.textRevisionId, e.lease, c.loadGeneration], () => {
+        V.watch?.([e.canEdit, e.text, e.textRevisionId, e.lease, c.loadGeneration, choiceDocument, () => c.documentLoading?.value], () => {
             if (choice.value && !sameDraft(choice.value)) closeChoice(staleChoice);
         }, { flush: 'sync' });
         V.onBeforeUnmount?.(() => { choice.value = null; });
@@ -998,18 +1031,20 @@ export const CorrectionBody = {
         };
         // saveMessage already says "Nicht gespeicherte Änderungen." while dirty; do not repeat it.
         const unsavedSuffix = () => Boolean(e.dirty.value) && !/nicht gespeicherte/i.test(String(s.message.value || ''));
+        const pickTemplate = (id) => chooseSource({ templateId: id });
         const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
         return {
             formatDictationReference,
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
-            onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, choice, choiceHeading, previewHeading, choiceNotice, closeChoice, toggleChoice, chooseSource, chooseFile, insertChoice, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
+            onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId, loading: e.loading, error: e.error, manual: e.manual,
             lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
             editorAnnouncement: e.announcement,
             alignStatus: a.status, alignError: a.error, segments: a.segments, currentWord: a.currentWord, alignAnnouncement: a.announcement,
             saveState: s.state, saveMessage: s.message,
+            choice, choiceHeading, previewHeading, choiceNotice, closeChoice, toggleChoice, chooseSource, chooseFile, insertChoice,
             mode: m.mode, modeStatus: m.status, modeError: m.error, modeAnnouncement: m.announcement,
             ready: c.ready, loadGeneration: c.loadGeneration, revisionGeneration: c.revisionGeneration,
             audioEl: c.audioEl, gainState: c.gainState, closeMessage: c.closeMessage, resumeLabel: c.resumeLabel,
@@ -1122,7 +1157,7 @@ export const CorrectionBody = {
             <span class="tool-wrap" v-tip="{ label: TEXT.markerTip, keys: 'Strg/Cmd+Umschalt+M' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.marker"
                     aria-disabled="true" data-tool="marker" @click="tb.insertMarker()"><UiIcon name="marker" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.templateMenu }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.templateMenu"
-                    :aria-expanded="String(Boolean(choice))" aria-haspopup="dialog" :aria-controls="choice ? 'ccv-templates' : null" :disabled="!canEdit" data-tool="template" @click="toggleChoice($event.currentTarget)"><UiIcon name="snippet" /></button></span>
+                    :aria-expanded="String(templatesOpen)" aria-haspopup="dialog" :aria-controls="templatesOpen ? 'ccv-templates' : null" :disabled="!canEdit" data-tool="template" @click="toggleChoice($event.currentTarget)"><UiIcon name="snippet" /></button></span>
           </div>
           <div class="toolbar-group">
             <span class="tool-wrap" v-tip="{ label: TEXT.find, keys: 'Strg/Cmd+F' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.find"
@@ -1175,7 +1210,7 @@ export const CorrectionBody = {
           </dl>
         </div>
 
-        <div v-if="choice" id="ccv-templates" class="editor-popover document-choice" role="dialog" aria-labelledby="ccv-choice-heading" data-testid="template-menu">
+        <div v-if="templatesOpen" id="ccv-templates" class="editor-popover document-choice" :data-inline="choice.document ? '' : null" role="dialog" aria-labelledby="ccv-choice-heading" data-testid="template-menu">
           <h3 id="ccv-choice-heading" ref="choiceHeading" tabindex="-1" :style="FOCUS">{{ TEXT.templateMenu }}</h3>
           <p>Prüfen Sie den Text in der Vorschau. Erst «Text einfügen» ändert Ihr Diktat.</p>
           <p v-if="choice.draft.start !== choice.draft.end">Der markierte Text wird dabei ersetzt.</p>
@@ -1184,7 +1219,7 @@ export const CorrectionBody = {
           <p v-else-if="!templates.items.length">Für dieses Diktat sind keine Vorlagen verfügbar.</p>
           <div v-if="templates.items.length" class="snippet-options">
             <button v-for="row in templates.items" :key="row.id" type="button" class="snippet-option" :style="FOCUS" :disabled="!canEdit"
-                    @click="chooseSource({ templateId: row.id })">{{ row.name }}</button>
+                    @click="pickTemplate(row.id)">{{ row.name }}</button>
           </div>
           <label class="button" :style="FOCUS"><span>Datei auswählen</span>
             <input type="file" class="sr-only" :style="FOCUS" aria-describedby="ccv-file-formats" accept=".txt,.rtf,.docx,.odt" :disabled="!canEdit" @change="chooseFile">

@@ -35,7 +35,17 @@
 import { createClinicApiClient } from './api-client.js';
 import { createLeaseController, leaseActions } from './lease-ui.js';
 import { createTemplatesManager } from './templates-ui.js';
+import { sanitizePaste } from './richtext-editor-ui.js';
 import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
+
+export function insertDocumentChoiceRun(documentEditor, draft, text, caret) {
+    if (sanitizePaste(text).text !== text) return false;
+    const { nodeId, runId, start, end, direction } = draft;
+    return documentEditor.editRun(nodeId, runId, text, {
+        before: { runId, start, end, direction },
+        after: { runId, start: caret, end: caret },
+    });
+}
 
 export const LABELS = Object.freeze({
     title: 'Korrektur',
