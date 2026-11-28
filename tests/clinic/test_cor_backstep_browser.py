@@ -165,6 +165,7 @@ def test_typing_and_manual_restart(mounted: tuple[Page, str], mode: str, seconds
 
     editor.fill(original)
     view.locator("[data-action=release]").click()
+    page.get_by_test_id('session-review-close').click()
     expect(view.locator("[data-action=acquire]")).to_be_enabled()
     assert not page.js_errors, page.js_errors
 
