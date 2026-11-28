@@ -18,7 +18,12 @@ from sqlalchemy import create_engine
 
 from src.clinic.identity import ClinicAccountPolicy, create_tables as create_identity_tables
 from src.clinic.parity_dispatch import ParityDispatch
-from src.clinic.pools import ClinicAuthorPool, ClinicAuthorPoolMember, create_tables as create_pool_tables
+from src.clinic.pools import (
+    ClinicAuthorPool,
+    ClinicAuthorPoolMember,
+    ClinicVisibilityGrant,
+    create_tables as create_pool_tables,
+)
 from src.clinic import routes_vocabulary_review as rvr
 from src.clinic import vocabulary
 from src.clinic.routes_vocabulary import VocabularyApi
@@ -151,6 +156,29 @@ def _proposal(**payload):
         "payload": {"scope_type": "author_pool", "scope_id": "pool-cardio",
                     "operation": "add", "written": "NeuesWort", **payload},
     }
+
+
+def test_review_catalog_uses_reviewer_authority_instead_of_pool_membership(app_env):
+    app, _ = app_env
+    client = app.test_client()
+    url = f"{PATH_REVIEWS}?catalog=author_pools"
+    assert client.get(url).status_code == 401
+    with app.app_context():
+        db.session.add(ClinicAuthorPool(id="pool-ortho", name="Orthopädie", created_by=999))
+        db.session.add(ClinicVisibilityGrant(
+            user_id=102, scope="pool", pool_id="pool-cardio", effect="allow",
+            actions="edit", created_by=999,
+        ))
+        db.session.commit()
+    _login(client, 101)
+    assert client.get(url).json == {"author_pools": []}
+    _login(client, 102)
+    assert client.get(url).json == {"author_pools": [{"id": "pool-cardio", "name": "Kardiologie"}]}
+    _login(client, 999)
+    assert client.get(url).json == {"author_pools": [
+        {"id": "pool-cardio", "name": "Kardiologie"},
+        {"id": "pool-ortho", "name": "Orthopädie"},
+    ]}
 
 
 @pytest.mark.parametrize("operation", ["add", "negative", "reactivate"])
