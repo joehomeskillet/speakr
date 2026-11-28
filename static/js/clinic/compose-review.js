@@ -3,7 +3,7 @@
  * PAR-WF-011, W11).
  *
  * One read-only Vue view over existing building blocks: correction-editor-ui
- * (text, audio revision; loaded only, no lease is ever requested), correction-alignment-ui
+ * (text, audio revision and review lease), correction-alignment-ui
  * (current-word mark while the audio plays), acceptance-policy-ui (rule and decision
  * history) and workflow-actions-ui (accept, reject, release, archive commands and
  * their idempotent sending). Nothing from those modules is re-implemented; this
@@ -103,6 +103,8 @@ export const TEXT = Object.freeze({
     blockers: 'Offene Prüfmarken',
     blockersHint: 'Solange Prüfmarken offen sind, kann das Diktat nicht fertiggestellt werden.',
     blockerFallback: 'Prüfmarke',
+    confirmMarker: 'Treffer geprüft',
+    markerFailed: 'Die Prüfmarke konnte nicht bestätigt werden.',
     wiedervorlage: 'Wiedervorlage',
     newerRevision: 'Es liegt eine neuere Fassung vor als die geprüfte. Die Entscheidung ist gesperrt, bis der aktuelle Stand geladen und erneut geprüft wurde.',
     conflict: 'Der Stand hat sich geändert. Die Entscheidung ist gesperrt, bis der aktuelle Stand geladen wurde.',
@@ -206,6 +208,7 @@ export function createReviewViewController(options) {
     const isOnline = opts.isOnline || (() => typeof navigator === 'undefined' || navigator.onLine !== false);
 
     const path = '/dictations/' + encodeURIComponent(dictationId);
+    const markerPath = path + '/correction/review-markers';
     const status = ref('idle'); // idle | loading | ready | none | denied | error
     const review = ref(null); // last review state as served
     const reviewed = ref(null); // { text, audio, context } revisions the reviewer saw
@@ -216,6 +219,8 @@ export function createReviewViewController(options) {
     const contentChecked = ref(false);
     const contextChecked = ref(false);
     const error = ref('');
+    const markerState = ref(null);
+    const markerBusy = ref(false);
     const reasonInvalid = ref(false);
     const audioEl = shallowRef(null);
     let disposed = false;
@@ -236,6 +241,7 @@ export function createReviewViewController(options) {
 
     // --- derived state --------------------------------------------------------
     const markers = () => {
+        if (markerState.value) return markerState.value;
         const r = review.value || {};
         if (!Array.isArray(r.review_markers)) return [];
         return r.review_markers.map((m, i) => ({
@@ -328,9 +334,10 @@ export function createReviewViewController(options) {
         status.value = 'loading';
         error.value = '';
         cancel();
-        const [res, acc] = await Promise.all([
+        const [res, acc, markerRes] = await Promise.all([
             scoped.request(path + '/review'),
             scoped.request(path + '/acceptance-state'),
+            scoped.request(markerPath),
             editor.load({ discard: true }),
         ]);
         if (disposed) return fail('cancelled', '');
@@ -352,6 +359,9 @@ export function createReviewViewController(options) {
         const b = data.binding || {};
         const head = str(editor.textRevisionId.value);
         const bound = str(b.text_revision_id);
+        const snapshot = markerRes?.outcome === 'ok' ? markerRes.data : null;
+        markerState.value = snapshot?.text_revision_id === (bound || head) && Array.isArray(snapshot?.review_markers)
+            ? snapshot.review_markers : null;
         reviewed.value = {
             text: bound || head,
             audio: str(b.audio_revision_id) || str(editor.audio.value.revisionId),
@@ -374,6 +384,24 @@ export function createReviewViewController(options) {
         const head = str(res.data.text_revision_id);
         if (head && reviewed.value.text && head !== reviewed.value.text) newer.value = { revisionId: head };
         return isNewer();
+    }
+
+    async function confirmMarker(id) {
+        const lease = editor.lease.value;
+        if (disposed || markerBusy.value || !isOnline() || isNewer() || !lease.writable
+                || !markerState.value?.some((marker) => marker.id === id)) return false;
+        markerBusy.value = true;
+        try {
+            const res = await scoped.request(markerPath + '/' + encodeURIComponent(id) + '/confirm', {
+                method: 'POST', idempotencyKey: id,
+                body: { expected_text_revision_id: reviewed.value.text, lease_generation: lease.generation },
+            });
+            await load();
+            if (res.outcome !== 'ok' && !disposed) error.value = res.message || TEXT.markerFailed;
+            return res.outcome === 'ok';
+        } finally {
+            markerBusy.value = false;
+        }
     }
 
     // --- decisions -----------------------------------------------------------------
@@ -489,6 +517,7 @@ export function createReviewViewController(options) {
         wf.load(null);
         policy.reset();
         review.value = null;
+        markerState.value = null;
         reviewed.value = null;
         acceptance.value = null;
         editor.text.value = '';
@@ -500,7 +529,7 @@ export function createReviewViewController(options) {
         vue: V, api, editor, alignment, wf, policy,
         status, review, reviewed, acceptance, newer, confirming, reason, contentChecked, contextChecked, error, reasonInvalid, audioEl,
         dictationId, markers, isNewer, blockedReason, actions, acceptanceView, readOnly, revisionSummary, confirmText,
-        start, load, checkNewer, request, confirm, cancel, bindAudio, close, correct, dispose,
+        start, load, checkNewer, request, confirm, confirmMarker, markerBusy, cancel, bindAudio, close, correct, dispose,
         client: scoped, text: TEXT,
     };
 }
@@ -569,6 +598,7 @@ const ReviewBody = {
             setFinishOptions: (view) => { finishOptions = view; },
             toneBox: (tone) => box({ success: 'success', warn: 'warning', danger: 'error', info: 'pending' }[tone] || 'normal'),
             status: c.status, review: c.review, newer: c.newer, confirming: c.confirming, reason: c.reason, error: c.error,
+            markerBusy: c.markerBusy,
             reasonInvalid: c.reasonInvalid,
             audio: c.editor.audio, manual: c.editor.manual, lease: c.editor.lease,
             segments: a.segments, currentWord: a.currentWord,
@@ -621,7 +651,15 @@ const ReviewBody = {
     <section v-if="c.markers().length" class="note warning" style="margin: 0 0 16px" :aria-label="TEXT.blockers" data-testid="blockers">
       <h3 style="${H3}">{{ TEXT.blockers }} ({{ c.markers().length }})</h3>
       <p>{{ TEXT.blockersHint }}</p>
-      <ul role="list" style="margin: 0; padding-left: 18px; list-style: disc"><li v-for="b in c.markers()" :key="b.id">{{ b.label }}</li></ul>
+      <ul role="list" style="margin: 0; padding-left: 18px; list-style: disc">
+        <li v-for="b in c.markers()" :key="b.id">
+          {{ b.label }}<template v-if="b.anchor_offset != null"> · Stelle {{ b.anchor_offset + 1 }}</template>
+          <button v-if="b.anchor_offset != null && lease.writable" type="button" class="button secondary"
+                  :style="FOCUS" :disabled="markerBusy || !!newer"
+                  :aria-label="TEXT.confirmMarker + ' ' + b.label + ', Stelle ' + (b.anchor_offset + 1)"
+                  @click="c.confirmMarker(b.id)">{{ TEXT.confirmMarker }}</button>
+        </li>
+      </ul>
     </section>
 
     <div class="grid">

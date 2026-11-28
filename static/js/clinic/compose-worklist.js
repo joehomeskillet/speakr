@@ -27,7 +27,7 @@ import { WorklistLayoutControls, useWorklistLayout } from './worklist-layout-ui.
 import { DictationProtectionComponent } from './dictation-protection-ui.js';
 import { WORKFLOW_ACTIONS_TEMPLATE, createWorkflowActions } from './workflow-actions-ui.js';
 import { acceptancePolicyComponent } from './acceptance-policy-ui.js';
-import { createHistoryComponent } from './history-ui.js';
+import { createHistoryComponent, isHistoryShortcut } from './history-ui.js';
 import { createLeaseController, createLeaseStatusComponent } from './lease-ui.js';
 import { AssignmentPanel } from './assign-ui.js';
 
@@ -54,6 +54,7 @@ export const HOSTED_CSS = [
     '.v8-ui .searchwrap input{font-weight:400}',
     '.v8-ui .clinic-worklist-view .filter-pill.active:hover{background:var(--v8-s1);color:var(--v8-text)}',
     '.v8-ui .clinic-worklist-view .status{white-space:normal;overflow-wrap:anywhere;max-width:100%}',
+    '.v8-ui .clinic-worklist-view .worktable{table-layout:auto}',
     '.v8-ui .worktable .prio{max-width:100%;vertical-align:middle}',
     '.v8-ui .worktable .prio::before{flex-shrink:0}',
     '.v8-ui .worktable .prio span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
@@ -63,6 +64,15 @@ export const HOSTED_CSS = [
     '.v8-ui .v8-empty p{color:var(--v8-muted)}',
     '.v8-ui .worktable .titletext .cl-search-metadata{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}',
     '.v8-ui .cl-search-metadata mark{border-radius:2px;padding:0;font:inherit}',
+    // Leave the blank area clickable as part of the row when selection reflows the table.
+    '.v8-ui .clinic-worklist-view .worktable .cl-id-disclosure:not([open]){width:fit-content}',
+    '.v8-ui .clinic-worklist-view .worktable td.cl-scoped-metadata{white-space:pre-wrap;overflow-wrap:anywhere}',
+    '@container (min-width:1101px){',
+    '  .v8-ui .clinic-worklist-view .worktable{table-layout:auto;min-width:0}',
+    '  .v8-ui .clinic-worklist-view .worktable th:not(.check){width:auto;white-space:normal}',
+    '  .v8-ui .clinic-worklist-view .worktable th.cl-scoped-metadata{min-width:8rem}',
+    '  .v8-ui .clinic-worklist-view .worktable td[data-label]{white-space:normal}',
+    '}',
 ].join('\n');
 
 /** Adds the stylesheet above once per document. */
@@ -86,7 +96,7 @@ export const TEXT = Object.freeze({
     denied: 'Keine Berechtigung für diese Aktion.',
     prev: 'Vorherige Seite',
     next: 'Nächste Seite',
-    keys: 'Tastatur: F5 aktualisiert die Liste. Pfeil hoch und runter wählt ein Diktat, Eingabetaste öffnet es, Esc schliesst die Details.',
+    keys: 'Tastatur: F5 aktualisiert die Liste. Pfeil hoch und runter wählt ein Diktat, Eingabetaste öffnet es, Strg+I zeigt den Verlauf, Esc schliesst die Details.',
     open: 'Öffnen',
     detail: 'Diktat',
     protection: 'Schutz',
@@ -119,8 +129,7 @@ export const TEXT = Object.freeze({
     detailInfo: 'Eckdaten',
 });
 
-// Columns the layout may order, sort and group. Title, notes and recipient are
-// left out on purpose (W16). The case reference belongs to the row heading.
+// Columns the saved layout may order, sort and group.
 // The order is the default column order of the V8 worklist (Status, Priorität, Pool, Diktiert von, Quelle, Dauer, ...).
 export const LIST_COLUMNS = Object.freeze([
     { key: 'status', label: 'Status' },
@@ -135,6 +144,13 @@ export const LIST_COLUMNS = Object.freeze([
     { key: 'assignee_user_id', label: 'Zugewiesen an' },
     { key: 'assigned_at', label: 'Zugewiesen' },
 ].map((c) => Object.freeze(c)));
+
+// Q-01 fixed columns consume only metadata from scoped worklist rows.
+const SCOPED_METADATA_COLUMNS = [
+    { key: 'title', label: 'Titel' },
+    { key: 'notes', label: 'Anmerkung' },
+    { key: 'recipient', label: 'Empfänger' },
+];
 
 // Column key to the width class of the V8 worklist table (clinic-v8.css).
 const COL_CLASS = Object.freeze({
@@ -310,8 +326,8 @@ export function searchSegments(value, query) {
 /** Only searched fields from the already authorized response; no additional detail fetch. */
 export function searchMetadata(row, query) {
     if (!String(query ?? '').trim()) return [];
-    return [['title', 'Titel'], ['notes', 'Anmerkung'], ['recipient', 'Empfänger']]
-        .map(([key, label]) => ({ key, label, segments: searchSegments(row[key], query) }))
+    return SCOPED_METADATA_COLUMNS
+        .map(({ key, label }) => ({ key, label, segments: searchSegments(row[key], query) }))
         .filter((field) => field.segments.some((part) => part.match));
 }
 
@@ -378,6 +394,7 @@ export function createWorklistViewController(options) {
     const view = reactive({ page: 1, filterId: null, search: '', total: null, chip: 'all', assignmentNotice: '' });
     const checked = reactive({}); // dictation id -> true; only the bulk-selection checkboxes, no clinical data
     const panels = reactive({ protection: false, acceptance: false, history: false });
+    const historyVersion = ref(0);
     const selectedId = ref(null);
     const leaseState = shallowRef(null);
     let firstClickRowId = null;
@@ -402,6 +419,7 @@ export function createWorklistViewController(options) {
         apiClient: client,
         role: user.role || ROLE_AUTHOR,
         userId: user.id,
+        serverScopedRows: true, // Search and paging use the same authorized rows as refresh.
         tokenVersion: TOKEN_CONTRACT_VERSION,
         intervalMs: options.intervalMs,
         fetchChanges: options.fetchChanges || null, // v8-148: poll the clinic worklist rows by default.
@@ -604,8 +622,23 @@ export function createWorklistViewController(options) {
         if (row) open(row);
     }
 
+    /** Same Verlauf section as the menu. Without a selection there is nothing to open. */
+    function openHistory() {
+        if (disposed || !selectedId.value) return false;
+        historyVersion.value += 1;
+        panels.history = true;
+        return true;
+    }
+
+    function onHistoryKey(event) {
+        if (!isHistoryShortcut(event) || !openHistory()) return false;
+        if (typeof event.preventDefault === 'function') event.preventDefault();
+        return true;
+    }
+
     function onRowKey(event, row) {
         if (!event) return;
+        if (onHistoryKey(event)) return;
         const list = displayed.value.filter((i) => i.kind === 'row').map((i) => i.row);
         const stop = () => { if (typeof event.preventDefault === 'function') event.preventDefault(); };
         let target;
@@ -737,9 +770,11 @@ export function createWorklistViewController(options) {
     return {
         vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun,
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
+        scopedMetadataColumns: SCOPED_METADATA_COLUMNS,
         detailRequest: (id) => id === detailId ? pendingDetail : null,
         refreshIfChanged: () => loadedRevision !== client.dictationChanges ? reload() : null,
         start, dispose, reload, onRefreshKey, assignmentDone, select, open, canOpen, listenOnly, onRowKey,
+        openHistory, onHistoryKey, historyVersion,
         rememberFirstClick, keepDoubleClickOnRow, goto, pages, hasNext, applyFilter,
         key: rowKey, cell: cellText, badge: statusBadge, dictationLabel, entryCount, text: TEXT,
         searchMetadata: (row) => searchMetadata(row, view.search),
@@ -814,7 +849,24 @@ export const WorklistView = {
         const V = c.vue;
         if (!V) throw new Error('Vue is required to mount the worklist view');
         const parts = buildParts(V, c.detailClient);
+        const root = V.ref(null);
+        const historySummary = V.ref(null);
+        if (typeof V.watch === 'function') {
+            V.watch(c.historyVersion, () => historySummary.value?.focus(), { flush: 'post' });
+        }
+        // Ctrl+I is a page shortcut. A row click does not focus the row, so the section keydown never sees it.
+        const doc = typeof document !== 'undefined' ? document : null;
+        const onDocKey = (event) => {
+            if (!root.value?.isConnected) return;
+            const active = doc.activeElement;
+            if (active && active !== doc.body && !root.value.contains(active)) return;
+            c.onHistoryKey(event);
+        };
         if (typeof V.onMounted === 'function' && props.autoStart) V.onMounted(() => c.start());
+        if (doc && typeof doc.addEventListener === 'function') {
+            doc.addEventListener('keydown', onDocKey);
+            if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => doc.removeEventListener('keydown', onDocKey));
+        }
         if (typeof V.onActivated === 'function' && props.autoStart) V.onActivated(() => c.refreshIfChanged());
         if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
         function rowContext(id) {
@@ -834,11 +886,11 @@ export const WorklistView = {
             });
             return context;
         }
-        return { c, parts, rowContext };
+        return { c, parts, rowContext, root, historySummary };
     },
     template: `
-<section class="v8-page clinic-worklist-view" data-testid="clinic-worklist-view" aria-labelledby="cwv-title"
-         @keydown.f5.exact.capture="c.onRefreshKey">
+<section ref="root" class="v8-page clinic-worklist-view" data-testid="clinic-worklist-view" aria-labelledby="cwv-title"
+         @keydown.f5.exact.capture="c.onRefreshKey" @keydown="c.onHistoryKey($event)">
   <div class="page-head">
     <div>
       <div class="eyebrow">{{ c.text.eyebrow }}</div>
@@ -923,6 +975,7 @@ export const WorklistView = {
                 <tr>
                   <th class="check"><input type="checkbox" :checked="c.allChecked()" :aria-label="c.text.selectAll" @change="c.toggleAll()"></th>
                   <th class="titlecol" scope="col">{{ c.text.dictation }}</th>
+                  <th v-for="col in c.scopedMetadataColumns" :key="col.key" scope="col" class="cl-scoped-metadata">{{ col.label }}</th>
                   <th v-for="col in c.columns()" :key="col.key" scope="col" v-bind="c.headerAttrs(col.key)"
                       :class="c.colClass(col.key)" :style="c.colStyle(col)" style="cursor: pointer"
                       @keydown="c.layout.onKeydown(col.key, $event)" @click="c.layout.cycleSort(col.key)">{{ col.label }} {{ c.sortMark(col.key) }}</th>
@@ -931,7 +984,7 @@ export const WorklistView = {
               <tbody>
                 <template v-for="item in c.displayed.value" :key="item.key">
                   <tr v-if="item.kind === 'group'" class="group-row">
-                    <th scope="rowgroup" :colspan="c.columns().length + 2" style="text-align: left; background: var(--v8-s1); color: var(--v8-text)"
+                    <th scope="rowgroup" :colspan="c.columns().length + c.scopedMetadataColumns.length + 2" style="text-align: left; background: var(--v8-s1); color: var(--v8-text)"
                         :style="{ paddingLeft: (0.75 + item.depth) + 'rem' }">{{ item.label }}</th>
                   </tr>
                   <tr v-else tabindex="0" :class="c.selectedId.value === c.key(item.row) ? 'selected' : ''" data-row :data-id="c.key(item.row)"
@@ -961,6 +1014,8 @@ export const WorklistView = {
                         </label>
                       </details>
                     </td>
+                    <td v-for="col in c.scopedMetadataColumns" :key="col.key" :data-label="col.label" class="cl-scoped-metadata"
+                        :class="c.emptyCell(item.row, col.key) ? 'cl-empty' : ''">{{ c.cell(item.row, col.key) }}</td>
                     <td v-for="col in c.columns()" :key="col.key" :data-label="col.label" :class="c.emptyCell(item.row, col.key) ? 'cl-empty' : ''">
                       <span v-if="col.key === 'status'" class="status cl-workflow-status" data-layout="pill-status" :class="c.statusTone(item.row)">Arbeitsstand: {{ c.badge(item.row).workflow }}</span>
                       <span v-else-if="col.key === 'priority'" class="prio" :class="c.prioClass(item.row)" :title="c.cell(item.row, col.key)"><span>{{ c.cell(item.row, col.key) }}</span></span>
@@ -1014,9 +1069,10 @@ export const WorklistView = {
                   <summary style="cursor: pointer; min-height: 38px; display: flex; align-items: center; font-size: 12px; font-weight: 750">{{ c.text.acceptance }}</summary>
                   <component :is="parts.Acceptance" v-if="c.panels.acceptance" :dictation-id="c.selectedId.value" />
                 </details>
-                <details :open="c.panels.history" @toggle="c.panels.history = $event.target.open" style="border-top: 1px solid var(--v8-line-2); padding-top: 4px">
-                  <summary style="cursor: pointer; min-height: 38px; display: flex; align-items: center; font-size: 12px; font-weight: 750">{{ c.text.history }}</summary>
-                  <component :is="parts.History" v-if="c.panels.history" :client="c.detailClient" :dictation-id="c.selectedId.value" />
+                <details :open="c.panels.history" data-testid="history-panel" @toggle="c.panels.history = $event.target.open" style="border-top: 1px solid var(--v8-line-2); padding-top: 4px">
+                  <summary ref="historySummary" aria-keyshortcuts="Control+I Meta+I" style="cursor: pointer; min-height: 38px; display: flex; align-items: center; font-size: 12px; font-weight: 750">{{ c.text.history }}</summary>
+                  <component :is="parts.History" v-if="c.panels.history" :key="c.historyVersion.value"
+                    :client="c.detailClient" :dictation-id="c.selectedId.value" />
                 </details>
               </div>
             </div>

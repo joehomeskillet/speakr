@@ -1,6 +1,7 @@
 import hashlib
 import io
 import zipfile
+from contextlib import contextmanager
 from uuid import UUID
 
 import pytest
@@ -41,11 +42,14 @@ def ctx(monkeypatch):
         state['asked'] = (actor, dictation_id, action)
         return state['allow'] and actor == 7
 
+    @contextmanager
     def persist(actor, dictation_id, new_doc, audio, expected):
         if state['fail']:
             raise state['fail']
+        if expected != state['session'].version:
+            raise StaleVersion()
         state['saved'].append((actor, new_doc, audio, expected))
-        return expected + 1
+        yield expected + 1
 
     def once(scope, digest, operation):
         old = state['receipts'].get(scope)
@@ -136,6 +140,7 @@ def test_sdict_import_persists_once_and_replays(csrf):
     first = client.post(url, data=data, headers=headers(token) | {
         'X-Content-SHA256': hashlib.sha256(data).hexdigest()})
     assert first.status_code == 200 and first.json['revision'] == 4
+    assert first.json['audio_synced'] is True
     again = client.post(url, data=data, headers=headers(token) | {
         'X-Content-SHA256': hashlib.sha256(data).hexdigest()})
     assert again.get_json() == first.get_json()
@@ -151,6 +156,7 @@ def test_txt_import(csrf):
     response = client.post(f'{PREFIX}/{DID}/import?format=txt', data='Zeile eins\r\nZeile zwei'.encode(),
                            headers=headers(token))
     assert response.status_code == 200
+    assert response.json['audio_synced'] is False
     assert state['saved'][0][1] == text_to_document(b'Zeile eins\nZeile zwei')
     assert state['saved'][0][2] is None
     assert client.post(f'{PREFIX}/{DID}/import?format=txt', data=b'\xff\xfe', headers=headers(token, key='idem-key-0002')
