@@ -13,11 +13,12 @@ import fcntl
 import tempfile
 from contextlib import contextmanager
 
-from sqlalchemy import text, inspect
+from sqlalchemy import VARCHAR, text, inspect
 from sqlalchemy.exc import OperationalError
 
 from src.database import db
 from src.models import Recording, TranscriptChunk, SystemSetting, User
+from src.models.user import USERNAME_MAX_LENGTH
 from src.utils.localization import default_language
 # Registers clinic tables on db.metadata before create_all(). No src/clinic/__init__.py:
 # src.clinic is a namespace package until the config worker adds one.
@@ -239,6 +240,19 @@ def widen_user_password_column(engine) -> bool:
     return bool(migrate_column_type(engine, "user", "password", "TEXT"))
 
 
+def widen_user_username_column(engine) -> bool:
+    """Widen legacy PostgreSQL usernames. SQLite does not enforce VARCHAR lengths."""
+    if engine.name != "postgresql":
+        return False
+    inspector = inspect(engine)
+    if not inspector.has_table("user"):
+        return False
+    declared = next((col["type"] for col in inspector.get_columns("user") if col["name"] == "username"), None)
+    if not isinstance(declared, VARCHAR) or declared.length is None or declared.length >= USERNAME_MAX_LENGTH:
+        return False
+    return migrate_column_type(engine, "user", "username", f"VARCHAR({USERNAME_MAX_LENGTH})")
+
+
 def initialize_database(app):
     """
     Initialize database schema and run migrations.
@@ -410,6 +424,9 @@ def _run_migrations(app, engine):
         # scrypt hashes do not fit in VARCHAR(60). bcrypt hashes are copied as-is.
         if widen_user_password_column(engine):
             app.logger.info("Widened user.password from VARCHAR(60) to TEXT")
+
+        if widen_user_username_column(engine):
+            app.logger.info("Widened user.username to VARCHAR(%d)", USERNAME_MAX_LENGTH)
 
         _remove_orphaned_user_new(engine, app)
 
