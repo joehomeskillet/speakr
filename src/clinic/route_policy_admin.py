@@ -36,6 +36,7 @@ AUTH: tuple[str, ...] = (
     'clinic_commands.import_commands',
     'clinic_preferences.recipient_default',
     'clinic_preferences.recipient_resolve',
+    'clinic_preferences.active_pool',
     'clinic_preferences.last_selection',
     'clinic_preferences.workstation_issue',
     'clinic_preferences.workstation',
