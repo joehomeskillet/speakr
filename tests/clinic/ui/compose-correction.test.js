@@ -154,8 +154,10 @@ describe('compose-correction contract', () => {
         ]) expect(source).toContain(`./${mod}.js`);
         expect(source).toContain("from './tokens.js'");
         expect(source).toContain("from './api-client.js'");
-        const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)]
-            .map((m) => m[1]).filter((path) => path !== './compose-settings.js' && path !== './correction-player-position.js');
+        const allImports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
+        const additions = ['./compose-settings.js', './handmic-webhid.js', './correction-player-position.js'];
+        for (const path of additions) expect(allImports.filter((entry) => entry === path)).toHaveLength(1);
+        const imports = allImports.filter((path) => !additions.includes(path));
         expect(imports).toHaveLength(new Set(imports).size);
         expect(imports).toContain('./vocabulary-ui.js');
         expect(imports).toHaveLength(14);
