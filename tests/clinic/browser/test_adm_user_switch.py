@@ -31,6 +31,7 @@ def open_switch(page):
     page.get_by_role('menuitem', name='Benutzer wechseln').click()
     dialog = page.get_by_role('dialog', name='Benutzer wechseln')
     expect(dialog.get_by_role('button', name='Abbrechen')).to_be_focused()
+    expect(page.locator('[data-user-menu-dropdown]')).to_be_hidden()
     return dialog
 
 
@@ -92,6 +93,7 @@ def test_switch_dialog_matrix(browser, app_base, role_states, size, theme, dirty
             stem.with_suffix('.html').write_text(page.content(), encoding='utf-8')
         page.keyboard.press('Escape')
         expect(dialog).to_be_hidden()
+        expect(page.locator('[data-user-menu-toggle]')).to_be_focused()
         if dirty:
             expect(editor).to_have_value(DRAFT)
     finally:

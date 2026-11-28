@@ -3185,6 +3185,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                         choices[0].focus();
                     });
                     window.SpeakrServiceWorker.setClinicSwitch(async (copies) => {
+                        if (isUserMenuOpen.value) {
+                            isUserMenuOpen.value = false;
+                            appRootElement.querySelector('[data-user-menu-toggle]')?.focus();
+                        }
                         const active = activeDraft();
                         const looseAudio = !active && !!audioComposable.hasUnsavedRecording();
                         const unsaved = !!active?.hasDraft();

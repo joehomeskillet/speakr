@@ -46,6 +46,7 @@ from src.clinic.workstation_preferences import (
     StaleVersion,
     WorkstationPreferences,
 )
+from src.database import db
 from src.models import Group, User
 
 PREFIX = "/api/clinic/v1/preferences"

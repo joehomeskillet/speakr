@@ -31,6 +31,7 @@ SEED = r'''
         actor.name = "Eva Diktat"
         db.session.commit()
         pools.add_author_member(own_pool.id if mode == "own" else pool.id, actor.id, actor_id=admin.id)
+        pools.allow(actor.id, "own", actor_id=admin.id, actions=("rename", "priority"))
         target_mode, target_ids, policy = settings
         rd.set_default(actor.id, target_mode, target_ids=target_ids, actor_id=actor.id, expected_version=0)
         db.session.add(rd.ClinicRecipientChoiceGrant(user_id=actor.id, choice=policy))
