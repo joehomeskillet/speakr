@@ -517,6 +517,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 pool: 'Nicht angegeben',
             });
             const clinicCorrectionMount = ref(null);
+            const clinicLiveMount = ref(null);
             const clinicViewMount = ref(null);
             // The tab view a correction was opened from; closing returns there.
             const clinicOrigin = ref('clinic-recordings');
@@ -564,7 +565,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (button) button.click(); else closeClinicCorrection();
             };
             // Tab and menu navigation; out of a correction it goes through the view's own close (saves first).
+            const mayLeaveClinicLive = (target) => currentView.value !== 'clinic-live' || target === 'clinic-live'
+                || clinicLiveMount.value?.canLeave?.() !== false;
             const goClinicView = (view) => {
+                if (!mayLeaveClinicLive(view)) return;
                 if (currentView.value === 'clinic-correction') {
                     requestClinicCorrectionClose(view);
                 } else {
@@ -634,6 +638,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 watch(currentView, syncClinicHash, { flush: 'sync' });
                 window.addEventListener('popstate', () => {
                     if (clinicAdminHashRedirect()) return;
+                    if (!mayLeaveClinicLive(clinicViewFromHash())) {
+                        syncClinicHash('clinic-live');
+                        return;
+                    }
                     const state = window.history.state || {};
                     const reopen = window.location.hash === CLINIC_VIEW_HASH['clinic-correction'] && state.dictationId !== undefined && state.dictationId !== null;
                     const dictationTarget = restoreClinicDictationView(state); // V8 dictation views (v8-70)
@@ -3146,7 +3154,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             onUnmounted(() => clinicLiveChoices?.clear());
             const openClinicLive = () => {
                 const id = clinicLiveChoices?.resolve(clinicLiveDraft.value);
-                if (id) clinicLiveId.value = id;
+                if (!id) return;
+                const url = new URL(window.location.href);
+                url.searchParams.set('dictation', id);
+                window.history.replaceState(window.history.state, '', url);
+                clinicLiveId.value = id;
             };
             // A view that creates or lists dictations hands over to the existing correction view; the archive is read only.
             const openClinicMenuDictation = (payload) => openClinicDictation({
@@ -5493,7 +5505,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // end V8 dictation views (v8-70)
                 // V8 menu views (v8-71)
                 clinicMenuViews, clinicMenuActions, clinicMenuToolbarVisible, clinicRecorder, clinicUploadFile, clinicMicrophone,
-                clinicLiveId, clinicLiveDraft, clinicLiveChoices, openClinicLive, openClinicMenuDictation,
+                clinicLiveId, clinicLiveDraft, clinicLiveChoices, clinicLiveMount, openClinicLive, openClinicMenuDictation,
                 // end V8 menu views (v8-71)
                 // V8 Verwaltung views (v8-114)
                 clinicAdminView, clinicAdminAllowed, clinicAdminAccess, clinicAdminProps

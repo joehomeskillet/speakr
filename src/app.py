@@ -1456,12 +1456,14 @@ def register_clinic_audio(flask_app):
     from src.clinic.ingest import IngestService
     from src.clinic.models import ClinicDictation
     from src.clinic import routes_live_drafts
+    from src.clinic.richtext_graphics import GraphicStore
+    from src.clinic.routes_richtext_graphics import create_blueprint as create_graphics_blueprint
 
     dispatch = flask_app.extensions['clinic_parity_dispatch']
     run_once = flask_app.extensions['clinic_run_once']
     # Handler action name -> central policy actions that must all be allowed.
     needs = {
-        'play': ('play',), 'edit': ('edit',), 'export': ('export',), 'import': ('edit',),
+        'play': ('play',), 'view': ('view',), 'edit': ('edit',), 'export': ('export',), 'import': ('edit',),
         'correction_read': ('view',), 'correction_edit': ('edit',), 'clipboard': ('export',),
         'audio_export': ('audio_export',),
     }
@@ -1520,13 +1522,16 @@ def register_clinic_audio(flask_app):
         bundle_persist, lambda scope, digest, operation: bundle_store.run_locked(scope, digest, operation, run_once, may),
         managed_client))
     flask_app.register_blueprint(routes_live.create_blueprint(
-        edit_live, IngestService(startup.originals_root(flask_app)), drafts=drafts))
+        edit_live, IngestService(originals_root), drafts=drafts,
+        authorize_view=lambda actor, dictation_id: may(actor, 'view', db.session.get(ClinicDictation, dictation_id)),
+        authorize_play=lambda actor, dictation_id: may(actor, 'play', db.session.get(ClinicDictation, dictation_id))))
     flask_app.register_blueprint(routes_live_drafts.create_blueprint(drafts, edit_live))
     flask_app.register_blueprint(routes_correction.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         run_once=run_once, require_if_match=True))
     flask_app.register_blueprint(routes_correction_documents.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation)))
+    flask_app.register_blueprint(create_graphics_blueprint(GraphicStore(originals_root)))
     # V8 alignment (v8-86)
     from src.clinic import alignment_job, routes_alignment
     from src.services.job_queue import register_clinic_handler

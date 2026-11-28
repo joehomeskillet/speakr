@@ -1150,7 +1150,7 @@
       "tests": [
         "BT-LIVE-003"
       ],
-      "implementation_status": "not_started",
+      "implementation_status": "partial",
       "reference_evidence": [],
       "target_evidence": [],
       "parity_result": "not_run",

@@ -70,6 +70,8 @@ export function createLiveSessionController(options) {
     let note = '';
     let partial = null; // { text } - never durable
     let phrases = [];
+    let recovery = null;
+    let disposed = false;
 
     function snapshot() {
         return {
@@ -78,6 +80,7 @@ export function createLiveSessionController(options) {
             sessionId,
             generation,
             checkpoint: durableSequence,
+            recovery,
             // stop_live_session compares expected_revision with ack_seq + 1.
             revision: sessionId === null ? 0 : durableSequence + 1,
             partial: partial ? partial.text : null,
@@ -104,29 +107,42 @@ export function createLiveSessionController(options) {
     }
 
     function find(sequence, gen) {
-        return phrases.find((p) => p.sequence === sequence && p.generation === gen);
+        return phrases.find((p) => p.sessionId === sessionId && p.sequence === sequence
+            && p.generation === gen && p.state === 'final_unsaved');
     }
 
-    function adopt(data) {
-        sessionId = data.session_id;
-        generation = data.generation;
-        durableSequence = Math.max(durableSequence, data.sequence);
-        for (const ev of data.events || []) {
-            let p = find(ev.sequence, ev.generation) || phrases.find((x) => x.eventId === ev.event_id);
-            if (!p) {
-                p = { sequence: ev.sequence, generation: ev.generation, eventId: ev.event_id, text: null };
-                phrases.push(p);
-            }
-            p.sessionId = data.session_id;
-            p.phraseId = ev.phrase_id;
-            p.state = 'server_saved';
-            p.wire = null;
-        }
-        // Local phrases the server does not hold at the checkpoint can no longer become durable.
+    function adopt(head, pages) {
+        const bySession = new Map();
         for (const p of phrases) {
-            if (p.state === 'final_unsaved' && (p.generation !== generation || p.sequence <= durableSequence)) p.state = 'stale';
+            if (!bySession.has(p.sessionId)) bySession.set(p.sessionId, new Map());
+            bySession.get(p.sessionId).set(p.eventId, p);
         }
-        phrases.sort((a, b) => a.generation - b.generation || a.sequence - b.sequence);
+        const order = new Map();
+        for (const page of pages) {
+            const id = page.session_id;
+            if (!order.has(id)) order.set(id, order.size);
+            if (!bySession.has(id)) bySession.set(id, new Map());
+            const events = bySession.get(id);
+            for (const ev of page.events || []) {
+                const p = events.get(ev.event_id) || { sessionId: id, eventId: ev.event_id };
+                Object.assign(p, {
+                    sequence: ev.sequence, generation: ev.generation, phraseId: ev.phrase_id,
+                    text: ev.text ?? p.text ?? '', audioUrl: ev.audio_url ?? null,
+                    state: 'server_saved', wire: null,
+                });
+                events.set(ev.event_id, p);
+            }
+        }
+        phrases = [...bySession.values()].flatMap((events) => [...events.values()]);
+        durableSequence = sessionId === head.session_id ? Math.max(durableSequence, head.sequence) : head.sequence;
+        sessionId = head.session_id;
+        generation = head.generation;
+        for (const p of phrases) {
+            if (p.state === 'final_unsaved' && (head.read_only || p.sessionId !== sessionId
+                    || p.generation !== generation || p.sequence <= durableSequence)) p.state = 'stale';
+        }
+        phrases.sort((a, b) => (order.get(b.sessionId) ?? -1) - (order.get(a.sessionId) ?? -1)
+            || a.sequence - b.sequence);
     }
 
     function receiptMatches(p, data) {
@@ -180,7 +196,8 @@ export function createLiveSessionController(options) {
          */
         finalize(text, wire) {
             if (status !== 'live' || !canWrite() || sessionId === null) return null;
-            const last = phrases.reduce((m, p) => (p.generation === generation ? Math.max(m, p.sequence) : m), durableSequence);
+            const last = phrases.reduce((m, p) => (p.sessionId === sessionId && p.generation === generation
+                && p.state !== 'stale' ? Math.max(m, p.sequence) : m), durableSequence);
             const phrase = {
                 sessionId, generation, sequence: last + 1, eventId: newKey(), text,
                 state: 'final_unsaved', wire: wire || {}, phraseId: null,
@@ -225,25 +242,54 @@ export function createLiveSessionController(options) {
             return snapshot();
         },
 
-        /** Reconnect from the durable checkpoint. */
         async resume(clientId) {
-            const body = { after_sequence: durableSequence };
+            if (disposed || recovery === 'loading') return snapshot();
+            recovery = 'loading';
+            const body = { after_sequence: options.fullRecovery ? 0 : durableSequence };
             if (clientId) body.client_id = clientId;
-            const res = await client.request(LIVE + '/dictations/' + encodeURIComponent(dictationId) + '/resume', {
-                method: 'POST',
-                idempotencyKey: newKey(),
-                body,
+            const request = (payload) => client.request(LIVE + '/dictations/' + encodeURIComponent(dictationId) + '/resume', {
+                method: 'POST', idempotencyKey: newKey(), body: payload,
             });
-            if (res.outcome === 'cancelled') return snapshot();
-            if (res.outcome === 'ok' && res.data && typeof res.data.session_id === 'string'
-                    && Number.isInteger(res.data.generation) && Number.isInteger(res.data.sequence)) {
-                adopt(res.data);
-                // recover() always leaves the session PAUSED. Recording waits for continue.
-                if (res.data.state === 'PAUSED') setStatus('paused', MESSAGES.paused);
-                else setStatus('live', MESSAGES.resumed);
+            const valid = (data) => data && typeof data.session_id === 'string'
+                && Number.isInteger(data.generation) && Number.isInteger(data.sequence);
+            const res = await request(body);
+            if (disposed) return snapshot();
+            const head = res.data;
+            if (res.outcome === 'ok' && valid(head)) {
+                const pages = [head];
+                const visited = new Set([head.session_id]);
+                let page = head;
+                let after = body.after_sequence;
+                while (page.next_cursor || page.previous_session_id && options.fullRecovery) {
+                    const cursor = page.next_cursor;
+                    const id = cursor ? page.session_id : page.previous_session_id;
+                    if (cursor ? cursor.session_id !== id || !Number.isInteger(cursor.after_sequence)
+                            || cursor.after_sequence <= after : visited.has(id)) break;
+                    const next = await request(cursor ? { cursor } : { session_id: id });
+                    if (disposed) return snapshot();
+                    if (next.outcome !== 'ok' || !valid(next.data) || next.data.session_id !== id) break;
+                    page = next.data;
+                    pages.push(page);
+                    visited.add(id);
+                    after = cursor ? cursor.after_sequence : 0;
+                }
+                if (!page.next_cursor && (!options.fullRecovery || !page.previous_session_id)) {
+                    adopt(head, pages);
+                    recovery = 'complete';
+                    if (head.read_only) setStatus(head.can_start ? 'stopped' : 'read_only');
+                    else if (head.state === 'PAUSED') setStatus('paused', MESSAGES.paused);
+                    else if (head.state === 'RECORDING' || !options.fullRecovery) setStatus('live', MESSAGES.resumed);
+                    else setStatus('read_only');
+                }
+            } else if (res.outcome === 'ok' && head?.session_id === null) {
+                recovery = 'complete';
+                setStatus(head.read_only ? 'read_only' : 'idle');
             } else if (res.outcome === 'conflict' || res.outcome === 'permission') {
+                recovery = 'denied';
                 markStale(res.outcome === 'permission' ? MESSAGES.denied : MESSAGES.holderLost);
-            } else {
+            }
+            if (recovery === 'loading') {
+                recovery = 'failed';
                 setStatus(status, MESSAGES.retry);
             }
             emit();
@@ -256,7 +302,7 @@ export function createLiveSessionController(options) {
             emit();
         },
 
-        dispose() { listeners.clear(); phrases = []; partial = null; sessionId = null; },
+        dispose() { disposed = true; listeners.clear(); phrases = []; partial = null; sessionId = null; },
     };
 }
 

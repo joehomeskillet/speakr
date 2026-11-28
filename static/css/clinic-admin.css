@@ -363,6 +363,21 @@
     gap: var(--sp-2) var(--sp-3);
 }
 .cadm-dialog p, .cadm-dialog h3 { margin: 0; flex: 1 1 14rem; }
+.clinic-directory-heading { min-width: 0; overflow-wrap: break-word; }
+.clinic-directory-review :is(.btn, .cadm-check) { min-height: 48px; max-width: 100%; white-space: normal; }
+.clinic-directory-review .cadm-check input { flex: 0 0 auto; }
+.clinic-directory-review dialog[open] {
+    position: fixed;
+    inset: 0;
+    margin: auto;
+    width: min(36rem, calc(100% - 2 * var(--sp-3)));
+    max-height: calc(100% - 2 * var(--sp-3));
+    overflow: auto;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+}
+.clinic-directory-review dialog > * + * { margin-block-start: var(--sp-3); }
 .cadm-errors { list-style: none; margin: 0; flex-direction: column; align-items: flex-start; gap: var(--sp-1); }
 .cadm-subtitle .pill-status { margin-left: var(--sp-2); vertical-align: middle; }
 .cadm-empty {
