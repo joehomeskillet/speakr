@@ -2,7 +2,7 @@
   "id": "com.speakr.app",
   "name": "Ploudrli",
   "short_name": "Ploudrli",
-  "description": "Aufnahmen und Diktate erfassen, verschriftlichen und wiederfinden.",
+  "description": "Capture, transcribe, and find recordings and dictations.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -11,7 +11,7 @@
   "orientation": "any",
   "prefer_related_applications": false,
   "categories": ["productivity", "utilities", "business"],
-  "lang": "de-CH",
+  "lang": "en",
   "dir": "ltr",
   "icons": [
     {
@@ -71,16 +71,16 @@
   ],
   "shortcuts": [
     {
-      "name": "Neue Aufnahme",
-      "short_name": "Neue Aufnahme",
-      "description": "Eine Aufnahme starten oder eine Audiodatei wählen",
+      "name": "New Recording",
+      "short_name": "New",
+      "description": "Upload or record new audio",
       "url": "/#upload",
       "icons": [{ "src": "/static/img/brand/icon-192.png", "sizes": "192x192" }]
     },
     {
-      "name": "Aufnahmen",
-      "short_name": "Aufnahmen",
-      "description": "Aufnahmen anzeigen",
+      "name": "View Gallery",
+      "short_name": "Gallery",
+      "description": "Access your recordings gallery",
       "url": "/#gallery",
       "icons": [{ "src": "/static/img/brand/icon-192.png", "sizes": "192x192" }]
     }
