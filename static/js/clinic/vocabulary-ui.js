@@ -345,7 +345,7 @@ export const VOCABULARY_TEMPLATE = `
   <form class="filterbar voc-filters" @submit.prevent="store.search()">
     <div class="field voc-list" style="border:0;padding:0;box-shadow:none;background:none">
       <label for="voc-pool">Wortliste</label>
-      <select id="voc-pool" class="select" :style="controlStyle" :value="state.scope.poolId || ''" :disabled="importBusy || state.proposalBusy"
+      <select id="voc-pool" class="select" style="min-height: 48px !important" :style="listStyle" :value="state.scope.poolId || ''" :disabled="importBusy || poolStatus === 'loading' || state.proposalBusy"
         @change="selectList($event.target.value)">
         <option value="">{{ label('clinic.vocabulary.scopeUser') }}</option>
         <option v-for="pool in pools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
@@ -375,7 +375,7 @@ export const VOCABULARY_TEMPLATE = `
   <p role="status" aria-live="polite" aria-atomic="true" class="note voc-feedback"
     :class="{ 'voc-quiet': !state.message && !['error', 'denied', 'stale'].includes(state.status) }" :style="surfaceStyle">
     <span class="voc-scope">{{ label('clinic.vocabulary.scope') }}:
-      <strong>{{ state.scope.kind === 'pool' ? selectedPoolName : label('clinic.vocabulary.ownList') }}</strong> ·
+      <strong>{{ state.scope.kind === 'pool' ? selectedPoolName : label('clinic.vocabulary.scopeUser') }}</strong> ·
     </span>
     <span v-if="state.status === 'loading'">{{ label('clinic.vocabulary.loading') }}</span>
     <span v-else-if="state.status === 'stale'">{{ label('clinic.vocabulary.stale') }}</span>
@@ -391,8 +391,8 @@ export const VOCABULARY_TEMPLATE = `
       <button type="submit" class="primary" :disabled="state.proposalBusy || !!state.failedWrite">{{ label('clinic.vocabulary.propose') }}</button>
     </div>
   </form>
-  <p v-if="state.status === 'ready'" class="voc-result-count">{{ state.entries.length }} Einträge</p>
-  <div class="table-wrap" :class="{ 'voc-proposal-table': canPropose }" v-if="state.entries.length">
+  <p v-if="poolStatus !== 'loading' && state.status === 'ready'" class="voc-result-count">{{ state.entries.length }} Einträge</p>
+  <div class="table-wrap" :class="{ 'voc-proposal-table': canPropose }" v-if="poolStatus !== 'loading' && state.entries.length">
     <table :aria-label="label('clinic.vocabulary.title')">
       <thead><tr>
         <th scope="col">{{ label('clinic.vocabulary.written') }}</th>
@@ -416,7 +416,7 @@ export const VOCABULARY_TEMPLATE = `
       </tr></tbody>
     </table>
   </div>
-  <p v-else-if="state.status === 'ready'" class="empty" :class="{ 'voc-proposal-empty': canPropose }" role="status">
+  <p v-else-if="poolStatus !== 'loading' && state.status === 'ready'" class="empty" :class="{ 'voc-proposal-empty': canPropose }" role="status">
     <slot name="empty" :scope="state.scope" :query="state.query">{{ label('clinic.vocabulary.empty') }} für diese Auswahl. Suche oder Status anpassen.</slot>
   </p>
   <p id="voc-asr-suppression" class="note">
@@ -503,21 +503,26 @@ export function createVocabularyComponent(Vue, client, currentUserId = () => nul
             });
             const control = surfaceFor('normal');
             const controlStyle = { backgroundColor: control.background, color: control.color, borderColor: control.border };
+            const listStyle = { ...controlStyle, borderColor: 'var(--v8-muted)' };
             const pools = Vue.ref([]);
             const poolStatus = Vue.ref('loading');
             const selectedPoolName = Vue.computed(() => pools.value.find((pool) => pool.id === state.scope.poolId)?.name || label('clinic.vocabulary.scopePool'));
+            let generation = 0;
             async function loadPools() {
+                const mine = ++generation;
                 poolStatus.value = 'loading';
-                const result = await client.request('/pools');
-                if (result.outcome !== 'ok') {
-                    poolStatus.value = 'error';
-                    return;
-                }
                 const userId = currentUserId();
-                pools.value = (result.data?.author_pools || [])
+                const [result, active] = await Promise.all([
+                    client.request('/pools'), client.request('/preferences/active-pool'),
+                ]);
+                if (mine !== generation || userId !== currentUserId()) return;
+                pools.value = result.outcome === 'ok' ? (result.data?.author_pools || [])
                     .filter((pool) => pool.member_user_ids?.some((id) => String(id) === String(userId)))
-                    .map(({ id, name }) => ({ id, name }));
-                poolStatus.value = pools.value.length ? 'ready' : 'empty';
+                    .map(({ id, name }) => ({ id, name })) : [];
+                poolStatus.value = result.outcome !== 'ok' || active.outcome !== 'ok'
+                    ? 'error' : pools.value.length ? 'ready' : 'empty';
+                const activeId = active.outcome === 'ok' ? active.data?.pool_id : null;
+                return selectList(pools.value.some(({ id }) => id === activeId) ? activeId : null);
             }
             function selectList(id) {
                 importError.value = '';
@@ -595,9 +600,12 @@ export function createVocabularyComponent(Vue, client, currentUserId = () => nul
                     exportBusy.value = false;
                 }
             }
-            Vue.onMounted(() => Promise.all([store.search(), loadPools()]));
+            Vue.onMounted(loadPools);
+            Vue.onActivated(() => { if (poolStatus.value !== 'loading') return loadPools(); });
+            Vue.onDeactivated(() => { generation += 1; poolStatus.value = 'idle'; });
+            Vue.onBeforeUnmount(() => { generation += 1; });
             return {
-                state, store, label, enumLabel: vocabularyEnumLabel, surfaceStyle, controlStyle, pools, poolStatus, selectedPoolName, selectList, loadPools, addSelected,
+                state, store, label, enumLabel: vocabularyEnumLabel, surfaceStyle, controlStyle, listStyle, pools, poolStatus, selectedPoolName, selectList, loadPools, addSelected,
                 proposalDraft, canPropose, submitProposal,
                 importDraft, importFile, fileInput, encoding, duplicateRule, importBusy, importError, importErrorStyle, exportBusy, canImport, importReport,
                 pickFile, runImport, doImport, downloadList,

@@ -18,9 +18,10 @@ from typing import Any
 from flask import Blueprint, abort, current_app, jsonify, request, session
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
+from sqlalchemy.exc import OperationalError
 from wtforms.validators import ValidationError
 
-from src.clinic import policy, vocabulary, voice_command_runtime
+from src.clinic import policy, pool_policy, vocabulary, voice_command_runtime
 from src.clinic.app_wiring import choose_author_pool
 from src.clinic.asr_capabilities import (
     AsrCapability,
@@ -73,13 +74,19 @@ def _require_csrf() -> bool:
 
 
 def _resolve_actor_pools(actor_id: int, requested_pools: list[str] | None = None) -> list[str]:
-    from src.clinic.pools import ClinicAuthorPoolMember
-
     try:
-        member_pools = {m.pool_id for m in ClinicAuthorPoolMember.query.filter_by(user_id=actor_id).all()}
-    except Exception:
-        member_pools = set()
-    return [p for p in requested_pools if p in member_pools] if requested_pools else sorted(member_pools)
+        if requested_pools is None:
+            pool_id = choose_author_pool(actor_id)
+            return [pool_id] if pool_id is not None else []
+        member_pools = pool_policy.author_pool_ids(actor_id)
+        return [pool_id for pool_id in requested_pools if pool_id in member_pools]
+    except OperationalError as error:
+        # Standalone SQLite vocabulary databases may lack the pool schema.
+        if db.engine.dialect.name == "sqlite" and str(error.orig) in {
+            "no such table: clinic_author_pool", "no such table: clinic_author_pool_member",
+        }:
+            return []
+        raise
 
 
 def _active_command_pools(actor_id: int, requested_pools: list[str] | None) -> list[str]:
@@ -124,7 +131,7 @@ def list_pronunciations(target_user_id: int | None = None):
     if target_user_id is not None and target_user_id != actor_id:
         return _problem("FORBIDDEN")
 
-    pool_ids = _resolve_actor_pools(actor_id, request.args.getlist("pool_id"))
+    pool_ids = _resolve_actor_pools(actor_id, request.args.getlist("pool_id") or None)
     hints = vocabulary.get_effective_pronunciation_hints(actor_id, pool_ids)
     items = [
         {"id": h["id"], "written_form": h["written_form"], "phonetic_hint": h["phonetic_hint"],

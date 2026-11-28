@@ -126,6 +126,14 @@ def _exercise() -> None:
     assert version_a != version_b
     assert_template_denied('A')
     assert_template_denied('beta')
+    management_query = {'scope': 'management'}
+    template_a = f'{TEMPLATES}/{templates["A"]}'
+    assert_templates(client, 'A', 'B', 'alpha', 'system', query=management_query)
+    management_metadata = client.get(template_a, query_string=management_query)
+    assert management_metadata.status_code == 200
+    assert management_metadata.json['scope_id'] == a
+    assert client.get(f'{template_a}/content', query_string=management_query).data == b'A'
+    assert_template_denied('beta', management_query)
     template_b = f'{TEMPLATES}/{templates["B"]}'
     metadata = client.get(template_b)
     assert metadata.status_code == 200
@@ -156,8 +164,12 @@ def _exercise() -> None:
     # Try both direct reads and the old command version before refreshing preferences or catalogs.
     assert_template_denied('B')
     assert_template_denied('B', dictation_query)
+    assert_template_denied('B', management_query)
     assert client.post(f'{template_b}/assign', headers=headers, json={'scope': {'scope': 'user'}}).status_code == 404
     assert client.delete(template_b, headers=headers).status_code == 404
+    assert client.post(f'{template_b}/assign', query_string=management_query, headers=headers,
+                       json={'scope': {'scope': 'user'}}).status_code == 404
+    assert client.delete(template_b, query_string=management_query, headers=headers).status_code == 404
     for payload in (body, dict(body, pool_ids=[a, b])):
         denied = client.post(EXECUTE, headers=headers, json=payload)
         assert (denied.status_code, denied.json['code']) == (409, 'REVISION_CONFLICT')
