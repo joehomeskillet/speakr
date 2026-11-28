@@ -199,7 +199,7 @@ def list_sources():
             items.append(_with_source_delete_access(actor, _visible(config)))
     except AgentChannelError as error:
         return _source_error(error)
-    authors, pools = _targets() if items else ([], [])
+    authors, pools = _targets()
     return jsonify(items=items, authors=authors, pools=pools)
 
 
