@@ -22,11 +22,11 @@ function problem(outcome, code, status) {
     return { outcome: outcome, status: status, code: code, message: 'x' };
 }
 
-function fakeClient(apply) {
+function fakeClient(apply, preview = PREVIEW) {
     return {
         request: vi.fn(async (path) => {
             if (path.endsWith('/capability')) return ok({ directory_available: true, local_windows_accounts: 'unavailable' });
-            if (path.endsWith('/preview')) return ok(PREVIEW);
+            if (path.endsWith('/preview')) return ok(preview);
             return apply ? apply() : ok({ ok: true, applied_actions: 2, applied_memberships: 1 });
         }),
         switchContext: vi.fn(),
@@ -65,6 +65,36 @@ describe('directory ui', () => {
         ]);
         expect(call[1].body.memberships).toEqual([{ kind: 'add', subject_id: 'o2', pool_kind: 'author', pool_id: 'p1' }]);
         expect(review.state.preview).toBeNull();
+    });
+
+    it('requires separate opt-in and confirmation for an email update', async () => {
+        const emailUpdate = { kind: 'update_email', object_id: 'o2', local_user_id: 2, detail: 'anna@example.test' };
+        const client = fakeClient(undefined, { ...PREVIEW, actions: [...PREVIEW.actions, emailUpdate] });
+        const review = createDirectoryReview({ client });
+        await review.load();
+
+        const emailKey = 'a:update_email:o2';
+        expect(review.groups().modifications).toEqual([PREVIEW.actions[1], emailUpdate]);
+        expect(review.state.selected['a:update_display_name:o2']).toBe(true);
+        expect(review.state.selected[emailKey]).toBeUndefined();
+        for (const key of Object.keys(review.state.selected)) review.toggle(key);
+        review.toggle(emailKey);
+        expect(review.review()).toEqual({ ok: true, count: 1 });
+        review.cancel();
+        expect((await review.apply()).code).toBe('not_confirmed');
+        expect(client.request.mock.calls.filter(([path]) => path.endsWith('/apply'))).toEqual([]);
+
+        expect(review.review()).toEqual({ ok: true, count: 1 });
+        expect((await review.apply()).ok).toBe(true);
+        expect(client.request.mock.calls.filter(([path]) => path.endsWith('/apply'))).toEqual([
+            ['/directory/apply', {
+                method: 'POST',
+                body: {
+                    version: 'v7', hash: 'h1', managed_pools: [],
+                    actions: [{ kind: 'update_email', object_id: 'o2' }], memberships: [],
+                },
+            }],
+        ]);
     });
 
     it('refuses an empty selection and cancels confirmation on change', async () => {

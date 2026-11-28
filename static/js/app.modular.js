@@ -4,7 +4,7 @@ const { createApp, ref, shallowRef, reactive, computed, onMounted, onUnmounted, 
 import { useRecordings } from './modules/composables/recordings.js';
 import { resolveInitialSort } from './modules/utils/sort-preference.js';
 import { useUpload } from './modules/composables/upload.js';
-import { useAudio } from './modules/composables/audio.js';
+import { clinicRecordingFormats, useAudio } from './modules/composables/audio.js';
 import { useUI } from './modules/composables/ui.js';
 import { useUiTheme } from './modules/composables/ui-theme.js';
 import { useModals } from './modules/composables/modals.js';
@@ -860,6 +860,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const selectedMicDeviceId = ref(
                 (typeof localStorage !== 'undefined' && localStorage.getItem('selectedMicDeviceId')) || ''
             );
+            const clinicRecordingMime = ref('');
             const selectedSecondaryDeviceId = ref(
                 (typeof localStorage !== 'undefined' && localStorage.getItem('selectedSecondaryDeviceId')) || ''
             );
@@ -2311,7 +2312,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 canRecordAudio, canRecordSystemAudio, systemAudioSupported, systemAudioError,
                 recordingNotes, showSystemAudioHelp, showSystemAudioHelpModal, disableAudioProcessing,
                 recordSystemVideo, recordingVideoActive,
-                inputAudioDevices, selectedMicDeviceId, selectedSecondaryDeviceId, refreshInputAudioDevices,
+                inputAudioDevices, selectedMicDeviceId, selectedSecondaryDeviceId, refreshInputAudioDevices, clinicRecordingMime,
                 platformInfo, audioCaps, helpModalOsTab, virtualAudioDevices, refreshVirtualAudioDevices,
                 asrLanguage, asrMinSpeakers, asrMaxSpeakers, asrTranscriptionModel,
                 asrInitialPrompt, asrHotwords, applyInitialPromptTemplateToRecording,
@@ -3128,7 +3129,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 { view: 'clinic-archive', testid: 'menu-archive', label: 'Archiv' },
             ];
             const clinicMenuToolbarVisible = computed(() => clinicMenuActions.some((entry) => entry.view === currentView.value));
-            const clinicUploadFile = clinicMenu?.uploadClinicFile;
+            const clinicFormats = clinicMenu ? clinicRecordingFormats() : [];
+            const clinicUploadFile = (file, title, options, onUploadProgress) => {
+                if (title !== undefined) {
+                    const extension = file.type === 'audio/wav' ? 'wav'
+                        : clinicFormats.find(({ mimeType }) => mimeType.split(';')[0] === file.type)?.extension;
+                    if (!extension) throw new Error('unsupported_recording_format');
+                    const name = 'aufnahme.' + extension;
+                    if (file.name !== name) file = new File([file], name, { type: file.type });
+                }
+                return clinicMenu.uploadClinicFile(file, title, options, onUploadProgress);
+            };
             const clinicOffline = shallowRef(null);
             if (clinicMenu) {
                 let disposed = false;
@@ -3153,6 +3164,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 get deviceId() { return selectedMicDeviceId.value; },
                 select: (deviceId) => { selectedMicDeviceId.value = deviceId; },
                 requestAccess: audioComposable.requestMicrophonePermission,
+                switchInput: audioComposable.switchClinicMicrophone,
+                formats: clinicFormats,
+                get mimeType() { return clinicRecordingMime.value; },
+                selectFormat(mimeType) {
+                    if (!mimeType || clinicFormats.some(format => format.mimeType === mimeType)) clinicRecordingMime.value = mimeType;
+                },
             } : null;
             // Live-Diktat runs on an existing dictation: ?dictation=<id> or the id typed into the picker.
             const clinicLiveChoices = clinicWorklist ? clinicWorklist.createDictationChoices({ client: clinicWorklist.client, makeState: reactive, authorId: clinicWorklist.user.id }) : null;
