@@ -13,8 +13,8 @@ passes a durable per-transition id (for example the audit event id of the
 accept or reject); ``version_counter`` is only a staleness check because it
 changes on finalize alone, so two accept/reject cycles share it. A repeated or
 retried call for the same transition finds the stored row per recipient and skips it, so there are no
-duplicates, a dismissed notice is not revived, and a recipient whose delivery
-failed is the only one retried. The local in-app path needs no SMTP.
+duplicates and a dismissed notice is not revived. A missing notice is stored
+only if the recipient currently enables the event. The in-app path needs no SMTP.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 
-from src.clinic import notification_rules, workflow
+from src.clinic import notification_preferences, notification_rules, workflow
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.models import ClinicDictation
 from src.database import db
@@ -110,6 +110,9 @@ def emit(
     for uid in note.recipient_ids:
         if Notification.query.filter_by(user_id=uid, dedupe_key=key).first() is not None:
             existing.append(uid)
+            continue
+        preference = notification_preferences.read(uid)
+        if not preference.channels[notification_preferences.CHANNEL_IN_APP][event]:
             continue
         notifications.notify(
             KIND, f"{KIND}.{event}", user_ids=[uid], params={"title": note.title, "body": note.body},
