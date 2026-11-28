@@ -39,7 +39,7 @@ import { CorrectionWaveform } from './correction-waveform-ui.js';
 import { PlaybackTempo, usePlaybackTempo } from './playback-tempo-ui.js';
 import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
-import { applyReplacements, findMatches } from './correction-toolbar-ui.js';
+import { applyReplacements, findMatches, transformSelectionCase } from './correction-toolbar-ui.js';
 import { FORMATS, label as richTextLabel, sanitizePaste } from './richtext-editor-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
 import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
@@ -997,6 +997,8 @@ const LOCAL_CSS = `
 @media(max-width:700px){
   .v8-ui .editor-page .context-tools .tooltip{max-width:160px}
   .v8-ui .editor-page .context-tools>.tool-wrap:nth-child(-n+2) .tooltip{left:0;right:auto}
+  .v8-ui .editor-page .symbol-toolbar .tooltip:not([data-visible=true]){display:none}
+  .v8-ui .editor-page .symbol-toolbar :is(.document-tools,.font-group)>.tool-wrap:last-child .tooltip{left:auto;right:0;transform:none}
   .v8-ui .editor-page .editor-popover{position:static;width:auto;max-height:none;margin:8px 12px}
   .v8-ui .editor-page .find-row{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,auto)}
   .v8-ui .editor-page .find-row>input{min-width:0;width:100%}
@@ -1216,12 +1218,20 @@ export const CorrectionBody = {
             canUndo: canEdit.value && doc.historyState.value.canUndo,
             canRedo: canEdit.value && doc.historyState.value.canRedo,
         } : tbState.value);
+        function restoreRunSelection({ runId, start, end, direction }) {
+            later(() => {
+                const field = runField(runId);
+                field?.focus();
+                if (start !== undefined) field?.setSelectionRange(start, end, direction);
+            });
+        }
         function historyAction(action) {
             if (!documentMode.value) return tb[action]();
-            if (!canEdit.value || !doc[action]()) return false;
+            let selection;
+            if (!canEdit.value || !doc[action]((entry) => { selection = entry; })) return false;
             const { nodeId, runId } = doc.selection.value;
             const target = runId || doc.doc.value.nodes.find((node) => node.id === nodeId)?.runs[0]?.id;
-            if (target) later(() => runField(target)?.focus());
+            if (selection || target) restoreRunSelection(selection || { runId: target });
             return true;
         }
         function editSelection(text) {
@@ -1323,7 +1333,22 @@ export const CorrectionBody = {
             }, { flush: 'post' });
         }
         const setTextEl = (node) => { textEl.value = node && typeof node === 'object' ? node : null; };
-        const onSelectionCase = (mode) => { if (tb.changeSelectionCase(mode)) textEl.value?.focus(); };
+        function onSelectionCase(mode) {
+            if (!documentMode.value) {
+                if (tb.changeSelectionCase(mode)) textEl.value?.focus();
+                return;
+            }
+            if (!canEdit.value || !currentRun.value) return;
+            const { node, run } = currentRun.value;
+            const field = runField(run.id);
+            if (!field || field.value !== run.text) return;
+            const before = { runId: run.id, start: field.selectionStart, end: field.selectionEnd, direction: field.selectionDirection };
+            const next = transformSelectionCase({ text: run.text, ...before }, mode);
+            // Reject edits that the run sanitizer would truncate or change outside the selection.
+            if (!next || sanitizePaste(next.text).text !== next.text) return;
+            const after = { ...before, end: next.end };
+            if (doc.editRun(node.id, run.id, next.text, { before, after })) restoreRunSelection(after);
+        }
         const setRunRoot = (node) => { runRoot.value = node; };
         const onTextInput = (event) => { c.onInput(event); tb.notifyChange(); };
         const onTextKeydown = (event) => {

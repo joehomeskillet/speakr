@@ -107,6 +107,13 @@ export function applyReplacements(text, ranges, replacement, caret) {
     return { text: out, caret: Math.max(0, Math.min(out.length, newCaret + shift)) };
 }
 
+export function transformSelectionCase({ text, start, end, direction }, mode) {
+    const selection = text.slice(start, end);
+    const replacement = mode === 'upper' ? selection.toUpperCase() : selection.toLowerCase();
+    if (replacement === selection) return null;
+    return { text: text.slice(0, start) + replacement + text.slice(end), start, end: start + replacement.length, direction };
+}
+
 /** Linear history with a present entry; a new edit after undo discards redo. */
 export function createTextHistory(initial, limit) {
     const max = limit || HISTORY_LIMIT;
@@ -278,11 +285,9 @@ export function createCorrectionToolbar(options) {
         },
         changeSelectionCase(mode) {
             if (blocked()) return false;
-            const { text, start, end, direction } = sync();
-            const selection = text.slice(start, end);
-            const replacement = mode === 'upper' ? selection.toUpperCase() : selection.toLowerCase();
-            if (replacement === selection) return false;
-            commit(text.slice(0, start) + replacement + text.slice(end), start, start + replacement.length, direction);
+            const next = transformSelectionCase(sync(), mode);
+            if (!next) return false;
+            commit(next.text, next.start, next.end, next.direction);
             return true;
         },
         // Review marks (W11) are server-side flags that block release. The toolbar never writes demo text into
