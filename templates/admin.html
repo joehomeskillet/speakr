@@ -4810,7 +4810,6 @@ Summarization Instructions:
     <!-- Clinic administration panels (CLINIC_MODE only): a separate small Vue app, one shared api client.
          No interpolation braces here: Jinja would evaluate them, so the template uses v-text. -->
     <style>
-<<<<<<< HEAD
         .clinic-regex-host .clinic-regex { min-width: 0; overflow-wrap: anywhere; }
         .clinic-regex-host .clinic-regex > * + * { margin-block-start: var(--sp-3); }
         .clinic-regex-host .clinic-regex :is(fieldset, .field, label) { min-width: 0; }
@@ -4840,11 +4839,10 @@ Summarization Instructions:
         }
         .clinic-regex-host .regex-dictation-picker { min-width: 0; }
         .clinic-regex-host .regex-dictation-error { color: var(--text-danger); }
-=======
+
         body:has(.clinic-asr-profiles-view, .tab-content:not(.hidden) #statsRecordingsChart) #global-header a:focus-visible {
             outline-color: var(--brand-accent-darkmode);
         }
->>>>>>> fork/dev
 
         /* Abnahme page of the clinic admin panel set: layout only, colours come from the theme variables. */
         .acc-host { max-width: 44rem; display: flex; flex-direction: column; gap: var(--sp-3); }
