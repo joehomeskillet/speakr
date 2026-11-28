@@ -22,9 +22,12 @@ from sqlalchemy import func, select
 
 from src.app import app, db
 from src.clinic import dictation_roles, policy, recordings_list, routes_worklist, workflow, worklist_entries
+from src.clinic.acceptance_policy import SCOPE_DICTATION, AcceptanceLedger
 from src.clinic.archive_policy import ClinicArchiveEntry
 from src.clinic.identity import ClinicAccountPolicy, create_tables as _create_identity_tables
-from src.clinic.models import ClinicContextRevision, ClinicDictation, ClinicReviewLease
+from src.clinic.models import (
+    ClinicContextRevision, ClinicDictation, ClinicOriginal, ClinicReviewLease, ClinicTranscriptRevision,
+)
 from src.clinic.pools import ClinicAuthorPool, ClinicPoolRoute, ClinicStaffPool
 from src.clinic.routes_recordings import PREFIX, create_blueprint
 from src.clinic.worklist_layout import LayoutStore
@@ -153,6 +156,55 @@ def test_unauthenticated_is_401_and_contract_shape(scene):
     assert row["archived_at"] is None and row["own_title"] == "Eigener Titel"
     text = json.dumps(body)
     assert "PATIENT-TITLE-SECRET" not in text and "PAT-SECRET" not in text and "patient" not in text.lower()
+
+
+def test_assignee_and_asr_confirmed_text_are_optional_list_fields(scene):
+    with app.app_context():
+        author = db.session.get(User, scene.a)
+        typist = db.session.get(User, scene.typist)
+        typist.name = "Synthetic Typist"
+        confirmed = _dictation(author, pool_id=scene.pool_a, assignee=typist)
+        legacy = _dictation(author, pool_id=scene.pool_a)
+        original = ClinicOriginal(dictation_id=confirmed.id, content_hash="a" * 64, size_bytes=1,
+                                  storage_key="synthetic", receipt="{}", origin_ref="synthetic")
+        db.session.add(original)
+        db.session.flush()
+        db.session.add(ClinicTranscriptRevision(
+            dictation_id=confirmed.id, kind="ASR", body="Synthetic transcript",
+            normalised_text_hash="b" * 64, original_version_id=original.id, model_ref="local-test",
+        ))
+        db.session.commit()
+        confirmed_id, legacy_id = confirmed.id, legacy.id
+
+    response = get(client_for(scene, scene.a))
+    assert response.status_code == 200
+    rows = {row["dictation_id"]: row for row in response.json["items"]}
+    assert rows[confirmed_id]["processing_status"] == rows[legacy_id]["processing_status"] == "COMPLETED"
+    assert rows[confirmed_id]["assignee"] == {"id": str(scene.typist), "display_name": "Synthetic Typist"}
+    assert rows[confirmed_id]["text_created"] is True
+    assert "assignee" not in rows[legacy_id]
+    assert "text_created" not in rows[legacy_id]
+
+
+def test_review_turn_requires_current_acceptance_rule_and_release_grant(scene):
+    from src.clinic.pools import allow
+
+    with app.app_context():
+        author = db.session.get(User, scene.a)
+        waiting = _dictation(author, pool_id=scene.pool_a, status=workflow.TO_ACCEPT)
+        other = _dictation(author, pool_id=scene.pool_a, status=workflow.TO_ACCEPT)
+        waiting_id = waiting.id
+        now = datetime.now(timezone.utc)
+        ledger = AcceptanceLedger()
+        ledger.publish(SCOPE_DICTATION, waiting.id, required=True, approver_user_ids=(scene.a,), now=now)
+        ledger.publish(SCOPE_DICTATION, other.id, required=True, approver_user_ids=(scene.typist,), now=now)
+    client = client_for(scene, scene.a)
+    assert all('viewer_review_turn' not in row for row in get(client).json['items'])
+    with app.app_context():
+        allow(scene.a, 'own', actor_id=scene.admin, actions=('release',))
+    rows = get(client).json['items']
+    assert len(rows) == 2
+    assert [row['dictation_id'] for row in rows if row.get('viewer_review_turn')] == [waiting_id]
 
 
 def test_title_is_projected_only_on_own_rows_and_notes_never(scene):
