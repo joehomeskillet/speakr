@@ -10,7 +10,10 @@ current review lease generation and the live-holder check.
 Offsets in requests and responses are UTF-16 code units (what the browser
 editor counts); the stored offsets are code points of the normalised body.
 Text without a stored audio link is reported as ``aligned: false``; no audio
-range is invented.
+range is invented. A rich ``document`` is optional on save. With it, the same
+canonical snapshot is returned by GET and by the save result, guarded by
+``expected_document_version``. A request without it keeps the plain-text
+contract and does not delete a stored snapshot.
 
 W10: every save derives the links of the new revision from the previous one.
 Unchanged words keep their audio range, a replaced span takes the range
@@ -43,6 +46,8 @@ from src.clinic.correction_recognition_marks import current_marks
 from src.clinic.correction_transaction import CorrectionOriginalError, save_correction_transaction
 from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
 from src.clinic.parity_dispatch import JSON, CommandProblem, RunOnce
+from src.clinic.rich_text_doc import RichTextError, to_plain_text
+from src.clinic.richtext import CanonicalDocument, ClinicRichTextSnapshot
 from src.clinic.unicode_anchor_map import OffsetError, to_codepoint_offset, to_utf16_offset
 from src.database import db
 from src.models import User
@@ -64,6 +69,9 @@ _WORD = re.compile(r'\S+')
 # V8 autosave contract: strong validator "<text revision id | none>[.g<lease generation>]".
 _IF_MATCH = re.compile(r'^"([0-9A-Za-z-]{1,64})(?:\.g(\d{1,9}))?"$')
 LEASE_STALE = 'LEASE_STALE'
+_DOCUMENT_KEYS = frozenset({'schema_version', 'nodes'})
+_NODE_KEYS = frozenset({'id', 'kind', 'level', 'runs'})
+_RUN_KEYS = frozenset({'id', 'text', 'bold', 'italic', 'underline', 'audio_anchor_id'})
 
 
 def etag_for(head: ClinicTranscriptRevision | None, generation: int | None) -> str:
@@ -144,6 +152,49 @@ def derive_links(dictation: ClinicDictation, old: ClinicTranscriptRevision | Non
                 add(b[j1].start(), b[j2 - 1].end(),
                     (min(x[0] for x in near), max(x[1] for x in near)))
     return made
+
+
+def _api_document(document: CanonicalDocument) -> JSON:
+    """Correction-API projection: only the fields this save contract accepts."""
+    return {
+        'schema_version': 1,
+        'nodes': [{
+            'id': node.id, 'kind': node.kind, 'level': node.level,
+            'runs': [{
+                'id': run.id, 'text': run.text, 'bold': run.bold, 'italic': run.italic,
+                'underline': run.underline, 'audio_anchor_id': run.audio_anchor_id,
+            } for run in node.runs],
+        } for node in document.nodes],
+    }
+
+
+def _parse_document(payload: object) -> CanonicalDocument:
+    """Unknown fields are a 400. Nothing is stored until the canonical parser accepts the object."""
+    nodes = payload.get('nodes') if isinstance(payload, dict) else None
+    if not isinstance(payload, dict) or set(payload) - _DOCUMENT_KEYS or not isinstance(nodes, list):
+        abort(400)
+    for node in nodes:
+        runs = node.get('runs') if isinstance(node, dict) else None
+        if not isinstance(node, dict) or set(node) - _NODE_KEYS or not isinstance(runs, list):
+            abort(400)
+        for run in runs:
+            if not isinstance(run, dict) or set(run) - _RUN_KEYS:
+                abort(400)
+    try:
+        return CanonicalDocument.from_payload(payload)
+    except (RichTextError, TypeError, ValueError):
+        abort(400)
+
+
+def _stored_document(revision_id: str | None) -> tuple[int, JSON | None]:
+    """Latest snapshot on one text revision. Version 0 means there is none."""
+    if not revision_id:
+        return 0, None
+    row = (db.session.query(ClinicRichTextSnapshot).filter_by(revision_id=revision_id)
+           .order_by(ClinicRichTextSnapshot.version.desc()).limit(1).first())
+    if row is None:
+        return 0, None
+    return row.version, _api_document(CanonicalDocument.from_payload(row.payload))
 
 
 def _link_json(row: corr.ClinicTextAudioLink, body: str) -> JSON:
@@ -243,6 +294,10 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
             return _problem(423)
         except corr.CorrectionError as error:
             return _problem(403 if 'not permitted' in str(error) else 400)
+        except RichTextError as error:
+            if error.code in {'stale_version', 'stale_revision'}:
+                return _problem(409)
+            return _problem(403 if error.code == 'forbidden' else 400)
         except OffsetError:
             return _problem(400)
         except CommandProblem as error:
@@ -269,6 +324,10 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
             audio_revision_id=audio.id if audio else None,
             links=[_link_json(row, body) for row in links],
             markers=[_marker_json(m) for m in corr.list_markers(dictation) if not caution_words.is_review_marker(m)])
+        _version, payload = _stored_document(head.id if head else None)
+        if payload is not None:
+            out['document'] = payload
+            out['document_version'] = _version
         if clinic_mode_enabled():
             from src.clinic.bundle_store import ClinicBundleDocument, audio_synced
 
@@ -298,7 +357,7 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
     @bp.post(f'{PATH}/save')
     def save(dictation_id: UUID) -> Response:
         data = _body({'text', 'audio_position_ms', 'lease_generation', 'expected_state_version',
-                      'expected_text_revision_id'},
+                      'expected_text_revision_id', 'document', 'expected_document_version'},
                      {'text', 'audio_position_ms', 'lease_generation', 'expected_text_revision_id'})
         if not isinstance(data['text'], str) or len(data['text']) > 1_000_000:
             abort(400)
@@ -311,6 +370,17 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
             try:
                 expected_rev = _uuid(expected_rev)
             except (ValueError, TypeError, AttributeError):
+                abort(400)
+        parsed = None
+        expected_doc = None
+        if 'document' in data or 'expected_document_version' in data:
+            if 'document' not in data or 'expected_document_version' not in data:
+                abort(400)
+            expected_doc = data['expected_document_version']
+            if type(expected_doc) is not int or not 0 <= expected_doc < 2**31:
+                abort(400)
+            parsed = _parse_document(data['document'])
+            if revisions.normalise_text(data['text']) != revisions.normalise_text(to_plain_text(parsed)):
                 abort(400)
         object_for(dictation_id, 'correction_edit')
         if_match = request.headers.get('If-Match')
@@ -334,11 +404,23 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
                     raise corr.CorrectionConflict('text changed since it was read')
             if (head.id if head else None) != expected_rev:
                 raise corr.CorrectionConflict('text changed since it was read')
+            doc_version = None
+            if parsed is not None:
+                same_text = head is not None and head.body == revisions.normalise_text(data['text'])
+                if same_text:
+                    doc_version = expected_doc
+                else:
+                    # A new text revision has no snapshot. The version the client read
+                    # belongs to expected_text_revision_id; 0 there means none.
+                    if expected_doc != _stored_document(expected_rev)[0]:
+                        raise corr.CorrectionConflict('document changed since it was read')
+                    doc_version = 0
             try:
                 revision, state = save_correction_transaction(
                     dictation, actor, text=data['text'], audio_position_ms=position,
                     lease_generation=generation, expected_state_version=expected_state,
-                    expected_text_revision_id=expected_rev)
+                    expected_text_revision_id=expected_rev, document=parsed,
+                    expected_document_version=doc_version)
                 linked = derive_links(dictation, head, revision)
                 at.tokens_for(dictation, revision)
                 has_alignment = db.session.query(ClinicAlignmentRevision.id).filter_by(
@@ -347,11 +429,20 @@ def create_blueprint(*, authorize: Callable[[User, str, ClinicDictation], bool],
                 raise
             except corr.CorrectionError:
                 raise
+            except RichTextError:
+                raise
             except Exception as error:
                 raise CommandProblem('DEPENDENCY_UNAVAILABLE') from error
-            return dict(text_revision_id=revision.id, etag=etag_for(revision, held.generation),
-                        state_version=state.version, audio_position_ms=state.audio_position_ms,
-                        derived_links=linked, alignment_state='stale' if has_alignment else 'unaligned')
+            result = dict(text_revision_id=revision.id, etag=etag_for(revision, held.generation),
+                          state_version=state.version, audio_position_ms=state.audio_position_ms,
+                          derived_links=linked, alignment_state='stale' if has_alignment else 'unaligned')
+            if parsed is not None:
+                stored_version, stored = _stored_document(revision.id)
+                if stored is None:
+                    raise CommandProblem('DEPENDENCY_UNAVAILABLE')
+                result['document'] = stored
+                result['document_version'] = stored_version
+            return result
 
         return write(dictation_id, 'save', 'text', data, apply)
 
