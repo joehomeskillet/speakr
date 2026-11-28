@@ -113,19 +113,15 @@ describe('compose-correction contract', () => {
     });
 
     it('composes the editor and finish building blocks and reuses tokens and api-client', () => {
-        for (const mod of [
+        const expected = [
             'correction-editor-ui', 'correction-alignment-ui', 'correction-waveform-ui', 'playback-tempo-ui',
             'correction-modes-ui', 'correction-save-ui', 'audio-markers-ui', 'playback-gain-ui',
-            'finish-options-ui', 'workflow-actions-ui',
-        ]) expect(source).toContain(`./${mod}.js`);
-        expect(source).toContain("from './tokens.js'");
-        expect(source).toContain("from './api-client.js'");
-        const allImports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
-        const additions = ['./handmic-webhid.js', './correction-player-position.js'];
-        for (const path of additions) expect(allImports.filter((entry) => entry === path)).toHaveLength(1);
-        const imports = allImports.filter((path) => !additions.includes(path));
+            'correction-toolbar-ui', 'richtext-editor-ui', 'finish-options-ui', 'workflow-actions-ui',
+            'correction-player-position', 'worklist-ui', 'tokens', 'api-client', 'handmic-webhid',
+        ].map((mod) => `./${mod}.js`).sort();
+        const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
         expect(imports).toHaveLength(new Set(imports).size);
-        expect(imports).toHaveLength(13);
+        expect(imports.sort()).toEqual(expected);
     });
 
     it('uses German labels, tokens only, keyboard-operable native controls and no browser storage', () => {
