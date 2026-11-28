@@ -103,7 +103,7 @@ export function useCorrectionModes(options) {
     const alignment = opts.alignment || null;
     const client = opts.client || createClinicApiClient();
     const refs = makeRefs(opts.vue);
-    const rewindMs = positiveInt(opts.rewindMs, DEFAULTS.rewindMs, 0);
+    const backstepSeconds = refs.ref(positiveInt(opts.rewindMs, DEFAULTS.rewindMs, 0) / 1000);
     const resumeIdleMs = positiveInt(opts.resumeIdleMs, DEFAULTS.resumeIdleMs, 1);
     const tickMs = positiveInt(opts.tickMs, DEFAULTS.tickMs, 1);
     const now = typeof opts.now === 'function' ? opts.now : () => Math.round(globalThis.performance.now());
@@ -133,6 +133,28 @@ export function useCorrectionModes(options) {
         waiting.value = false;
     }
 
+    function cancelResume() {
+        if (pendingResume) say('');
+        clearPending();
+    }
+
+    function setBackstepSeconds(event) {
+        const input = event.target;
+        if (input.validity.valid && Number.isSafeInteger(input.valueAsNumber) && input.valueAsNumber >= 0) {
+            backstepSeconds.value = input.valueAsNumber;
+        } else if (event.type === 'change') {
+            input.value = String(backstepSeconds.value);
+        }
+    }
+
+    function resumeWithBackstep() {
+        cancelResume();
+        const target = Math.max(0, positionMs() - backstepSeconds.value * 1000);
+        if (backstepSeconds.value > 0) audio.seek(target / 1000);
+        audio.play();
+        return target;
+    }
+
     /** A key press in the editor. Stop mode: pause playback once and wait for idle time. */
     function onKey() {
         if (disposed || mode.value !== MODE_STOP_ON_TYPING) return { kind: 'none' };
@@ -158,12 +180,7 @@ export function useCorrectionModes(options) {
             return { kind: 'none' };
         }
         if (now() - lastKeyMs < resumeIdleMs) return { kind: 'none' };
-        const target = Math.max(0, positionMs() - rewindMs);
-        clearPending();
-        audio.seek(target / 1000);
-        audio.play();
-        say('');
-        return { kind: 'resume', seekToMs: target };
+        return { kind: 'resume', seekToMs: resumeWithBackstep() };
     }
 
     /** The editor selection moved. It is forwarded to the alignment; playback is not touched. */
@@ -247,7 +264,8 @@ export function useCorrectionModes(options) {
     }
 
     return {
-        mode, status, error, waiting, announcement,
+        mode, status, error, waiting, announcement, backstepSeconds,
+        setBackstepSeconds, resumeWithBackstep, cancelResume,
         options: MODES,
         load, setMode, onKey, onSelectionChange, tick, start, stop, dispose,
     };
