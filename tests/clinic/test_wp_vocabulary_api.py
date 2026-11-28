@@ -4,10 +4,13 @@ Positive, unauthorized, stale-version and failure cases against the real
 ``vocabulary`` service. BT-VOC-* stay in their own files.
 """
 
+from datetime import datetime, timedelta
+
 import pytest
 from flask import Flask, g, jsonify
 from flask_login import LoginManager, login_user
 from flask_wtf.csrf import CSRFProtect, generate_csrf
+from sqlalchemy import event
 
 from src.app import app as real_app
 from src.clinic import pools, vocabulary
@@ -80,6 +83,16 @@ def test_add_search_export_and_import(world):
     assert not [e for e in c.get(PREFIX + "/search?scope=user&q=Gamma").json["entries"]]  # rolled back
 
 
+def test_create_only_rejects_duplicate_without_changing_existing_entry(world):
+    c, h = world["client"](world["author"])
+    body = {"scope": "user", "written": "Kunstwort", "spoken": "kunst wort", "create_only": True}
+    created = _add(c, h, **body)
+    assert created.status_code == 201
+    duplicate = _add(c, h, **{**body, "spoken": "anders"})
+    assert (duplicate.status_code, duplicate.json["code"]) == (409, "duplicate_entry")
+    assert c.get(PREFIX + "/search?scope=user").json["entries"] == [created.json["entry"]]
+
+
 def _b64(text, encoding):
     import base64
     return base64.b64encode(text.encode(encoding)).decode()
@@ -138,6 +151,91 @@ def test_suppress_reactivate_and_stale_version(world):
     assert on.json["entry"]["status"] == "active"
 
 
+def test_edit_entry_persists_forms_and_rejects_stale_version(world):
+    c, h = world["client"](world["author"])
+    entry = _add(c, h, scope="user", written="Dosis", spoken="dosis").json["entry"]
+    url = f"{PREFIX}/entries/{entry['id']}"
+    body = {"expected_version": entry["version"], "written": "  Tagesdosis ", "spoken": " Tages dosis "}
+
+    edited = c.put(url, headers=h, json=body)
+    assert edited.status_code == 200
+    updated = edited.json["entry"]
+    assert updated["version"] != entry["version"]
+    assert updated == {**entry, "written": "Tagesdosis", "spoken": "Tages dosis", "version": updated["version"]}
+
+    stale = c.put(url, headers=h, json={**body, "written": "Alte Form", "spoken": None})
+    assert (stale.status_code, stale.json["code"], stale.json["current_version"]) == (
+        409, "stale_version", updated["version"],
+    )
+    assert c.get(PREFIX + "/search?scope=user").json["entries"] == [updated]
+
+
+def test_edit_entry_rejects_a_write_that_loses_the_version_race(world):
+    c, h = world["client"](world["author"])
+    entry = _add(c, h, scope="user", written="Dosis").json["entry"]
+    model = vocabulary.ClinicVocabularyEntry
+    newer = datetime.fromisoformat(entry["version"]) + timedelta(seconds=1)
+    engine = db.engine
+
+    def concurrent_edit(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if statement.startswith("UPDATE clinic_vocabulary_entry "):
+            with real_app.app_context(), db.engine.begin() as writer:
+                writer.execute(db.update(model).where(model.id == entry["id"])
+                               .values(written_form="Parallel", updated_at=newer))
+
+    event.listen(engine, "before_cursor_execute", concurrent_edit)
+    try:
+        stale = c.put(f"{PREFIX}/entries/{entry['id']}", headers=h,
+                      json={"expected_version": entry["version"], "written": "Veraltet"})
+    finally:
+        event.remove(engine, "before_cursor_execute", concurrent_edit)
+
+    assert (stale.status_code, stale.json["code"], stale.json["current_version"]) == (
+        409, "stale_version", newer.isoformat(),
+    )
+    assert c.get(PREFIX + "/search?scope=user").json["entries"] == [
+        {**entry, "written": "Parallel", "version": newer.isoformat()},
+    ]
+
+
+def test_edit_entry_rejects_invalid_forms_and_duplicate_words(world):
+    c, h = world["client"](world["author"])
+    entry = _add(c, h, scope="user", written="Original", spoken="original").json["entry"]
+    other = _add(c, h, scope="user", written="Vorhanden").json["entry"]
+    url = f"{PREFIX}/entries/{entry['id']}"
+    body = {"expected_version": entry["version"], "written": "Vorhanden", "spoken": None}
+
+    for invalid in ({"expected_version": 1}, {"written": " "}, {"spoken": False}, {"scope": "pool"}):
+        r = c.put(url, headers=h, json={**body, **invalid})
+        assert (r.status_code, r.json["code"]) == (400, "invalid_payload")
+    duplicate = c.put(url, headers=h, json=body)
+    assert (duplicate.status_code, duplicate.json["code"]) == (409, "duplicate_entry")
+    assert c.get(PREFIX + "/search?scope=user").json["entries"] == [entry, other]
+
+
+def test_edit_pool_entry_checks_live_membership_and_write_permission(world):
+    c, h = world["client"](world["author"])
+    pid = world["pool"].id
+    entry = _add(c, h, scope="pool", pool_id=pid, written="Pool-Wort", spoken="pool").json["entry"]
+    url = f"{PREFIX}/entries/{entry['id']}"
+    body = {"expected_version": entry["version"], "written": "Neu", "spoken": None}
+
+    c2, h2 = world["client"](world["other"])
+    denied = c2.put(url, headers=h2, json=body)
+    assert (denied.status_code, denied.json["code"]) == (404, "not_found")
+    c, h = world["client"](world["author"])
+    edited = c.put(url, headers=h, json=body)
+    assert edited.status_code == 200
+    updated = edited.json["entry"]
+    assert (updated["written"], updated["spoken"]) == ("Neu", None)
+
+    pools.remove_author_member(pid, world["author"].id, actor_id=world["admin"].id)
+    denied = c.put(url, headers=h, json={**body, "written": "Entzogen", "expected_version": updated["version"]})
+    assert (denied.status_code, denied.json["code"]) == (404, "not_found")
+    c2, _ = world["client"](world["other"])
+    assert c2.get(f"{PREFIX}/search?scope=pool&pool_id={pid}").json["entries"] == [updated]
+
+
 def test_pool_membership_and_write_policy(world):
     pid = world["pool"].id
     c, h = world["client"](world["author"])
@@ -163,6 +261,9 @@ def test_foreign_user_entry_is_hidden(world):
     c2, h2 = world["client"](world["other"])
     r = c2.post(f"{PREFIX}/entries/{entry['id']}/suppress", headers=h2, json={"expected_version": entry["version"]})
     assert r.status_code == 404
+    edit = c2.put(f"{PREFIX}/entries/{entry['id']}", headers=h2,
+                  json={"expected_version": entry["version"], "written": "Fremde Änderung"})
+    assert (edit.status_code, edit.json["code"]) == (404, "not_found")
     assert c2.get(PREFIX + "/search?scope=user&q=Privat").json["entries"] == []
 
 

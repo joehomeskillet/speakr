@@ -11,12 +11,12 @@ const ENTRY = (version) => ({ id: 'e1', written: 'Metformin', spoken: null, stat
 function setup(writeResults, readResults = []) {
     const client = {
         request: vi.fn(async (path, opts) => {
-            if (opts && opts.method === 'POST') return writeResults.shift() || ok({});
+            if (opts && ['POST', 'PUT'].includes(opts.method)) return writeResults.shift() || ok({});
             return readResults.shift() || ok({ entries: [ENTRY('v1')], content: 'Metformin' });
         }),
     };
-    const writes = () => client.request.mock.calls.filter((c) => c[1] && c[1].method === 'POST');
-    const reads = () => client.request.mock.calls.filter((c) => !(c[1] && c[1].method === 'POST'));
+    const writes = () => client.request.mock.calls.filter(([, opts]) => opts && ['POST', 'PUT'].includes(opts.method));
+    const reads = () => client.request.mock.calls.filter(([, opts]) => !opts);
     return { client, writes, reads, store: createVocabularyStore(client) };
 }
 
@@ -76,6 +76,53 @@ describe('vocabulary ui', () => {
         expect(writes()).toHaveLength(0);
         expect(store.state.status).toBe('denied');
         expect(store.state.entries).toEqual([]);
+    });
+
+    it.each([['user', null, { scope: 'user' }], ['pool', 'p1', { scope: 'pool', pool_id: 'p1' }]])(
+        'creates and edits both forms in the %s list, refreshing with the returned version',
+        async (kind, poolId, scope) => {
+            const created = { ...ENTRY('v1'), written: 'Kunstwort', spoken: 'kunst wort' };
+            const edited = { ...created, written: 'Neuwort', spoken: null, version: 'v2' };
+            const empty = ok({ entries: [] });
+            const { store, writes, reads } = setup([ok({ entry: created }), ok({ entry: edited })], [
+                empty, ...(poolId ? [empty] : []), ok({ entries: [created] }),
+                ...(poolId ? [empty] : []), ok({ entries: [edited] }),
+            ]);
+            await store.setScope(kind, poolId);
+            await store.saveEntry({ written: ' Kunstwort ', spoken: ' kunst  wort ' });
+            expect(writes()[0]).toEqual(['/vocabulary/additions', {
+                method: 'POST', idempotencyKey: expect.any(String),
+                body: { ...scope, create_only: true, written: 'Kunstwort', spoken: 'kunst wort' },
+            }]);
+            expect(store.state.entries).toEqual([created]);
+            await store.saveEntry({ entry: store.state.entries[0], written: 'Neuwort', spoken: '  ' });
+            expect(writes()[1]).toEqual(['/vocabulary/entries/e1', {
+                method: 'PUT', idempotencyKey: expect.any(String),
+                body: { expected_version: 'v1', written: 'Neuwort', spoken: null },
+            }]);
+            expect(store.state.entries).toEqual([edited]);
+            expect(reads().filter(([path]) => path.includes('mode=exact'))).toHaveLength(poolId ? 2 : 0);
+        },
+    );
+
+    it('rejects invalid forms and never queues a dialog save for background retry', async () => {
+        const { store, writes } = setup([bad('network')]);
+        expect((await store.saveEntry({ written: ' ', spoken: 'test' })).outcome).toBe('validation');
+        expect((await store.saveEntry({ written: 'Wort', spoken: 'x'.repeat(256) })).outcome).toBe('validation');
+        expect(writes()).toHaveLength(0);
+        await store.saveEntry({ written: 'Wort', spoken: '' });
+        expect(await store.retry()).toBeNull();
+        expect(writes()).toHaveLength(1);
+    });
+
+    it('uses the version when the draft opened rather than overwriting a newer row', async () => {
+        const { store, writes } = setup([bad('conflict')], [ok({ entries: [ENTRY('v2')] }), ok({ entries: [ENTRY('v2')] })]);
+        await store.search();
+        const res = await store.saveEntry({ entry: ENTRY('v1'), written: 'Neuwort', spoken: '' });
+        expect(res.outcome).toBe('conflict');
+        expect(writes()[0][1].body.expected_version).toBe('v1');
+        expect(store.state.entries).toEqual([ENTRY('v2')]);
+        expect(await store.retry()).toBeNull();
     });
 
     it('suppresses and reactivates with the entry version', async () => {
