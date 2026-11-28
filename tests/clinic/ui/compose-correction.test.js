@@ -210,12 +210,14 @@ describe('dictation files', () => {
 });
 
 describe('compose-correction contract', () => {
-    it.each([false, true])('opens a local editable draft and writes only on submit (rich text: %s)', async (richText) => {
-        const text = 'Hallo   Welt heute';
-        const document = { schema_version: 1, nodes: richText
-            ? [{ id: 'p1', kind: 'paragraph', level: 0, runs: [{ id: 'r1', text }] }]
-            : [{ id: 'g1', kind: 'graphic' }] };
-        const client = fakeClient(base({ 'GET /dictations/d1/correction': ok(correction({ text, document })) }));
+    it.each(['plain text fallback', 'rich text'])('opens a local editable draft for the selection hotkey and writes only on dialog submit (%s)', async (surface) => {
+        const rich = surface === 'rich text';
+        const client = fakeClient(base({
+            'GET /dictations/d1/correction': ok(correction({
+                links: [],
+                ...(rich ? {} : { document: { schema_version: 1, nodes: [{ id: 'g1', kind: 'graphic' }] } }),
+            })),
+        }));
         const vue = {
             ref: (value) => ({ value }), shallowRef: (value) => ({ value }),
             computed: (fn) => ({ get value() { return fn(); } }), nextTick: async () => {},
@@ -223,12 +225,17 @@ describe('compose-correction contract', () => {
         const ui = CorrectionBody.setup({ client, vue, dictationId: 'd1', currentUser: { id: 9 } });
         await ui.c.start();
         await ui.c.editor.acquire();
-        expect(ui.documentMode.value).toBe(richText);
-        const area = { selectionStart: 0, selectionEnd: 0, focus: vi.fn() };
-        if (richText) {
-            ui.setRunRoot({ querySelector: vi.fn(() => area) });
-            ui.onRunSelection({ type: 'select' }, 'p1', 'r1');
+        expect(ui.documentMode.value).toBe(rich);
+        const text = 'Hallo   Welt heute';
+        const area = { selectionStart: 0, selectionEnd: 0, focus: vi.fn(), value: text };
+        if (rich) {
+            const [node] = ui.doc.doc.value.nodes;
+            const [run] = node.runs;
+            ui.setRunRoot({ querySelector: () => area });
+            ui.onRunSelection({ type: 'focus' }, node.id, run.id);
+            ui.onRunInput({ target: area }, node.id, run);
         } else {
+            ui.c.editor.setText(text);
             ui.setTextEl(area);
         }
         const press = (extra = {}) => ui.onTextKeydown({ ctrlKey: true, altKey: true, key: 'p', preventDefault: vi.fn(), ...extra });

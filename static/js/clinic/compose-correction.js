@@ -605,7 +605,7 @@ export function createCorrectionViewController(options) {
     }
 
     /** Element holding the aligned words; the highlighter marks [data-link] children and follows them. */
-            function bindAlignmentRoot(node) {
+    function bindAlignmentRoot(node) {
         const root = isNode(node) ? node : null;
         if (root === alignmentRoot) return;
         alignmentRoot = root;
