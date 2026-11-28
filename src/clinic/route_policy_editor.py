@@ -51,6 +51,7 @@ AUTH: tuple[str, ...] = (
     'clinic_live.resume_recording',
     'clinic_live.append_phrase',
     'clinic_live.resume',
+    'clinic_live.phrase_audio',
     'clinic_live.switch_draft',
     'clinic_richtext_graphics.upload',
     'clinic_richtext_graphics.get_graphic',
