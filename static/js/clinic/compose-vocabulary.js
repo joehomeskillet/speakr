@@ -225,7 +225,6 @@ export function createCautionComponent(Vue, client) {
 }
 
 export const TEXT = Object.freeze({
-    eyebrow: 'Verwaltung',
     title: 'Wortschatz',
     subline: 'Persönliche und gemeinsame Einträge prüfen, Vorschläge entscheiden und die Wirkung in der Engine nachvollziehen.',
     tablist: 'Wortschatz-Bereiche',
@@ -331,7 +330,6 @@ export const VOCABULARY_VIEW_TEMPLATE = `
 <section class="v8-page clinic-vocabulary-view" data-testid="clinic-vocabulary-view" aria-labelledby="cvv-title">
   <div class="pagehead">
     <div>
-      <div class="eyebrow">${TEXT.eyebrow}</div>
       <h1 id="cvv-title">${TEXT.title}</h1>
       <p class="subline">${TEXT.subline}</p>
     </div>
