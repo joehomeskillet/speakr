@@ -1145,7 +1145,10 @@ def register_clinic_resources(flask_app):
         lambda user_id, pool_id: routes_vocabulary_review.can_review_pool(user_id, pool_id)).blueprint)
     flask_app.register_blueprint(routes_vocabulary_review.vocabulary_review_bp)
     flask_app.register_blueprint(routes_commands.commands_blueprint)
-    flask_app.register_blueprint(routes_asr_profiles.create_asr_profiles_blueprint())
+    flask_app.register_blueprint(routes_asr_profiles.create_asr_profiles_blueprint(
+        lambda: flask_app.extensions.get('clinic_capability_registry'),
+        observe_engine=routes_asr_profiles.local_engine_receipt,
+    ))
     flask_app.extensions['clinic_parity_dispatch'] = dispatch
     flask_app.extensions['clinic_run_once'] = run_once
 
