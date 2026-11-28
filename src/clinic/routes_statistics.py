@@ -1,4 +1,4 @@
-"""Scoped statistics reports and site-admin grant management.
+"""Scoped aggregates, grant management and synthetic statistics (PAR-OPS-005/006).
 
 Thin HTTP layer over ``statistics_access.read_aggregates``: the scoped query
 runs before aggregation, so counts never include dictations outside the
@@ -19,15 +19,24 @@ Rules:
 * Grant management needs an active site admin. Changes need a CSRF token
   and the last observed per-user version. Only explicit authors and author
   pools can be granted.
+
+The collection, period and retention routes are for active site admins in
+synthetic staging. Optional counts come from successful browser actions.
 """
 
 from __future__ import annotations
 
-from flask import Blueprint, Response, abort, jsonify, request, session
+import os
+from datetime import datetime, timezone
+
+from flask import Blueprint, Response, abort, current_app, jsonify, request, session
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 from wtforms.validators import ValidationError
 
+from src.clinic import statistics_retention as retention
 from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.identity import ClinicAccountPolicy
@@ -37,19 +46,28 @@ from src.clinic.statistics import StatisticsError, StatisticsQuery
 from src.clinic.statistics_access import (
     StatisticsAccessError, grant_aggregate, read_aggregates, revoke_aggregate, version_of,
 )
-from src.clinic.statistics_export import StatisticsExportError, parse_query, render_csv
+from src.clinic.statistics_export import StatisticsExportError, _parse_bound, parse_query, render_csv
 from src.clinic.statistics_grants import grants_for
 from src.database import db
 from src.models import User
 
-PATH = "/api/clinic/v1/statistics/aggregates"
-EXPORT_PATH = "/api/clinic/v1/statistics/export.csv"
-GRANTS_PATH = "/api/clinic/v1/statistics/users/<int:user_id>/grants"
+PREFIX = "/api/clinic/v1/statistics"
+PATH = PREFIX + "/aggregates"
+EXPORT_PATH = PREFIX + "/export.csv"
+GRANTS_PATH = PREFIX + "/users/<int:user_id>/grants"
 ROLE = "statistics"
 _ARGS = frozenset({"time_basis", "from", "to", "grain", "group_by", "expected_version"})
 _REFUSED = frozenset({"not_statistics", "no_grant", "capability_denied", "clinic_mode_off"})
 _GRANT_KEYS = frozenset({"expected_version", "scope", "author_ids", "pool_ids"})
 _MAX_USER_ID = 2**31 - 1
+_SAMPLE_ACTIONS = {
+    ("GET", "clinic_recordings.list_recordings", 200): retention.USAGE,
+    ("GET", "clinic_worklist.rows", 200): retention.USAGE,
+    ("GET", "clinic_history.get_history", 200): retention.HISTORY,
+    ("POST", "clinic_workflow.release", 201): retention.HISTORY,
+}
+_COVERAGE_STATUS = {retention.UNCOLLECTED: "nicht erfasst", retention.COLLECTED: "erfasst",
+                    retention.PARTIAL: "teilweise erfasst"}
 
 blueprint = Blueprint("clinic_statistics", __name__)
 
@@ -73,8 +91,20 @@ def _versioned(response, version, status=200):
 def _browser_session():
     if not clinic_mode_enabled():
         abort(404)
+    return _signed_in()
+
+
+def _signed_in():
     return (current_user.is_authenticated and current_user.is_active
             and session.get("_user_id") == current_user.get_id())
+
+
+def _synthetic_staging():
+    return clinic_mode_enabled() and os.environ.get("CLINIC_PROFILE", "").strip().lower() == "staging"
+
+
+def _now():
+    return datetime.now(timezone.utc)
 
 
 def _query(args) -> tuple[StatisticsQuery, int | None]:
@@ -227,3 +257,83 @@ def change_grant(user_id, grant_id=None):
         return _fail("INVALID_PAYLOAD")
     response = jsonify(user_id=user_id, version=grant.version, grant=_grant_item(grant))
     return _versioned(response, grant.version, 201)
+
+
+@blueprint.before_request
+def require_collection_admin():
+    if request.endpoint not in {
+        "clinic_statistics.collection_policy",
+        "clinic_statistics.collection_period",
+        "clinic_statistics.collection_retention",
+    }:
+        return None
+    if not _synthetic_staging():
+        abort(404)
+    if not _signed_in():
+        return _fail("UNAUTHORIZED")
+    if not _is_active_site_admin(db.session, current_user):
+        return _fail("FORBIDDEN")
+    if request.method in {"PUT", "POST"}:
+        try:
+            validate_csrf(request.headers.get("X-CSRFToken") or request.headers.get("X-CSRF-Token"))
+        except ValidationError:
+            return _fail("FORBIDDEN")
+    return None
+
+
+@blueprint.after_app_request
+def collect_browser_action(response):
+    kind = _SAMPLE_ACTIONS.get((request.method, request.endpoint, response.status_code))
+    if kind is not None and _synthetic_staging() and _signed_in():
+        try:
+            with Session(db.engine) as store, store.begin():
+                retention.lock_collection(store)
+                retention.collect_sample(store, kind, _now())
+        except SQLAlchemyError:
+            current_app.logger.warning("Clinic statistics sample could not be collected", exc_info=True)
+    return response
+
+
+@blueprint.route(PREFIX + "/collection", methods=["GET", "PUT"])
+def collection_policy():
+    if request.method != "PUT":
+        switches = {kind: retention.current_switch(db.session, kind) for kind in sorted(retention.KINDS)}
+        return _reply(jsonify({kind: {"enabled": bool(switch and switch.enabled),
+                                     "retention_days": switch.retention_days if switch else None}
+                               for kind, switch in switches.items()}))
+    body = request.get_json(silent=True)
+    if (not isinstance(body, dict) or body.keys() != {"kind", "enabled", "retention_days"}
+            or not isinstance(body["kind"], str) or body["kind"] not in retention.KINDS
+            or type(body["enabled"]) is not bool or type(body["retention_days"]) is not int
+            or not 1 <= body["retention_days"] <= 3650):
+        return _fail("INVALID_PAYLOAD")
+    with Session(db.engine) as store, store.begin():
+        retention.lock_collection(store)
+        retention.change_switch(store, **body, now=_now())
+    return _reply(jsonify(body))
+
+
+@blueprint.get(PREFIX + "/<any(usage,history):kind>")
+def collection_period(kind):
+    if request.args.keys() - {"from", "to"}:
+        return _fail("INVALID_PAYLOAD")
+    now = _now()
+    try:
+        start = _parse_bound(request.args.get("from"), "start")
+        end = _parse_bound(request.args.get("to"), "end") or now
+        period = retention.collected_period(db.session, kind, start, end, now)
+    except (StatisticsExportError, retention.CollectionError, OverflowError):
+        return _fail("INVALID_PAYLOAD")
+    return _reply(jsonify(**period, status=_COVERAGE_STATUS[period["coverage"]]))
+
+
+@blueprint.route(PREFIX + "/retention", methods=["GET", "POST"])
+def collection_retention():
+    if request.args:
+        return _fail("INVALID_PAYLOAD")
+    now = _now()
+    if request.method != "POST":
+        return _reply(jsonify(expired=retention.expire_samples(db.session, now, apply=False)))
+    with Session(db.engine) as store, store.begin():
+        deleted = retention.expire_samples(store, now, apply=True)
+    return _reply(jsonify(deleted=deleted))
