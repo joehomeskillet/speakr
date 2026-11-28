@@ -182,15 +182,7 @@ export function createRecordingViewController(options) {
     let submission = null;
     let submitError = '';
     let pendingSend = null;
-    let draft = null;
-    let resumedDraftId = opts.draftId || null;
-    let pendingMetadata = null;
-    let pedal;
-    let releasePedalCapture;
-    let pedalPlayback = false;
-    let categoryLoad = null;
-    let categorySets = [];
-    let categoryValues = {};
+    let savingTakeAsDraft = false;
     let retryTimer = null;
     let retriedAutomatically = false;
     let plannedServices = [];
@@ -201,6 +193,15 @@ export function createRecordingViewController(options) {
         ? names.filter((name) => typeof name === 'string' && name.trim()) : [];
     const singleService = (name) => /\bSchreibdienst\b/i.test(name) ? name : 'Schreibdienst ' + name;
     const directDestination = (data) => typeof data?.direct_destination === 'string' ? data.direct_destination : '';
+    let draft = null;
+    let resumedDraftId = opts.draftId || null;
+    let pendingMetadata = null;
+    let pedal;
+    let releasePedalCapture;
+    let pedalPlayback = false;
+    let categoryLoad = null;
+    let categorySets = [];
+    let categoryValues = {};
     // A host that calls checkRouting() right after mounting (RecordingView) starts without the pending state.
     let routing = opts.oneButton && !opts.preflightOnMount ? 'routingPending' : null;
     let voxEnabled = false;
@@ -422,7 +423,7 @@ export function createRecordingViewController(options) {
             && (draft.saved || !draft.editActions.length);
         return typeof id === 'string' && !!id.trim() && typeof client?.request === 'function'
             && allowed() && !state.disposed && !submission && retryTimer === null
-            && (!opts.draftMetadata || Boolean(confirmed));
+            && (!(draft || resumedDraftId || state.mode === 'file' && opts.draftMetadata) || Boolean(confirmed));
     }
 
     async function loadCategories() {
@@ -467,7 +468,7 @@ export function createRecordingViewController(options) {
     }
 
     async function submit() {
-        if (!canSubmit()) return denied('invalid_phase');
+        if (retryTimer !== null || !canSubmit()) return denied('invalid_phase');
         if (categoryLoad === 'loading') return denied('categories_loading');
         if (categoryLoad === 'failed' && !(await loadCategories())) return denied('categories_unavailable');
         if (!canSubmit()) return denied('invalid_phase');
@@ -546,23 +547,36 @@ export function createRecordingViewController(options) {
         return result;
     }
 
-    function saveRecording() {
-        if (state.mode !== 'record' || routing || state.disposed) return denied('invalid_phase');
-        return machine.send();
+    const separateSubmit = () => categorySets.length > 0 || ['loading', 'failed'].includes(categoryLoad);
+
+    async function saveRecording() {
+        if (state.mode !== 'record' || routing || state.disposed || !allowed() || !['review', 'failed'].includes(phase())) {
+            return denied('invalid_phase');
+        }
+        savingTakeAsDraft = true;
+        const uploaded = await machine.send();
+        if (uploaded.ok && opts.draftMetadata) await loadDraft();
+        return uploaded;
     }
 
     async function sendRecording() {
         if (state.mode !== 'record' || routing || retryTimer !== null || state.disposed || !allowed()) return denied('invalid_phase');
         if (!receipt()) {
-            const uploaded = await saveRecording();
-            if (!uploaded.ok) return uploaded;
-            if (!opts.draftMetadata && (categorySets.length || ['loading', 'failed'].includes(categoryLoad))) return uploaded;
-        }
-        if (opts.draftMetadata && !draft?.canSend && !pendingSend) {
-            await loadDraft();
-            return { ok: true };
+            if (savingTakeAsDraft || (separateSubmit() && opts.draftMetadata)
+                || (opts.draftMetadata && !opts.oneButton)) return saveRecording();
+            const uploaded = await machine.send();
+            if (!uploaded.ok || separateSubmit()) return uploaded;
         }
         return submit();
+    }
+
+    async function cancelRecording() {
+        const result = await machine.cancel();
+        if (result.ok) {
+            savingTakeAsDraft = false;
+            notify();
+        }
+        return result;
     }
 
     /** Opens the created dictation in the page; false when none was created. */
@@ -585,14 +599,17 @@ export function createRecordingViewController(options) {
         submission = null;
         submitError = '';
         pendingSend = null;
+        clearTimeout(retryTimer);
+        retryTimer = null;
+        retriedAutomatically = false;
+        savingTakeAsDraft = false;
+        confirmedServices = [];
+        confirmedDirectDestination = '';
         pendingMetadata = null;
         draft = null;
         resumedDraftId = null;
         opts.onDraft?.(null);
         categoryValues = {};
-        retriedAutomatically = false;
-        confirmedServices = [];
-        confirmedDirectDestination = '';
         Object.assign(state, { file: null, filePhase: 'idle', fileError: null, fileReceipt: null });
         if (machine.getState().phase === 'sent') machine.reset();
         if (client && typeof client.switchContext === 'function') client.switchContext({});
@@ -626,7 +643,7 @@ export function createRecordingViewController(options) {
     function message() {
         if (!allowed()) return TEXT.denied;
         if (retryTimer !== null) return TEXT.retryPending;
-        if (opts.oneButton && state.mode === 'record' && submitError === TEXT.submitUnknown && !submission) return TEXT.takeSendFailed;
+        if (retryingTake()) return TEXT.takeSendFailed;
         if (submitError) return submitError;
         if (routing && !draft) return TEXT[routing];
         if (submission) return TEXT[submission];
@@ -671,31 +688,34 @@ export function createRecordingViewController(options) {
         return canEditAudio ? receipt().dictation_id : null;
     }
 
+    function retryingTake() {
+        return opts.oneButton && state.mode === 'record' && !!receipt()?.take_id && !!pendingSend && !!submitError && !submission;
+    }
+
     /** Plain snapshot for rendering. */
     function model() {
         const s = machine.getState();
         const fileBusy = state.filePhase === 'sending' || state.filePhase === 'sent';
-        const separateSubmit = categorySets.length > 0 || ['loading', 'failed'].includes(categoryLoad);
-        let recordActionLabel = s.phase === 'review' ? 'Senden' : 'Erneut senden';
-        if (separateSubmit) recordActionLabel = created() ? TEXT.submit : s.phase === 'review' ? TEXT.upload : TEXT.retrySave;
-        if (opts.draftMetadata) recordActionLabel = s.phase === 'review' ? 'Entwurf sichern' : TEXT.retrySave;
         const oneButtonRecording = opts.oneButton && state.mode === 'record' && allowed();
         const saved = oneButtonRecording && created() ? s.receipt : null;
-        const retrySend = oneButtonRecording && s.phase === 'sent' && canSubmit()
-            && ((!opts.draftMetadata && !separateSubmit) || submitError === TEXT.submitUnknown);
-        const retry = s.phase === 'failed' || retrySend;
-        if (retrySend) recordActionLabel = 'Erneut senden';
+        const retry = s.phase === 'failed' || (s.phase === 'sent' && canSubmit() && (!draft || retryingTake()));
         const destination = plannedDirectDestination || (plannedServices.length === 1 ? singleService(plannedServices[0])
             : plannedServices.length ? 'Schreibdienste ' + plannedServices.join(', ') : '');
+        let recordActionLabel = s.phase === 'review' ? 'Senden' : 'Erneut senden';
+        if (separateSubmit() && !pendingSend) recordActionLabel = created() ? TEXT.submit : s.phase === 'review' ? TEXT.upload : TEXT.retrySave;
+        if (opts.draftMetadata && (savingTakeAsDraft || !opts.oneButton || separateSubmit()) && !created()) {
+            recordActionLabel = s.phase === 'review' ? 'Entwurf sichern' : TEXT.retrySave;
+        }
         return {
             mode: state.mode,
             phase: retryTimer !== null ? 'retryPending' : submission || phase(),
             routing,
             canSubmit: canSubmit(),
+            retryingTake: retryingTake(),
+            directSend: Boolean(saved && !draft && !separateSubmit()),
             draft: draft && { ...draft, fields: draft.fields && { ...draft.fields } },
             canEditDraft: Boolean(editableDraft()),
             recordActionLabel,
-            retrySend,
             categoriesLoading: categoryLoad === 'loading',
             canSelectCategory: canSubmit() && !pendingSend,
             categories: categorySets.map((set) => ({ ...set, value: categoryValues[set.id] || '' })),
@@ -730,8 +750,8 @@ export function createRecordingViewController(options) {
             canSwitchMode: allowed() && !recorderBusy() && !fileBusy,
             created: created(),
             editableDraftId: editableDraftId(),
-            canSaveRecording: !opts.draftMetadata && !routing && state.mode === 'record' && !separateSubmit
-                && !s.receipt && ['review', 'failed'].includes(s.phase),
+            canSaveRecording: (!opts.draftMetadata || opts.oneButton === true) && !routing && state.mode === 'record'
+                && !separateSubmit() && !s.receipt && s.phase === 'review',
             message: message(),
             surface: surface(),
         };
@@ -819,7 +839,7 @@ export function createRecordingViewController(options) {
         pause: () => machine.pause(), resume: () => machine.resume(),
         stop: () => machine.stop(), rewind: () => machine.rewind(), play: () => machine.play(),
         beginning: machine.beginning, end: machine.end,
-        send: () => machine.send(), cancel: () => machine.cancel(),
+        send: () => machine.send(), cancel: cancelRecording,
         selectFile, sendFile, cancelFile, submit, sendRecording, checkRouting, loadCategories, selectCategory,
         loadDraft, setDraftField, saveDraft, openCreated, toWorklist, another, dispose,
         attachPedal,
@@ -894,7 +914,7 @@ export const RECORDING_TEMPLATE = `
       <p v-if="m.recordingReceipt.arrived" data-testid="receipt-arrived" style="margin: var(--ui-space-2) 0 0">{{ m.recordingReceipt.arrived }}</p>
     </div>
     <template v-if="!m.routing || m.created">
-      <template v-if="m.mode === 'record' && (!m.created || m.retrySend)">
+      <template v-if="m.mode === 'record' && !m.created">
         <div v-if="!m.created" class="vox-control" style="display: grid; justify-items: center; gap: var(--ui-space-2); margin: 0 auto var(--ui-space-4); max-width: 100%">
           <button type="button" role="switch" class="button" :class="{ accent: m.voxEnabled }" data-testid="vox-toggle"
                   aria-label="Stimmsteuerung" aria-describedby="vox-status" :aria-checked="m.voxEnabled"
@@ -939,7 +959,7 @@ export const RECORDING_TEMPLATE = `
             <button type="button" class="button accent" style="${TOUCH}" data-testid="rec-stop" :aria-keyshortcuts="shortcuts.stop" @click="c.stop()">Stopp</button>
           </div>
         </div>
-        <div v-else-if="m.phase === 'review' || m.phase === 'failed' || m.retrySend"
+        <div v-else-if="m.phase === 'review' || m.phase === 'failed'"
              style="display: grid; justify-items: center; gap: var(--ui-space-3)">
           <audio v-if="!m.created && previewUrl" :ref="bindReview" controls preload="metadata" :src="previewUrl" aria-label="Aufnahme anhören"
                  @loadedmetadata="loadReview" @durationchange="c.machine.syncPlayback()" @seeked="finishDurationProbe"
@@ -965,20 +985,23 @@ export const RECORDING_TEMPLATE = `
         </div>
       </div>
       <div v-if="m.created" data-testid="created">
-        <p v-if="m.phase === 'sent' && !m.retrySend && m.plannedDestination" data-testid="send-destination"
-           style="margin: 0; overflow-wrap: anywhere">{{ m.plannedDestination }}</p>
-        <draft-send-fields v-if="m.draft && !['submitted', 'notDraft'].includes(m.phase)" :m="m" :c="c" @reload="reloadDraft" />
-        <required-categories v-if="m.categories.length && (m.canSubmit || m.phase === 'submitting')"
+        <draft-send-fields v-if="m.draft && !m.retryingTake && !['retryPending', 'submitted', 'notDraft'].includes(m.phase)" :m="m" :c="c" @reload="reloadDraft" />
+        <required-categories v-if="!m.retryingTake && !['retryPending', 'submitting'].includes(m.phase) && m.categories.length && m.canSubmit"
                              :items="m.categories" :disabled="!m.canSelectCategory" @select="c.selectCategory" />
         <span class="sr-only" data-testid="created-id">{{ m.created.dictationId }}</span>
-        <div v-if="m.mode === 'record' && m.phase === 'submitted'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
+        <div v-if="!m.routing && m.canSubmit && (m.retryingTake || m.directSend) && m.phase !== 'retryPending'"
+             style="display: grid; justify-items: center; gap: var(--ui-space-3)">
+          <p v-if="m.plannedDestination" data-testid="send-destination" style="margin: 0; overflow-wrap: anywhere">{{ m.plannedDestination }}</p>
+          <button type="button" class="button primary" style="${TOUCH}; width: 100%; font-size: 1rem" data-testid="rec-send" @click="c.submit()">{{ m.recordActionLabel }}</button>
+        </div>
+        <div v-else-if="m.mode === 'record' && m.phase === 'submitted'" style="display: grid; justify-items: center; gap: var(--ui-space-2)">
           <button type="button" class="button primary" data-testid="open-created" style="${TOUCH}; width: 100%; font-size: 1rem" @click="c.openCreated()">Diktat öffnen</button>
           <p v-if="m.submittedVisibility" role="status" data-testid="submitted-visibility" style="margin: var(--ui-space-2) 0 0">{{ m.submittedVisibility }}</p>
           <a href="#/neu" data-testid="another" style="${LINK}" @click.prevent="c.another()">{{ c.text.title }}</a>
         </div>
-        <div v-else class="actions" style="justify-content: center">
-          <button v-if="!m.retrySend && !['submitted', 'notDraft'].includes(m.phase)" type="button" class="button primary" style="${TOUCH}"
-                  :disabled="!m.canSubmit || m.categoriesLoading || m.phase === 'retryPending'" data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
+        <div v-else-if="!m.directSend && m.phase !== 'retryPending'" class="actions" style="justify-content: center">
+          <button v-if="!['submitted', 'notDraft'].includes(m.phase)" type="button" class="button primary" style="${TOUCH}"
+                  :disabled="!m.canSubmit || m.categoriesLoading" data-testid="submit-draft" @click="c.submit()">{{ c.text.submit }}</button>
           <a href="#/diktat" data-testid="open-created" style="${LINK}" @click.prevent="c.openCreated()">{{ m.mode === 'file' ? c.text.open : 'Diktat öffnen' }}</a>
           <button v-if="m.mode === 'file'" type="button" class="button" style="${TOUCH}" data-testid="to-worklist" @click="c.toWorklist()">{{ c.text.toWorklist }}</button>
           <button type="button" class="button" style="${TOUCH}" data-testid="another" :disabled="m.draft?.saving || m.draft?.loading || ['submitting', 'retryPending'].includes(m.phase)" @click="c.another()">{{ c.text.title }}</button>
@@ -987,7 +1010,7 @@ export const RECORDING_TEMPLATE = `
     </template>
     <div v-if="m.canSaveRecording" style="margin-top: var(--ui-space-3)">
       <button type="button" class="button" style="${TOUCH}; width: 100%" data-testid="rec-save-draft" @click="c.saveRecording()">
-        {{ m.phase === 'review' ? c.text.upload : c.text.retrySave }}
+        {{ m.phase === 'review' ? 'Entwurf sichern' : c.text.retrySave }}
       </button>
     </div>
     <div v-if="m.editableDraftId" class="actions" style="justify-content: center; margin-top: var(--ui-space-3)">

@@ -61,8 +61,9 @@ def test_recorder_can_retry_and_opens_no_upload_modal(browser, app_base):
         page.wait_for_function("document.querySelector('#app').__vue_app__._instance.proxy.recordingTime >= 5")
         view.get_by_test_id("rec-stop").click()
         page.route("**/upload", lambda route: route.fulfill(status=503), times=1)
-        view.get_by_test_id("rec-send").click()
+        view.get_by_test_id("rec-save-draft").click()
         expect(view.get_by_test_id("status")).to_contain_text("Senden fehlgeschlagen")
+        expect(view.get_by_test_id("rec-send")).to_have_text("Erneut sichern")
         assert page.url.endswith("/#/neu")
 
         with page.expect_response(app_base + "/upload") as upload:
@@ -216,14 +217,12 @@ def test_lost_confirmations_keep_one_take_and_offer_keyboard_retry(browser, app_
         page.route('**/api/clinic/v1/dictations/*/send', lose_send, times=2)
         send.click()
         expect(view.get_by_test_id('status')).to_contain_text('weiterhin in diesem Browser')
-        expect(send).to_have_text('Erneut sichern')
+        expect(send).to_have_text('Erneut senden')
         capture('unconfirmed-upload')
         with page.expect_response(re.compile('/api/clinic/v1/recording-takes/')) as lookup:
             send.click()
         assert lookup.value.json() == uploads[0]
         expect(view.get_by_test_id('created-id')).to_have_text(uploads[0]['dictation_id'])
-        view.get_by_test_id('save-draft').click()
-        view.get_by_test_id('submit-draft').click()
         expect(view.get_by_test_id('status')).to_have_text('Sie müssen nichts tun – es wird automatisch erneut gesendet.')
         expect(send).to_have_count(0)
         expect(view.get_by_test_id('status')).to_have_text('Aufnahme gespeichert. Senden hat nicht geklappt.')
