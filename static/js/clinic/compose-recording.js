@@ -26,10 +26,10 @@
  * dictation_id); it is supplied by the mount package together with the recorder.
  */
 
+import { SessionTransportNotice } from './compose-settings.js';
 import { createRecorderPhases, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
 import { CATEGORIES, RequiredCategories } from './categories-ui.js';
 import { surfaceFor } from './tokens.js';
-import { SessionTransportNotice } from './compose-settings.js';
 
 export { receiptDictationId };
 export const COMPOSE_RECORDING_VERSION = 1;
