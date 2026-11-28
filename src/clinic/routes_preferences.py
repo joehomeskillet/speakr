@@ -49,6 +49,7 @@ from src.clinic.workstation_preferences import (
     PreferenceError,
     StaleVersion,
     WorkstationPreferences,
+    session_transport_status,
 )
 from src.database import db
 
@@ -208,7 +209,7 @@ class PreferenceRoutes:
             ("/recipient-default", "recipient_default", self._recipient_default, ("GET", "PUT")),
             ("/recipient-default/resolve", "recipient_resolve", self._recipient_resolve, ("POST",)),
             ("/last-selection", "last_selection", self._last_selection, ("GET", "PUT")),
-            ("/workstations", "workstation_issue", self._workstation_issue, ("POST",)),
+            ("/workstations", "workstation_issue", self._workstation_issue, ("GET", "POST")),
             ("/workstations/<workstation_id>", "workstation", self._workstation, ("GET", "PUT")),
             ("/workstation-locks/<key>", "workstation_lock", self._workstation_lock, ("PUT", "DELETE")),
             ("/presets", "presets", self._resolved_presets, ("GET",)),
@@ -345,6 +346,8 @@ class PreferenceRoutes:
 
     # -- workstation --------------------------------------------------------
     def _workstation_issue(self):
+        if request.method in {"GET", "HEAD"}:
+            return jsonify(session_transport_status())
         return jsonify(workstation_id=self._workstations.issue(current_user)), 201
 
     def _workstation(self, workstation_id: str):
