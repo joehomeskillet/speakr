@@ -20,6 +20,7 @@ from src.clinic import routes_import_sources_web as source_routing
 from src.clinic.admin_dictation_access import _is_active_site_admin
 from src.clinic.config import clinic_mode_enabled
 from src.clinic.device_inventory_view import get_firmware_action_status
+from src.clinic.dictation_roles import display_name
 from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.ingest import IngestError
 from src.clinic.migration_import_intent_metadata import interpret
@@ -27,7 +28,7 @@ from src.clinic.parity_dispatch import MAX_BODY_BYTES, CommandProblem, _problem,
 from src.clinic.parity_receipts import ClinicParityReceipt, run_once, scope_key
 from src.clinic.pool_policy import author_pool_ids
 from src.database import db
-from src.models import VoiceEmbeddingSpace
+from src.models import User, VoiceEmbeddingSpace
 from src.services import audit
 from src.services.storage.locator import local_path_from_key
 
@@ -166,13 +167,17 @@ def _route_snapshot(item, actor, owners, now):
     return config, eligible_pools
 
 
+def _effective_pool(pool_id, eligible_pools):
+    return pool_id or (next(iter(eligible_pools)) if len(eligible_pools) == 1 else None)
+
+
 def _metadata(overrides, pool_id, eligible_pools):
     pool_override = overrides.get("pool_id")
     if isinstance(pool_override, dict) and pool_override.get("op") == "set":
         pool_id = pool_override.get("value")
         if not isinstance(pool_id, str) or pool_id not in eligible_pools:
             raise agent_channel.AgentChannelError("forbidden", "ineligible pool")
-    pool_id = pool_id or (next(iter(eligible_pools)) if len(eligible_pools) == 1 else None)
+    pool_id = _effective_pool(pool_id, eligible_pools)
     approved = recipient_defaults.eligible_user_ids(pool_id) if pool_id else ()
     return import_centre._stored_metadata(overrides, approved)
 
@@ -304,7 +309,7 @@ def retry_intent(intent_id: UUID) -> Response | tuple[Response, int]:
     return _import_write(str(intent_id), retry)
 
 
-def _visible_inventory() -> tuple[list[dict], bool] | None:
+def _visible_inventory(*, include_device_recipients: bool = False) -> tuple[list[dict], bool, list[dict]] | None:
     actor = current_user.id
     admin = _is_active_site_admin(db.session(), current_user)
     led_pools = () if admin else worklist_entries._led_author_pools(actor)
@@ -333,24 +338,44 @@ def _visible_inventory() -> tuple[list[dict], bool] | None:
     )
     visibility = import_visibility.ClarificationPolicy(may_access=may_read)
     items: list[dict] = []
+    recipients_by_pool: dict[str | None, tuple[int, ...]] = {None: ()}
+    now = agent_channel.utcnow()
     for agent_id in roots_by_agent:
         body = import_visibility.list_inventory(visibility, channel_policy, actor_user_id=actor, agent_id=agent_id)
         snapshots = {
-            (row.source_id, row.snapshot_version): row.id
+            (row.source_id, row.snapshot_version): row
             for row in agent_channel.ClinicAgentInventory.query.filter_by(agent_id=agent_id)
         }
-        items.extend(row | {"agent_id": agent_id, "snapshot_id": snapshots[row["source_id"], row["snapshot_version"]]}
-                     for row in body["items"] if (row["source_id"], row["snapshot_version"]) in snapshots)
-    return items, bool(admin or led_pools)
+        for row in body["items"]:
+            snapshot = snapshots.get((row["source_id"], row["snapshot_version"]))
+            if snapshot is None:
+                continue
+            item = row | {"agent_id": agent_id, "snapshot_id": snapshot.id}
+            items.append(item)
+            if not include_device_recipients or not can_import or snapshot.size <= 0:
+                continue
+            try:
+                config, eligible_pools = _route_snapshot(snapshot, actor, owners, now)
+            except agent_channel.AgentChannelError:
+                continue
+            if config["source_kind"] == "device":
+                pool_id = _effective_pool(config["target_pool_id"], eligible_pools)
+                if pool_id not in recipients_by_pool:
+                    recipients_by_pool[pool_id] = recipient_defaults.eligible_user_ids(pool_id)
+                item["device_recipient_ids"] = recipients_by_pool[pool_id]
+    recipient_ids = {uid for pool_recipients in recipients_by_pool.values() for uid in pool_recipients}
+    users = User.query.filter(User.id.in_(recipient_ids)).order_by(User.name, User.username, User.id) if recipient_ids else ()
+    recipients = [{"id": user.id, "name": display_name(user)} for user in users]
+    return items, bool(admin or led_pools), recipients
 
 
 @blueprint.get("/inventory")
 def inventory():
-    visible = _visible_inventory()
+    visible = _visible_inventory(include_device_recipients=True)
     if visible is None:
         return _problem("FORBIDDEN")
-    items, can_clarify = visible
-    return jsonify(items=items, count=len(items), can_clarify=can_clarify)
+    items, can_clarify, recipients = visible
+    return jsonify(items=items, count=len(items), can_clarify=can_clarify, recipients=recipients)
 
 
 @blueprint.get("/firmware")
@@ -358,8 +383,9 @@ def firmware() -> Response | tuple[Response, int]:
     visible = _visible_inventory()
     if visible is None:
         return _problem("FORBIDDEN")
+    inventory_items, _, _ = visible
     targets = firmware_catalog.list_targets()
-    items = [firmware_catalog.compare(row, targets) for row in visible[0]]
+    items = [firmware_catalog.compare(row, targets) for row in inventory_items]
     return jsonify(catalog=[targets[key] for key in sorted(targets)], items=items, count=len(items),
                    firmware_action=get_firmware_action_status())
 
