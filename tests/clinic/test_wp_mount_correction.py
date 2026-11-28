@@ -280,7 +280,10 @@ def test_typist_opens_corrects_saves_and_returns(live_server):
             assert stored["text"].endswith(WORD)
 
             # Mode switch persists per user across a reload (x36).
-            page.get_by_label("Beim Tippen weiterlaufen").check()
+            mode_url = f"{base}/api/clinic/v1/preferences/correction-mode"
+            with page.expect_response(lambda r: r.url == mode_url and r.request.method == "PUT") as saved_mode:
+                page.get_by_label("Beim Tippen weiterlaufen").check()
+            assert saved_mode.value.ok, saved_mode.value.text()
             page.wait_for_function(
                 "document.querySelector('.clinic-correction-modes').dataset.mode === 'type_while_playing'")
             page.reload()
