@@ -1410,7 +1410,8 @@ def register_clinic_audio(flask_app):
     """
     from src.clinic import (app_wiring, audio_render, audio_revisions, config, local_tts, policy, pool_policy,
                             revisions, routes_audio, routes_bundle, routes_clipboard, routes_correction,
-                            routes_dictation_properties, routes_live, routes_output, routes_tts, startup)
+                            routes_correction_documents, routes_dictation_properties, routes_live,
+                            routes_output, routes_tts, startup)
     from src.clinic.admin_dictation_access import can_open_content
     from src.clinic.ingest import IngestService
     from src.clinic.models import ClinicDictation, ClinicTranscriptRevision
@@ -1498,6 +1499,8 @@ def register_clinic_audio(flask_app):
     flask_app.register_blueprint(routes_correction.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),
         run_once=run_once, require_if_match=True))
+    flask_app.register_blueprint(routes_correction_documents.create_blueprint(
+        authorize=lambda user, name, dictation: may(user.id, name, dictation)))
     flask_app.register_blueprint(create_graphics_blueprint(GraphicStore(startup.originals_root(flask_app))))
     # V8 alignment (v8-86)
     from src.clinic import alignment_job, routes_alignment
