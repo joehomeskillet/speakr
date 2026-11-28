@@ -8,11 +8,13 @@ review queue ('Vokabularänderungen prüfen'), audit decisions and precedence ru
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from typing import Any
 
-from sqlalchemy import CheckConstraint, UniqueConstraint
+from sqlalchemy import CheckConstraint, UniqueConstraint, or_
 from sqlalchemy.orm import Session
 
 from src.database import db
@@ -29,6 +31,7 @@ REVIEW_OP_ADD, REVIEW_OP_DELETE, REVIEW_OP_MODIFY = REVIEW_OPERATIONS
 
 REVIEW_STATUSES = ("PENDING", "ACCEPTED_USER", "ACCEPTED_POOL", "REJECTED", "DEFERRED")
 REVIEW_STATUS_PENDING, REVIEW_STATUS_ACCEPTED_USER, REVIEW_STATUS_ACCEPTED_POOL, REVIEW_STATUS_REJECTED, REVIEW_STATUS_DEFERRED = REVIEW_STATUSES
+OPEN_REVIEW_STATUSES = (REVIEW_STATUS_PENDING, REVIEW_STATUS_DEFERRED)
 ACTIONS = ("ACCEPT_USER", "ACCEPT_POOL", "REJECT", "DEFER", "UNDO")
 ACTION_ACCEPT_USER, ACTION_ACCEPT_POOL, ACTION_REJECT, ACTION_DEFER, ACTION_UNDO = ACTIONS
 
@@ -413,9 +416,107 @@ def submit_review_item(
     return item
 
 
+def _session_information(resource_type: str, source_id: str) -> str:
+    return json.dumps(
+        {_SESSION_RESOURCE: resource_type, _SESSION_SOURCE: source_id},
+        separators=(",", ":"),
+    )
+
+
+def _session_information_data(item: ClinicVocabularyReviewItem) -> dict[str, Any]:
+    try:
+        data = json.loads(item.information or "")
+    except (TypeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) and data.get(_SESSION_RESOURCE) in (
+        "vocabulary", "voice_command",
+    ) else {}
+
+
+def capture_session_changes(
+    user_id: int, dictation_id: str, started_at: datetime, ended_at: datetime,
+    pool_id: str | None = None, before_text: str = "", after_text: str = "",
+    session: Session | None = None,
+) -> list[ClinicVocabularyReviewItem]:
+    s = _get_session(session)
+    started_at = (started_at.replace(tzinfo=timezone.utc) if started_at.tzinfo is None
+                  else started_at.astimezone(timezone.utc))
+    ended_at = (ended_at.replace(tzinfo=timezone.utc) if ended_at.tzinfo is None
+                else ended_at.astimezone(timezone.utc))
+
+    def scope_filter(model):
+        clauses = [(model.scope == "user") & (model.user_id == user_id)]
+        if pool_id:
+            clauses.append((model.scope == "pool") & (model.pool_id == pool_id))
+        return or_(*clauses)
+
+    def changed(model):
+        return s.query(model).filter(
+            scope_filter(model), model.updated_at >= started_at, model.updated_at <= ended_at,
+        ).all()
+
+    open_items = list_review_items(
+        user_id=user_id, status=OPEN_REVIEW_STATUSES, session=s,
+    )
+    open_items = [item for item in open_items if item.dictation_id == dictation_id]
+    offered = {
+        (
+            _session_information_data(item).get(_SESSION_RESOURCE, "vocabulary"),
+            item.written_form.casefold(), item.operation,
+        ): item
+        for item in open_items
+    }
+    created = []
+
+    def offer(resource_type, written, spoken, operation, information=None, target_pool_id=None):
+        key = resource_type, written.casefold(), operation
+        if key in offered:
+            return
+        item = submit_review_item(
+            user_id=user_id, written_form=written, spoken_form=spoken,
+            operation=operation, origin=ORIGIN_SESSION, information=information,
+            pool_id=target_pool_id or pool_id, dictation_id=dictation_id, session=s,
+        )
+        offered[key] = item
+        created.append(item)
+
+    for row in changed(ClinicVocabularyEntry):
+        operation = REVIEW_OP_DELETE if row.status == STATUS_SUPPRESSED else (
+            REVIEW_OP_ADD if row.created_at >= started_at else REVIEW_OP_MODIFY
+        )
+        offer(
+            "vocabulary", row.written_form, row.spoken_form, operation,
+            _session_information("vocabulary", row.id), row.pool_id,
+        )
+    for row in changed(ClinicVoiceCommand):
+        operation = REVIEW_OP_DELETE if row.status != COMMAND_STATUS_ACTIVE else (
+            REVIEW_OP_ADD if row.created_at >= started_at else REVIEW_OP_MODIFY
+        )
+        offer(
+            "voice_command", row.trigger_phrase, row.description, operation,
+            _session_information("voice_command", row.id), row.pool_id,
+        )
+
+    before = _WORD.findall(before_text)
+    after = _WORD.findall(after_text)
+    known = {
+        row.written_form.casefold()
+        for row in s.query(ClinicVocabularyEntry).filter(scope_filter(ClinicVocabularyEntry)).all()
+    }
+    for tag, _i1, _i2, j1, j2 in SequenceMatcher(
+        a=before, b=after, autojunk=False,
+    ).get_opcodes():
+        if tag not in ("insert", "replace"):
+            continue
+        for written in after[j1:j2]:
+            if written.casefold() not in known:
+                offer("vocabulary", written, None, REVIEW_OP_ADD)
+    return created
+
+
 def list_review_items(
     user_id: int | None = None, pool_id: str | None = None,
-    status: str | None = REVIEW_STATUS_PENDING, session: Session | None = None,
+    status: str | tuple[str, ...] | None = REVIEW_STATUS_PENDING, session: Session | None = None,
 ) -> list[ClinicVocabularyReviewItem]:
     s = _get_session(session)
     q = s.query(ClinicVocabularyReviewItem)
@@ -423,8 +524,10 @@ def list_review_items(
         q = q.filter_by(user_id=user_id)
     if pool_id is not None:
         q = q.filter_by(pool_id=pool_id)
-    if status is not None:
+    if isinstance(status, str):
         q = q.filter_by(status=status)
+    elif status is not None:
+        q = q.filter(ClinicVocabularyReviewItem.status.in_(status))
     return q.order_by(ClinicVocabularyReviewItem.created_at.desc()).all()
 
 
@@ -445,14 +548,29 @@ def _set_review_status(
 
 
 def _accept_common(item: ClinicVocabularyReviewItem, actor_id: int, scope: str, target_id: Any, action: str, status: str, s: Session) -> ClinicVocabularyReviewItem:
-    if item.status not in (REVIEW_STATUS_PENDING, REVIEW_STATUS_DEFERRED):
+    if item.status not in OPEN_REVIEW_STATUSES:
         raise VocabularyError("invalid_item_status", f"Cannot accept item in status {item.status}.")
-    t_status = STATUS_SUPPRESSED if item.operation == REVIEW_OP_DELETE else STATUS_ACTIVE
     kw = {"user_id": target_id} if scope == "user" else {"pool_id": target_id}
-    entry = add_vocabulary_entry(
-        scope=scope, written_form=item.written_form, spoken_form=item.spoken_form,
-        origin=item.origin, status=t_status, notes=item.information, session=s, **kw,
-    )
+    session_data = _session_information_data(item)
+    if session_data.get(_SESSION_RESOURCE) == "voice_command":
+        source = s.get(ClinicVoiceCommand, session_data.get(_SESSION_SOURCE))
+        if source is None:
+            raise VocabularyError("entry_not_found", "Source voice command not found.")
+        entry = add_voice_command(
+            scope=scope, trigger_phrase=item.written_form,
+            action_type=source.action_type, action_payload=source.action_payload,
+            description=source.description, before_hook=source.before_hook,
+            after_hook=source.after_hook, origin=item.origin,
+            status=COMMAND_STATUS_DISABLED if item.operation == REVIEW_OP_DELETE else COMMAND_STATUS_ACTIVE,
+            session=s, **kw,
+        )
+    else:
+        entry = add_vocabulary_entry(
+            scope=scope, written_form=item.written_form, spoken_form=item.spoken_form,
+            origin=item.origin,
+            status=STATUS_SUPPRESSED if item.operation == REVIEW_OP_DELETE else STATUS_ACTIVE,
+            notes=None if session_data else item.information, session=s, **kw,
+        )
     item.target_entry_id = entry.id
     if scope == "pool":
         item.target_pool_id = target_id
@@ -513,7 +631,10 @@ def undo_decision(item_id: str, actor_id: int, session: Session | None = None) -
 
     old_status = item.status
     if item.target_entry_id:
-        entry = s.get(ClinicVocabularyEntry, item.target_entry_id)
+        model = ClinicVoiceCommand if (
+            _session_information_data(item).get(_SESSION_RESOURCE) == "voice_command"
+        ) else ClinicVocabularyEntry
+        entry = s.get(model, item.target_entry_id)
         if entry is not None:
             s.delete(entry)
         item.target_entry_id = item.target_pool_id = None
@@ -617,6 +738,9 @@ def get_effective_pronunciation_hints(
 # form; skip keeps the row; error raises duplicate_entry. Empty written form or a form over
 # 255 characters is listed in errors and the import continues.
 _MAX_FORM = 255
+_WORD = re.compile(r"[^\W_]+(?:[-'’][^\W_]+)*", re.UNICODE)
+_SESSION_RESOURCE = "session_resource"
+_SESSION_SOURCE = "source_id"
 
 def _vocab_line(written: str, spoken: str | None) -> str:
     return f"{written}\t{spoken}" if spoken else written

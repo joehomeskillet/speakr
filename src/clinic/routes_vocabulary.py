@@ -30,8 +30,10 @@ from flask_wtf.csrf import CSRFError, validate_csrf
 from sqlalchemy.exc import IntegrityError
 from wtforms.validators import ValidationError
 
-from src.clinic import pool_policy, vocabulary
+from src.clinic import caution_rules, caution_words, pool_policy, vocabulary
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.identity import ClinicAccountPolicy
+from src.clinic.pools import ClinicAuthorPool
 from src.database import db
 
 PREFIX = "/api/clinic/v1/vocabulary"
@@ -140,6 +142,10 @@ class VocabularyApi:
             ("/export", "export", self._export, "GET"),
             ("/import", "import_text", self._import, "POST"),
             ("/additions", "additions", self._add, "POST"),
+            ("/caution-words", "caution_list", self._caution_list, "GET"),
+            ("/caution-words/global", "caution_publish_global", self._caution_publish_global, "POST"),
+            ("/caution-words/pool", "caution_publish_pool", self._caution_publish_pool, "POST"),
+            ("/caution-words/preview", "caution_preview", self._caution_preview, "POST"),
             ("/entries/<entry_id>", "edit_entry", self._edit, "PUT"),
             ("/entries/<entry_id>/suppress", "suppress", lambda entry_id: self._toggle(entry_id, True), "POST"),
             ("/entries/<entry_id>/reactivate", "reactivate", lambda entry_id: self._toggle(entry_id, False), "POST"),
@@ -172,6 +178,12 @@ class VocabularyApi:
             except vocabulary.VocabularyError as error:
                 db.session.rollback()
                 return _problem("duplicate_entry" if error.code == "duplicate_entry" else "invalid_payload")
+            except caution_rules.StaleVersion as error:
+                db.session.rollback()
+                return _problem("stale_version", current_version=error.version)
+            except caution_rules.CautionRuleError:
+                db.session.rollback()
+                return _problem("invalid_payload")
         run.__name__ = view.__name__ if hasattr(view, "__name__") else "view"
         return run
 
@@ -188,6 +200,14 @@ class VocabularyApi:
         raise ApiError("invalid_payload")
 
     def _search(self):
+        def response(*, entries):
+            pool_id = request.args.get("pool_id")
+            can_write = pool_id is None or self._can_write_pool(current_user.id, pool_id)
+            return jsonify(entries=entries, can_write=can_write)
+
+        return self._search_entries(response)
+
+    def _search_entries(self, jsonify):
         args = request.args
         mode = args.get("mode", "contains")
         status = args.get("status", "active")
@@ -314,6 +334,84 @@ class VocabularyApi:
         entry = change(entry.id)
         db.session.commit()
         return jsonify(entry=_entry_json(entry))
+
+    # --- Caution words (PAR-VOC-004, Q-19): site-admin baseline, separately authorized pool additions ---
+
+    @staticmethod
+    def _site_admin() -> bool:
+        account = db.session.get(ClinicAccountPolicy, current_user.id)
+        return bool(getattr(current_user, "is_admin", False)) and (account is None or account.status == "active")
+
+    def _caution_pool(self, pool_id: Any, write: bool) -> str:
+        """Pool readers are members or pool writers; only pool writers publish. Checked live."""
+        if not isinstance(pool_id, str) or not pool_id:
+            raise ApiError("invalid_payload")
+        if db.session.get(ClinicAuthorPool, pool_id) is None:
+            raise ApiError("unauthorized")
+        writer = self._can_write_pool(current_user.id, pool_id)
+        if not (writer or (not write and pool_id in pool_policy.author_pool_ids(current_user.id))):
+            raise ApiError("unauthorized")
+        return pool_id
+
+    def _caution_pools(self) -> list[dict[str, str]]:
+        actor_id = current_user.id
+        member_pools = pool_policy.author_pool_ids(actor_id)
+        return [
+            {"id": pool_id, "name": name}
+            for pool_id, name in db.session.query(ClinicAuthorPool.id, ClinicAuthorPool.name)
+            .order_by(ClinicAuthorPool.name)
+            if pool_id in member_pools or self._can_write_pool(actor_id, pool_id)
+        ]
+
+    @staticmethod
+    def _rule_json(rules: caution_rules.RuleList) -> dict[str, Any]:
+        return {"version": rules.version, "words": list(rules.words), "published_by": rules.published_by,
+                "published_at": rules.published_at.isoformat() if rules.published_at else None}
+
+    def _caution_list(self):
+        scope, pool_id = request.args.get("scope"), request.args.get("pool_id")
+        if scope == "global" and pool_id is None:
+            key = caution_rules.GLOBAL_KEY
+        elif scope == "pool":
+            key = caution_rules.pool_key(self._caution_pool(pool_id, write=False))
+        else:
+            raise ApiError("invalid_payload")
+        versions = [self._rule_json(row) for row in caution_rules.history(key)]
+        extra = {"pools": self._caution_pools()} if scope == "global" else {}
+        return jsonify(scope=scope, pool_id=pool_id, can_write=self._site_admin() if scope == "global"
+                       else self._can_write_pool(current_user.id, pool_id),
+                       **(versions[0] if versions else self._rule_json(caution_rules.current(key))),
+                       history=[{k: v[k] for k in ("version", "published_by", "published_at")}
+                                | {"count": len(v["words"])} for v in versions], **extra)
+
+    def _publish(self, key: str, scope: str, pool_id: str | None, body: dict[str, Any]):
+        rules = caution_rules.publish(key, body.get("words"), current_user.id, body.get("expected_version"))
+        return jsonify(scope=scope, pool_id=pool_id, **self._rule_json(rules)), 201
+
+    def _caution_publish_global(self):
+        body = _body()
+        if body.keys() - {"words", "expected_version"}:
+            raise ApiError("invalid_payload")
+        if not self._site_admin():
+            raise ApiError("unauthorized")
+        return self._publish(caution_rules.GLOBAL_KEY, "global", None, body)
+
+    def _caution_publish_pool(self):
+        body = _body()
+        if body.keys() - {"pool_id", "words", "expected_version"}:
+            raise ApiError("invalid_payload")
+        pool_id = self._caution_pool(body.get("pool_id"), write=True)
+        return self._publish(caution_rules.pool_key(pool_id), "pool", pool_id, body)
+
+    def _caution_preview(self):
+        """Run the W11 matcher on a sample text with the effective list; no marker is created."""
+        body = _body()
+        text = body.get("text")
+        if body.keys() - {"pool_id", "text"} or not isinstance(text, str) or len(text) > MAX_BODY_BYTES // 4:
+            raise ApiError("invalid_payload")
+        rule_set = caution_rules.effective_rule_set(self._caution_pool(body.get("pool_id"), write=False))
+        return jsonify(version=rule_set.version, hits=[
+            {"word": word, "offset": offset} for word, offset in caution_words.find_hits(text, rule_set.words)])
 
     def _permitted(self, entry: vocabulary.ClinicVocabularyEntry) -> bool:
         """True when the caller may write this entry. Failures stay a 404, as on a single toggle."""

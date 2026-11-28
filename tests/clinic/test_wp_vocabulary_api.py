@@ -255,6 +255,14 @@ def test_pool_membership_and_write_policy(world):
     assert c3.get(f"{PREFIX}/search?scope=pool&pool_id={pid}").status_code == 403
 
 
+def test_search_reports_write_permission_even_for_empty_pool(world):
+    query = f"{PREFIX}/search?scope=pool&pool_id={world['pool'].id}"
+    writer, _ = world["client"](world["author"])
+    assert writer.get(query).json == {"entries": [], "can_write": True}
+    reader, _ = world["client"](world["other"])
+    assert reader.get(query).json == {"entries": [], "can_write": False}
+
+
 def test_foreign_user_entry_is_hidden(world):
     c, h = world["client"](world["author"])
     entry = _add(c, h, scope="user", written="Privat").json["entry"]
