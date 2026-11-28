@@ -226,6 +226,26 @@ def test_docx_template_can_be_placed_in_an_approved_alias(world, monkeypatch, tm
     assert 'Einleitung' in _body_text(placed) and 'Befundzeile eins' in _body_text(placed)
 
 
+def test_named_docx_download_keeps_template_identity_in_output_targets(world):
+    row = _template(world, _docx('Einleitung', MARK), mime=DOCX_MIME)
+    client, response = _post(world, world['author'], {
+        'format': 'docx', 'template_id': row.id, 'text_mode': 'plain',
+        'manual_name': 'Bericht', 'browser_download': True,
+    })
+    assert response.status_code == 201, response.json
+    base = f"/api/clinic/v1/dictations/{world['dictation']}"
+    targets = client.get(f'{base}/output-targets?file_formats=all')
+    assert targets.status_code == 200
+    docx = next(target for target in targets.json['targets'] if target['id'] == 'docx')
+    assert (docx['job_id'], docx['template_id'], docx['text_mode'], docx['filename']) == (
+        response.json['id'], row.id, 'plain', 'Bericht.docx',
+    )
+    download = client.get(f"{base}/exports/{docx['job_id']}/download")
+    assert download.status_code == 200
+    assert download.headers['Content-Disposition'] == 'attachment; filename="Bericht.docx"'
+    assert 'Einleitung' in _body_text(download.data) and 'Befundzeile eins' in _body_text(download.data)
+
+
 def test_docx_inserts_plain_text_at_mark_and_keeps_header_and_footer(world):
     original = _docx("Einleitung", MARK, "Schluss")
     row = _template(world, original, mime=DOCX_MIME)
