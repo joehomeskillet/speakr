@@ -360,7 +360,7 @@ export function createOutputViewController(options) {
                 applyJob(target.id, {
                     id: target.job_id, kind: 'file', status: target.status,
                     filename: target.filename,
-                }, key);
+                }, key, true);
             }
         }
         if (opts.includePreferences) {
@@ -458,7 +458,7 @@ export function createOutputViewController(options) {
         readyBySelection.set(updated.selectionKey, updated);
     }
 
-    function applyJob(format, job, key) {
+    function applyJob(format, job, key, showFilename = false) {
         const current = currentSelectionKey(format) === key;
         if (job.destination?.outcome === 'created') {
             if (current) {
@@ -473,7 +473,7 @@ export function createOutputViewController(options) {
             return;
         }
         const known = JOB_STATUS[job.status] || JOB_STATUS.unknown;
-        const label = opts.fileOptions && job.status === 'ready' && job.filename && JSON.parse(key).browser_download
+        const label = opts.fileOptions && job.status === 'ready' && job.filename && showFilename
             ? known.label + ': ' + job.filename : known.label;
         const result = resultView(job.status, label, known.surface, job, { selectionKey: key });
         if (job.status === 'ready' && job.kind === 'file' && job.id && !job.destination) {
@@ -544,7 +544,7 @@ export function createOutputViewController(options) {
             });
             if (res.outcome === 'ok' && res.data) {
                 if (opts.fileOptions || res.data.status === 'failed') keys.delete(keyId);
-                applyJob(format, res.data, keyId);
+                applyJob(format, res.data, keyId, body.browser_download === true);
             } else {
                 let status = res.outcome;
                 let failure;

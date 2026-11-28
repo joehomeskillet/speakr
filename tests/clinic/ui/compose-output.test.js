@@ -297,6 +297,33 @@ describe('compose-output', () => {
         const alias = { name: 'team', label: 'Teamablage' };
         const catalog = ok({ destinations: [alias] });
 
+        it('applies the current naming and server options to every selected file format', async () => {
+            const client = fakeClient({
+                targets: ok(TARGETS('r1')),
+                catalog,
+                preferences: () => ok({ formats: ['txt', 'docx', 'kis_draft'] }),
+                exportResult: ({ body: { format } }) => format === 'txt'
+                    ? ok(job({ format, destination: { outcome: 'created', filename: 'Autor - Titel.txt', label: alias.label } }), 201)
+                    : fail('conflict', 409, 'NAME_COLLISION'),
+            });
+            const c = await loaded(client, { fileOptions: true, includeAllFileFormats: true, includePreferences: true });
+            c.destination.value = alias.name;
+            c.nameMode.value = 'filename_pattern';
+            c.filename.value = '%A - %T';
+            c.collisionPolicy.value = 'unique_name';
+
+            await c.exportSelected();
+
+            expect(posts(client).map(({ options }) => options.body)).toEqual(['txt', 'docx'].map((format) => ({
+                revision_id: 'r1', format, filename_pattern: '%A - %T',
+                destination_alias: alias.name, collision_policy: 'unique_name',
+            })));
+            expect(c.results.value.txt.label).toBe('Abgelegt: Autor - Titel.txt – Teamablage');
+            expect(c.results.value.docx.phase).toBe('NAME_COLLISION');
+            expect(c.results.value.kis.phase).toBe('unavailable');
+            expect(c.downloadUrl('txt')).toBeNull();
+        });
+
         it('loads the approved aliases only when file options are enabled', async () => {
             const client = fakeClient({ targets: ok(TARGETS('r1')), catalog });
             await loaded(client);
@@ -395,8 +422,11 @@ describe('compose-output', () => {
             expect(labels.size).toBe(cases.length);
         });
 
-        it('does not repeat an ambiguous server placement even after changing the filename', async () => {
-            const client = fakeClient({ targets: ok(TARGETS('r1')), catalog, exportResult: fail('network', null) });
+        it.each([
+            ['network response', () => fail('network', null)],
+            ['request rejection', async () => { throw new Error('connection lost'); }],
+        ])('does not repeat an ambiguous server placement after a %s', async (_description, exportResult) => {
+            const client = fakeClient({ targets: ok(TARGETS('r1')), catalog, exportResult });
             const c = await loaded(client, { fileOptions: true });
             c.destination.value = alias.name;
             await c.exportTo('docx');
