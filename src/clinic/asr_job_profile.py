@@ -206,16 +206,20 @@ def resolve_asr_job_profile(
             {"language": profile.language, "model": profile.model},
         )
 
-    source = profile.options.get("source")
+    options = profile.options
+    separate = options.get("separate_offline_profile") is True
+    source = options.get("source")
     if source not in SOURCES:
         code = "source_missing" if source is None else "source_invalid"
         raise AsrJobProfileError(code, {"source": source})
-    if profile.options.get("separate_offline_profile") is True:
-        # One stored body cannot honestly be two profiles.
+    if separate and options.get("batch_source") not in SOURCES:
         raise AsrJobProfileError(
             "separate_profile_incomplete",
             {"profile_id": profile.id, "profile_version": profile.version},
         )
+
+    if separate and mode == "batch":
+        source = options["batch_source"]
 
     target = asr_capability_target(profile.language, profile.model)
     capability = AsrCapability.BATCH if mode == "batch" else AsrCapability.LIVE
@@ -237,7 +241,7 @@ def resolve_asr_job_profile(
         profile_id=profile.id,
         profile_version=profile.version,
         mode=mode,
-        shared=True,
+        shared=not separate,
         source=source,
         language=profile.language,
         model=profile.model,
@@ -245,7 +249,7 @@ def resolve_asr_job_profile(
         decoder=target.engine,
         engine_revision=target.engine_revision,
         audio_format=audio_format,
-        parameters=dict(profile.options),
+        parameters={**options, "source": source},
         parameter_version=profile.version,
         hotwords=hotwords,
         hotword_set_revisions=_bound_revisions(profile),
