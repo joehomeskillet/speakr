@@ -111,7 +111,7 @@ def test_header_new_recording_is_hidden_only_on_recorder(live_server, width: int
         browser = _launch(p)
         try:
             page = _start(browser, base, dictation, width, height)
-            page.route("**/api/config?recording_preflight=1", lambda route: route.fulfill(json={"routable": True}))
+            page.route("**/api/clinic/v1/recording-takes/preflight", lambda route: route.fulfill(json={"routable": True}))
             new = page.get_by_role("link", name="Neue Aufnahme", exact=True).and_(page.get_by_test_id("nav-clinic-new"))
             expect(new).to_be_visible()
             new.click()
