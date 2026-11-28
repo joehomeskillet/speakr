@@ -70,6 +70,7 @@ def iter_speaches_events(
     timeout: float,
     hotwords: list[str] | None,
     should_cancel: Callable[[], bool] | None,
+    manual_turn: bool = False,
 ) -> Iterator[dict]:
     """Yield partial and final events as the peer sends them.
 
@@ -101,13 +102,13 @@ def iter_speaches_events(
         _send_all(
             sock,
             ws.send(TextMessage(
-                data=_session_update(chosen, chosen_language, hotwords or []),
+                data=_session_update(chosen, chosen_language, hotwords or [], manual_turn),
             )),
             deadline,
         )
-        _await_session(sock, ws, deadline, chosen, chosen_language)
+        _await_session(sock, ws, deadline, chosen, chosen_language, manual_turn)
         yield from _exchange(
-            sock, ws, audio, deadline, should_cancel, stop,
+            sock, ws, audio, deadline, should_cancel, stop, manual_turn,
         )
     except TranscriptionError:
         raise
@@ -176,7 +177,7 @@ def _connect(scheme: str, host: str, port: int, deadline: float) -> socket.socke
         raise
 
 
-def _session_update(model: str, language: str, hotwords: list[str]) -> str:
+def _session_update(model: str, language: str, hotwords: list[str], manual_turn: bool) -> str:
     transcription: dict = {"model": model, "language": language}
     if hotwords:
         transcription["prompt"] = "Keywords: " + ", ".join(hotwords)
@@ -187,7 +188,7 @@ def _session_update(model: str, language: str, hotwords: list[str]) -> str:
             "modalities": ["text"],
             "input_audio_format": "pcm16",
             "input_audio_transcription": transcription,
-            "turn_detection": {
+            "turn_detection": None if manual_turn else {
                 "type": "server_vad",
                 "create_response": False,
             },
@@ -241,6 +242,7 @@ def _await_session(
     deadline: float,
     model: str,
     language: str,
+    manual_turn: bool,
 ) -> None:
     fragments: list[str] = []
     while time.monotonic() < deadline:
@@ -269,7 +271,7 @@ def _await_session(
                 raise TranscriptionError(
                     "CAPABILITY_UNAVAILABLE: " + _error_text(payload)
                 )
-            verdict = _ack_ok(payload, model, language)
+            verdict = _ack_ok(payload, model, language, manual_turn)
             if verdict is True:
                 return
             if verdict is False:
@@ -281,7 +283,7 @@ def _await_session(
     )
 
 
-def _ack_ok(payload: dict, model: str, language: str) -> bool | None:
+def _ack_ok(payload: dict, model: str, language: str, manual_turn: bool) -> bool | None:
     if payload.get("type") != "session.updated":
         return None
     session = payload.get("session") or {}
@@ -294,6 +296,8 @@ def _ack_ok(payload: dict, model: str, language: str) -> bool | None:
     if echoed not in (None, language):
         return False
     turn = session.get("turn_detection")
+    if manual_turn and ("turn_detection" not in session or turn is not None):
+        return False
     if isinstance(turn, dict) and turn.get("create_response") is True:
         return False
     modalities = session.get("modalities")
@@ -313,6 +317,7 @@ def _exchange(
     deadline: float,
     should_cancel: Callable[[], bool] | None,
     stop: threading.Event,
+    manual_turn: bool,
 ) -> Iterator[dict]:
     sock.setblocking(False)
     pending = bytearray()
@@ -350,7 +355,7 @@ def _exchange(
                 elif item is not _WAITING:
                     pending.extend(ws.send(TextMessage(data=_append(item))))
             _flush(sock, pending, deadline)
-            wait = remaining if commit_sent and not pending else min(0.05, remaining)
+            wait = remaining if commit_sent and not pending and should_cancel is None else min(0.05, remaining)
             readable, _, _ = _select_read(sock, wait)
             if not readable:
                 continue
@@ -371,6 +376,8 @@ def _exchange(
                     )
                 if kind == "error":
                     raise TranscriptionError("CAPABILITY_UNAVAILABLE: " + text)
+                if manual_turn and kind == "final" and not commit_sent:
+                    raise TranscriptionError("CAPABILITY_UNAVAILABLE: realtime final preceded the audio commit")
                 seq += 1
                 yield {"event": kind, "seq": seq, "text": text}
                 if kind == "final":

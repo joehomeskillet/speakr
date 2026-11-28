@@ -1454,6 +1454,7 @@ def register_clinic_audio(flask_app):
     from src.clinic.admin_dictation_access import can_open_content
     from src.clinic.draft_store import DraftStore
     from src.clinic.ingest import IngestService
+    from src.clinic.live_asr_adapter import LiveAsrAdapter, get_live_asr_config
     from src.clinic.models import ClinicDictation
     from src.clinic import routes_live_drafts
 
@@ -1511,7 +1512,7 @@ def register_clinic_audio(flask_app):
         return may(actor, 'edit', db.session.get(ClinicDictation, dictation_id))
 
     drafts = DraftStore()
-    routes_live.register_live_commands(dispatch, edit_live)
+    routes_live.register_live_commands(dispatch, edit_live, stream_enabled=True)
     flask_app.register_blueprint(routes_audio.create_blueprint(
         authorize=authorize, run_once=run_once, load_sources=load_sources))
     flask_app.register_blueprint(routes_dictation_properties.DictationPropertyRoutes(protection_store).blueprint())
@@ -1520,7 +1521,8 @@ def register_clinic_audio(flask_app):
         bundle_persist, lambda scope, digest, operation: bundle_store.run_locked(scope, digest, operation, run_once, may),
         managed_client))
     flask_app.register_blueprint(routes_live.create_blueprint(
-        edit_live, IngestService(startup.originals_root(flask_app)), drafts=drafts))
+        edit_live, IngestService(startup.originals_root(flask_app)), drafts=drafts,
+        stream_adapter=lambda: LiveAsrAdapter(get_live_asr_config())))
     flask_app.register_blueprint(routes_live_drafts.create_blueprint(drafts, edit_live))
     flask_app.register_blueprint(routes_correction.create_blueprint(
         authorize=lambda user, name, dictation: may(user.id, name, dictation),

@@ -352,6 +352,7 @@ class LiveAsrAdapter(BaseTranscriptionConnector):
             timeout=timeout,
             hotwords=hotwords,
             should_cancel=getattr(request, 'should_cancel', None),
+            manual_turn=request.extra_options.get('manual_turn', False),
         )
 
     def _request_recognition(
