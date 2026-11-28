@@ -35,11 +35,12 @@ import { FOCUS_INDICATOR, surfaceFor } from './tokens.js';
 import { CorrectionAudioPanel, DictationSummary, createCorrectionToolbar, useCorrectionEditor, vTip, createRepeatTranscription, REPEAT_TEXT } from './correction-editor-ui.js';
 import { LABELS as ALIGN_LABELS, createPlaybackHighlighter, useCorrectionAlignment } from './correction-alignment-ui.js';
 import { CorrectionWaveform } from './correction-waveform-ui.js';
-import { PlaybackTempo, usePlaybackTempo } from './playback-tempo-ui.js';
+import { PlaybackTempo, TEMPO_MAX, TEMPO_MIN, usePlaybackTempo } from './playback-tempo-ui.js';
 import { MODES, useCorrectionModes } from './correction-modes-ui.js';
 import { useCorrectionSave } from './correction-save-ui.js';
 import { AudioMarkers } from './audio-markers-ui.js';
 import { PlaybackGain, usePlaybackGain } from './playback-gain-ui.js';
+import { dispatchBinding, KEY_BINDING_LABELS, KEY_BINDING_SCOPE, useKeyBindings } from './key-bindings-ui.js';
 
 export const COMPOSE_CORRECTION_VERSION = 1;
 
@@ -709,7 +710,9 @@ const LOCAL_CSS = `
 .v8-ui .editor-page .editor-status-right{flex-wrap:wrap;white-space:normal;min-width:0}
 .v8-ui .editor-page .editor-workspace[data-dirty=true] .editor-status>[role=status]{color:var(--v8-text);font-weight:650}
 .v8-ui .editor-page .editor-workspace[data-dirty=true] .status-dot{background:var(--burgundy)}
-.v8-ui .editor-page .shortcut-list kbd{background:var(--v8-s2);color:var(--v8-text);border-color:var(--line)}
+.v8-ui .editor-page .shortcut-list kbd{background:var(--v8-s2);color:var(--v8-text);border-color:var(--line);white-space:normal;overflow-wrap:anywhere}
+.v8-ui .editor-page .shortcut-list dd{min-width:0}
+.v8-ui .editor-page .shortcut-popover .popover-heading button{min-width:48px;min-height:48px}
 .v8-ui .editor-page .live-inline-status .button{min-height:32px;padding:5px 12px;font-size:12px}
 .v8-ui .editor-page .live-inline-status .button:not(.primary){color:var(--v8-text)}
 .v8-ui .editor-page .live-inline-status .button:disabled{opacity:.55}
@@ -789,6 +792,9 @@ export const CorrectionBody = {
             styleEl.textContent = LOCAL_CSS;
             document.head.appendChild(styleEl);
         }
+        // Controller-only callers can supply a minimal Vue facade without reactive/watch.
+        const bindingVue = V.reactive ? V : { reactive: (value) => value, watch: () => () => {}, ...V };
+        const { state: keyBindings } = useKeyBindings(bindingVue, c.client, () => props.currentUser?.id);
         const showDiff = V.ref(false);
         const e = c.editor;
         const a = c.alignment;
@@ -810,6 +816,9 @@ export const CorrectionBody = {
 
         // --- V8 editor chrome: toolbar controller over the text area, view state ---------------------------
         const textEl = V.shallowRef(null);
+        const player = V.shallowRef(null);
+        const audioMarkers = V.shallowRef(null);
+        const markerMessage = V.ref('');
         const fontPx = V.ref(16);
         const focusMode = V.ref(false);
         const shortcutsOpen = V.ref(false);
@@ -855,6 +864,7 @@ export const CorrectionBody = {
         if (typeof V.watch === 'function') {
             V.watch(c.loadGeneration, () => { tb.reset(); });
             V.watch(e.canEdit, () => { tb.refresh(); });
+            V.watch(audioMarkers, () => { markerMessage.value = ''; });
             V.watch([followOn, a.currentWord], ([follow, word]) => {
                 if (!follow || !word || drawer.value) return;
                 const root = c.alignmentRootEl();
@@ -870,9 +880,57 @@ export const CorrectionBody = {
         }
         const setTextEl = (node) => { textEl.value = node && typeof node === 'object' ? node : null; };
         const onTextInput = (event) => { c.onInput(event); tb.notifyChange(); };
+        const onSectionKeydown = (event) => {
+            if (event.defaultPrevented || !event.currentTarget.ownerDocument.hasFocus() || event.repeat) return;
+            if (!event.isComposing && event.keyCode !== 229 && !event.altKey) {
+                if (!event.shiftKey && event.ctrlKey !== event.metaKey && c.onShortcut(event)) return;
+                const key = event.key.toLowerCase();
+                const mod = event.ctrlKey !== event.metaKey;
+                const helpKey = key === 'f1' && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+                const editKey = mod && (key === 'z' || key === 'f' || (!event.shiftKey && ['y', 'h', 'enter'].includes(key)));
+                if ((helpKey || (event.target === textEl.value && editKey)) && tb.shortcut(event)) {
+                    event.preventDefault();
+                    return;
+                }
+            }
+            const actions = {};
+            if (e.canEdit.value && tbState.value.canUndo) actions.undo = tb.undo;
+            if (e.canEdit.value && tbState.value.canRedo) actions.redo = tb.redo;
+            const media = c.audioEl.value;
+            const controls = player.value;
+            const marks = audioMarkers.value;
+            if (e.audio.value.status === 'ready' && media && controls) {
+                actions.play_pause = controls.toggle;
+                if (!media.paused) actions.stop = () => media.pause();
+                const tempo = controls.tempo;
+                if (media.playbackRate < TEMPO_MAX) actions.speed_up = tempo.faster;
+                if (media.playbackRate > TEMPO_MIN) actions.speed_down = tempo.slower;
+                if (Number.isFinite(media.duration)) {
+                    actions.rewind = () => tempo.rewind(c.stepSeconds);
+                    actions.forward = () => tempo.skip(c.stepSeconds);
+                }
+                const position = c.getPositionMs();
+                if (marks && Number.isInteger(position) && position >= 0) {
+                    if (marks.writable && !marks.busy) actions.insert_marker = async () => {
+                        const result = await marks.create({ type: 'SECTION' });
+                        if (marks === audioMarkers.value && result?.message) markerMessage.value = result.message;
+                    };
+                    let previous;
+                    for (const mark of marks.markers) {
+                        if (mark.historical) continue;
+                        if (mark.positionMs < position) previous = mark;
+                        if (mark.positionMs > position) {
+                            actions.next_marker = () => marks.goTo(mark.id);
+                            break;
+                        }
+                    }
+                    if (previous) actions.previous_marker = () => marks.goTo(previous.id);
+                }
+            }
+            if (dispatchBinding(event, event.currentTarget, keyBindings.bindings, actions)) event.stopPropagation();
+        };
         const onTextKeydown = (event) => {
-            c.onKeydown(event);
-            if (tb.shortcut(event) && typeof event.preventDefault === 'function') event.preventDefault();
+            if (!event.defaultPrevented) c.onKeydown(event);
         };
         const onFindKeydown = (event) => {
             if (event.key === 'Enter') { event.preventDefault(); tb.step(event.shiftKey ? -1 : 1); }
@@ -885,10 +943,18 @@ export const CorrectionBody = {
             if (!s.query) return '';
             return s.matches ? (s.current >= 0 ? (s.current + 1) + ' / ' + s.matches : s.matches + ' Treffer') : TEXT.noMatches;
         };
-        const SHORTCUTS = Object.freeze([
-            ['Speichern', 'Strg/Cmd+S'], [TEXT.undo, 'Strg/Cmd+Z'], [TEXT.redo, 'Strg/Cmd+Umschalt+Z'],
-            [TEXT.paragraph, 'Strg/Cmd+Enter'], [TEXT.marker, 'Strg/Cmd+Umschalt+M'], [TEXT.find, 'Strg/Cmd+F'],
+        const bindingKeys = (id) => {
+            const chord = keyBindings.bindings[id];
+            return chord?.startsWith('Pedal:') ? null : chord;
+        };
+        const undoKeys = () => [bindingKeys('undo'), 'Strg/Cmd+Z'].filter(Boolean).join(' / ');
+        const redoKeys = () => [bindingKeys('redo'), 'Strg/Cmd+Umschalt+Z'].filter(Boolean).join(' / ');
+        const playerBindings = ['play_pause', 'stop', 'rewind', 'forward', 'speed_up', 'speed_down', 'insert_marker', 'next_marker', 'previous_marker'];
+        const SHORTCUTS = V.computed(() => [
+            [TEXT.save, 'Strg/Cmd+S'], [TEXT.undo, undoKeys()], [TEXT.redo, redoKeys()],
+            [TEXT.paragraph, 'Strg/Cmd+Enter'], [TEXT.find, 'Strg/Cmd+F'],
             ['Vollbild', 'Strg/Cmd+Umschalt+F'], [TEXT.shortcuts, 'F1'],
+            ...playerBindings.filter(bindingKeys).map((id) => [KEY_BINDING_LABELS[id], bindingKeys(id)]),
         ]);
         const WORKER = { held: TEXT.workerHeld, foreign: TEXT.workerForeign, lost: TEXT.workerLost };
         const workerLabel = () => WORKER[e.lease.value.status] || TEXT.workerFree;
@@ -915,6 +981,7 @@ export const CorrectionBody = {
             formatDictationReference,
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
+            onSectionKeydown, player, audioMarkers, markerMessage, undoKeys, redoKeys, KEY_BINDING_SCOPE,
             onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId, loading: e.loading, error: e.error, manual: e.manual,
@@ -930,7 +997,7 @@ export const CorrectionBody = {
     },
     template: `
 <section class="clinic-correction-view editor-page v8-page" data-testid="clinic-correction-view" :data-open-mode="openMode === 'player' ? 'player' : 'correction'" aria-labelledby="ccv-title" :aria-busy="loading ? 'true' : 'false'"
-         @keydown="c.onShortcut($event)">
+         @keydown.capture="onSectionKeydown">
   <div class="pagehead">
     <div>
       <div class="eyebrow">{{ TEXT.eyebrow }}</div>
@@ -1002,7 +1069,7 @@ export const CorrectionBody = {
     <template v-if="ready">
       <div class="player compact-player" data-testid="player-bar">
         <audio preload="metadata" hidden :ref="c.bindAudio" :src="audio.status === 'ready' ? audio.src : null" :aria-label="TEXT.audio"></audio>
-        <PlaybackTempo v-if="audioEl" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" />
+        <PlaybackTempo v-if="audioEl" ref="player" :audio="audioEl" :step-seconds="c.stepSeconds" :on-sync="c.onSync" />
         <span class="word-sync-controls">
           <span class="tool-wrap" v-tip="{ label: highlightOn ? TEXT.highlightOn : TEXT.highlightOff }">
             <button type="button" class="icon-button" :style="FOCUS" :aria-pressed="String(highlightOn)" :aria-label="highlightOn ? TEXT.highlightOn : TEXT.highlightOff"
@@ -1018,20 +1085,21 @@ export const CorrectionBody = {
         <template v-if="audio.status !== 'ready' && audio.status !== 'idle' && audio.status !== 'loading'">{{ audio.message + ' ' }}</template>
         <span v-if="alignmentNotice" data-testid="alignment-notice">{{ alignmentNotice + ' ' }}</span>
         <span v-if="pedalStatus" data-testid="pedal-status">{{ pedalStatus }}</span>
+        <span v-if="markerMessage">{{ markerMessage }}</span>
       </p>
 
       <div class="editor-document" @keydown.esc="shortcutsOpen = false; templatesOpen = false">
         <div class="editorbar symbol-toolbar" role="toolbar" :aria-label="TEXT.toolbar" data-testid="toolbar">
           <div class="toolbar-group">
-            <span class="tool-wrap" v-tip="{ label: TEXT.undo, keys: 'Strg/Cmd+Z' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.undo"
+            <span class="tool-wrap" v-tip="{ label: TEXT.undo, keys: undoKeys() }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.undo"
                     :aria-disabled="tbState.canUndo ? null : 'true'" data-tool="undo" @click="tb.undo()"><UiIcon name="undo" /></button></span>
-            <span class="tool-wrap" v-tip="{ label: TEXT.redo, keys: 'Strg/Cmd+Umschalt+Z' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.redo"
+            <span class="tool-wrap" v-tip="{ label: TEXT.redo, keys: redoKeys() }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.redo"
                     :aria-disabled="tbState.canRedo ? null : 'true'" data-tool="redo" @click="tb.redo()"><UiIcon name="redo" /></button></span>
           </div>
           <div class="toolbar-group">
             <span class="tool-wrap" v-tip="{ label: TEXT.paragraph, keys: 'Strg/Cmd+Enter' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.paragraph"
                     data-tool="paragraph" @click="tb.insertParagraph()"><UiIcon name="paragraph" /></button></span>
-            <span class="tool-wrap" v-tip="{ label: TEXT.markerTip, keys: 'Strg/Cmd+Umschalt+M' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.marker"
+            <span class="tool-wrap" v-tip="{ label: TEXT.markerTip }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.marker"
                     aria-disabled="true" data-tool="marker" @click="tb.insertMarker()"><UiIcon name="marker" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.templateMenu }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.templateMenu"
                     :aria-expanded="String(templatesOpen)" aria-controls="ccv-templates" :disabled="!canEdit" data-tool="template" @click="templatesOpen = !templatesOpen; shortcutsOpen = false"><UiIcon name="snippet" /></button></span>
@@ -1085,6 +1153,7 @@ export const CorrectionBody = {
           <dl class="shortcut-list">
             <div v-for="row in SHORTCUTS" :key="row[0]"><dt>{{ row[0] }}</dt><dd><kbd>{{ row[1] }}</kbd></dd></div>
           </dl>
+          <p class="hint">{{ KEY_BINDING_SCOPE }}</p>
         </div>
 
         <div v-if="templatesOpen" id="ccv-templates" class="editor-popover" role="dialog" :aria-label="TEXT.templateMenu" data-testid="template-menu" style="left: 13px">
@@ -1212,7 +1281,7 @@ export const CorrectionBody = {
     </div>
     <div v-show="!drawer || drawer === 'marks'" style="display: grid; gap: 20px; min-width: 0">
       <section class="panel">
-        <AudioMarkers :key="'m' + loadGeneration + '-' + revisionGeneration + audio.revisionId" :editor="c.editor" :alignment="c.alignment" :client="c.client"
+        <AudioMarkers ref="audioMarkers" :key="'m' + loadGeneration + '-' + revisionGeneration + audio.revisionId" :editor="c.editor" :alignment="c.alignment" :client="c.client"
                       :dictation-id="dictationId" :get-position-ms="c.getPositionMs" :seek="c.seek" :vue="c.vue" />
       </section>
     </div>

@@ -413,7 +413,9 @@ function fakeVue() {
     return {
         hooks,
         ref: (v) => ({ value: v }),
+        reactive: (v) => v,
         computed: (fn) => ({ get value() { return fn(); } }),
+        watch: (source, fn, options) => { if (options?.immediate) void fn(source()); },
         onMounted: (fn) => hooks.mount.push(fn),
         onBeforeUnmount: (fn) => hooks.unmount.push(fn),
     };
@@ -455,7 +457,7 @@ describe('view registration and setup', () => {
         expect(emit).toHaveBeenCalledWith('open', { dictationId: 'rec-1' });
         expect(view.m.value.created).toEqual({ dictationId: 'rec-1' });
         view.act('nope');
-        await Vue.hooks.unmount[0]();
+        for (const unmount of Vue.hooks.unmount) await unmount();
     });
 
     it('reviews an attached take without restarting capture and exposes playback errors', async () => {
@@ -500,10 +502,12 @@ describe('view registration and setup', () => {
         const player = { duration: 12, currentTime: 0, paused: true,
             play: vi.fn(() => { player.paused = false; }), pause: vi.fn(() => { player.paused = true; }) };
         const view = RecordingView.setup({ currentUser: { id: 2 }, recorder: rec, uploadFile: vi.fn(), vue, player }, {});
-        const doc = { body: {}, addEventListener: vi.fn(), removeEventListener: vi.fn() };
+        const doc = { body: {}, hasFocus: () => true, addEventListener: vi.fn(), removeEventListener: vi.fn() };
         const inside = {};
         view.root.value = { ownerDocument: doc, contains: (target) => target === inside };
-        vue.hooks.mount[0]();
+        vi.stubGlobal('fetch', vi.fn(async () => new Response('{"routable":true}')));
+        for (const mount of vue.hooks.mount) await mount();
+        await view.c.checkRouting();
         const [type, dispatch] = doc.addEventListener.mock.calls[0];
         expect(type).toBe('keydown');
         const press = (key, extra) => dispatch({ key, altKey: true, shiftKey: true, target: inside, preventDefault: vi.fn(), ...extra });
@@ -536,8 +540,38 @@ describe('view registration and setup', () => {
         expect(player.play).toHaveBeenCalledTimes(2);
         expect(player.pause).toHaveBeenCalledTimes(2);
         expect(rec.startRecording).toHaveBeenCalledOnce();
-        await vue.hooks.unmount[0]();
+        for (const unmount of vue.hooks.unmount) await unmount();
         expect(doc.removeEventListener).toHaveBeenCalledWith('keydown', dispatch);
+    });
+
+    it('uses an override only when focused and does not fall back to reassigned Space', async () => {
+        const rec = recorder();
+        const vue = fakeVue();
+        const defaults = { record_toggle: 'Alt+Shift+R', play_pause: 'Alt+Shift+Space' };
+        const client = { request: vi.fn(async () => ({ outcome: 'ok', data: {
+            defaults, bindings: { ...defaults, record_toggle: 'Ctrl+K', play_pause: 'Space' }, version: 1,
+        } })) };
+        const view = RecordingView.setup({ client, currentUser: { id: 2 }, recorder: rec, uploadFile: vi.fn(), vue }, {});
+        const doc = { body: {}, hasFocus: vi.fn(() => false), addEventListener: vi.fn(), removeEventListener: vi.fn() };
+        view.root.value = { ownerDocument: doc, contains: () => false };
+        vi.stubGlobal('fetch', vi.fn(async () => new Response('{"routable":true}')));
+        for (const mount of vue.hooks.mount) await mount();
+        await view.c.checkRouting();
+        const [, dispatch] = doc.addEventListener.mock.calls[0];
+        const preventDefault = vi.fn();
+        const press = (key, extra) => dispatch({ key, target: doc.body, preventDefault, ...extra });
+        expect(view.shortcuts.value.start).toBe('Control+K');
+        await press('k', { ctrlKey: true });
+        doc.hasFocus.mockReturnValue(true);
+        await press('R', { altKey: true, shiftKey: true });
+        await press(' ', { code: 'Space' });
+        expect(preventDefault).not.toHaveBeenCalled();
+        expect(rec.startRecording).not.toHaveBeenCalled();
+        await press('k', { ctrlKey: true });
+        expect(preventDefault).toHaveBeenCalledOnce();
+        expect(rec.startRecording).toHaveBeenCalledOnce();
+        expect(view.m.value.phase).toBe('recording');
+        for (const unmount of vue.hooks.unmount) await unmount();
     });
 
     it('throws without Vue', () => {

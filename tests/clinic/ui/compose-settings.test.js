@@ -96,6 +96,21 @@ describe('settings view composition', () => {
         expect(client.request).toHaveBeenCalledWith('/preferences/correction-mode', undefined);
     });
 
+    it('mounts the per-account shortcuts panel with errors linked to the affected input', async () => {
+        const Vue = fakeVue();
+        const defaults = { play_pause: 'Alt+Shift+Space' };
+        const client = fakeClient((path) => path === '/preferences/key-bindings'
+            ? ok({ bindings: { play_pause: 'Alt+P' }, defaults, version: 1 }) : routes(path));
+        const view = SettingsView.setup({ client, currentUser: { id: 7 }, workstationId: 'ws-1', vue: Vue });
+        const child = view.keyBindings.setup();
+        await Vue.hooks.mounted[0]();
+        expect(child.state.bindings.play_pause).toBe('Alt+P');
+        expect(child.hasOverrides.value).toBe(true);
+        expect(SETTINGS_TEMPLATE).toContain(`:is="keyBindings" :key="'keys:' + state.epoch"`);
+        expect(view.keyBindings.template).toMatch(/state\.errorAction === action[^\n]+role="alert"/);
+        expect(view.keyBindings.template).toMatch(/:aria-describedby="[^\n]+clinic-shortcut-error-/);
+    });
+
     it('shows the 403 state and hides all content', async () => {
         const Vue = fakeVue();
         const client = fakeClient((path) => (path === '/preferences/recipient-default' ? denied : ok({})));

@@ -24,6 +24,7 @@
 import { createPreferencesComponent } from './preferences-ui.js';
 import { createHandmicController } from './handmic-webhid.js';
 import { CorrectionModes } from './correction-modes-ui.js';
+import { captureChord, KEY_BINDING_LABELS, KEY_BINDING_SCOPE, useKeyBindings } from './key-bindings-ui.js';
 import { surfaceFor } from './tokens.js';
 import {
     ACTIONS, TEXT as PEDAL_TEXT, createKeyCapture, loadSettings, normalizeSettings, saveSettings,
@@ -325,6 +326,123 @@ const PEDAL_TEMPLATE = `
   <p v-if="saveError" class="${NOTE_WARNING}" role="alert">{{ labels.notSaved }}</p>
 </section>`;
 
+const KEY_BINDINGS_TEMPLATE = `
+<section ref="panel" class="panel col-span-full" aria-labelledby="clinic-settings-shortcuts-title" data-testid="clinic-settings-key-bindings">
+  <h2 id="clinic-settings-shortcuts-title">Tastenkürzel</h2>
+  <p class="hint">{{ scope }}</p>
+  <p v-if="state.error && state.errorAction == null" id="clinic-shortcut-error" class="${NOTE_BURGUNDY}" role="alert">{{ state.error }}</p>
+  <p v-if="state.version === null && !state.error" class="hint mt-3" role="status">Tastenkürzel werden geladen …</p>
+  <button v-if="state.version === null && state.error" type="button" class="mt-3 !min-h-12" :disabled="state.busy" @click="load()">Erneut laden</button>
+  <template v-if="state.version !== null">
+    <p v-if="!hasOverrides" class="hint mt-3">Keine eigenen Tastenkürzel. Es gelten die Standardwerte.</p>
+    <ul class="mt-3" role="list">
+      <li v-for="(label, action) in actionLabels" :key="action" class="py-2" style="border-bottom: 1px solid var(--line)">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="font-semibold">{{ label }}</span>
+            <kbd v-if="state.bindings[action]" class="tag neutral" style="white-space: normal; overflow-wrap: anywhere">{{ state.bindings[action] }}</kbd>
+            <span v-else class="hint">Nicht zugewiesen</span>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button :id="'clinic-shortcut-edit-' + action" type="button" class="!min-h-12" :disabled="state.busy"
+                    :aria-label="label + ': Kürzel ändern'" :aria-expanded="editing === action"
+                    :aria-controls="editing === action ? 'clinic-shortcut-form-' + action : null" @click="edit(action)">Ändern</button>
+            <button type="button" class="!min-h-12" :disabled="state.busy" :aria-label="label + ': auf Standard zurücksetzen'"
+                    :aria-describedby="state.error && state.errorAction === action ? 'clinic-shortcut-error-' + action : null"
+                    @click="restore(action)">Zurücksetzen</button>
+          </div>
+        </div>
+        <p v-if="state.error && state.errorAction === action" :id="'clinic-shortcut-error-' + action" class="${NOTE_BURGUNDY}" role="alert">{{ state.error }}</p>
+        <p role="status" :class="{ 'note': state.notice && state.noticeAction === action }">{{ state.noticeAction === action ? state.notice : '' }}</p>
+        <form v-if="editing === action" :id="'clinic-shortcut-form-' + action" class="mt-3" @submit.prevent="save(action)">
+          <label class="block font-semibold" :for="'clinic-shortcut-input-' + action">Neues Kürzel für {{ label }}</label>
+          <p id="clinic-shortcut-hint" class="hint mb-2">Kürzel eintippen (z. B. Alt+Shift+P) oder über «Tasten erfassen» drücken.</p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input :id="'clinic-shortcut-input-' + action" v-model="draft" required type="text" class="!min-h-12 min-w-0 sm:!w-64" style="border: 1px solid var(--v8-text-2)"
+                   autocomplete="off" autocapitalize="off" spellcheck="false" :readonly="state.busy"
+                   :aria-invalid="state.error && state.errorAction === action ? 'true' : null"
+                   :aria-describedby="'clinic-shortcut-hint' + (state.error && state.errorAction === action ? ' clinic-shortcut-error-' + action : '')">
+            <button type="button" class="!min-h-12" :disabled="state.busy" :aria-pressed="capturing"
+                    @click="toggleCapture" @keydown="capture" @blur="capturing = false">Tasten erfassen</button>
+            <button type="submit" class="primary !min-h-12" :disabled="state.busy">Speichern</button>
+            <button type="button" class="!min-h-12" :disabled="state.busy" @click="edit(action)">Abbrechen</button>
+          </div>
+          <p class="hint" role="status">{{ capturing ? 'Kürzel jetzt drücken. Mit Esc abbrechen.' : '' }}</p>
+        </form>
+      </li>
+    </ul>
+    <button type="button" class="mt-3 !min-h-12" :disabled="state.busy"
+            :aria-describedby="state.error && state.errorAction == null ? 'clinic-shortcut-error' : null"
+            @click="restore()">Alle Kürzel zurücksetzen</button>
+  </template>
+  <p class="text-status" :class="{ 'note': state.notice && state.noticeAction == null }" role="status">{{ state.noticeAction == null ? state.notice : '' }}</p>
+</section>`;
+
+function createKeyBindingsSettingsComponent(Vue, client, accountId) {
+    return {
+        template: KEY_BINDINGS_TEMPLATE,
+        setup() {
+            const { state, load, set, reset } = useKeyBindings(Vue, client, accountId);
+            const editing = Vue.ref(null);
+            const draft = Vue.ref('');
+            const capturing = Vue.ref(false);
+            const panel = Vue.ref(null);
+            const hasOverrides = Vue.computed(() => Object.keys(KEY_BINDING_LABELS)
+                .some((action) => state.bindings[action] !== state.defaults[action]));
+            const focus = (id) => Vue.nextTick(() => panel.value?.querySelector(`#${id}`)?.focus());
+
+            function edit(action) {
+                capturing.value = false;
+                const closing = editing.value === action;
+                editing.value = closing ? null : action;
+                if (!closing) draft.value = state.bindings[action] ?? '';
+                return focus(`clinic-shortcut-${closing ? 'edit' : 'input'}-${action}`);
+            }
+
+            function toggleCapture(event) {
+                capturing.value = !capturing.value;
+                if (capturing.value) event.currentTarget.focus();
+            }
+
+            function capture(event) {
+                if (!capturing.value || state.busy || event.isComposing || event.repeat) return;
+                if (event.key === 'Tab' || event.key === 'Escape') {
+                    capturing.value = false;
+                    return;
+                }
+                const chord = captureChord(event);
+                if (!chord) return;
+                event.preventDefault();
+                draft.value = chord;
+                capturing.value = false;
+                return focus(`clinic-shortcut-input-${editing.value}`);
+            }
+
+            async function save(action) {
+                if (state.busy || editing.value !== action) return;
+                if (await set(action, draft.value.trim())) await edit(action);
+                else await focus(`clinic-shortcut-input-${action}`);
+            }
+
+            async function restore(action) {
+                if (state.busy) return;
+                const prompt = action == null
+                    ? 'Alle Tastenkürzel auf die Standardwerte zurücksetzen?'
+                    : `Tastenkürzel für «${KEY_BINDING_LABELS[action]}» auf den Standardwert zurücksetzen?`;
+                if (!globalThis.confirm(prompt)) return;
+                if (await reset(action) && editing.value !== null && (action == null || editing.value === action)) {
+                    draft.value = state.bindings[editing.value] ?? '';
+                }
+            }
+
+            return {
+                state, load, actionLabels: KEY_BINDING_LABELS, scope: KEY_BINDING_SCOPE,
+                panel, editing, draft, capturing, hasOverrides, edit, toggleCapture, capture, save, restore,
+            };
+        },
+    };
+}
+
 const HANDMIC_STATUS = Object.freeze({
     disconnected: 'Kein Handmikrofon verbunden.',
     pairing: 'Verbindung wird hergestellt …',
@@ -443,6 +561,7 @@ export const SETTINGS_TEMPLATE = `
         <section class="panel clinic-settings-correction ${CHOICES} [&_legend]:!text-[16px] [&_legend]:!mb-[14px] [&_legend]:tracking-[-0.2px] [&_[role=alert]]:mt-3 [&_[role=alert]]:rounded-lg [&_[role=alert]]:border [&_[role=alert]]:border-[color:var(--line)] [&_[role=alert]]:bg-[var(--v8-s2)] [&_[role=alert]]:p-3 [&_[role=alert]]:text-xs [&_.clinic-correction-mode]:grid [&_.clinic-correction-mode]:grid-cols-[auto_1fr] [&_.clinic-correction-mode]:gap-x-2 [&_.clinic-correction-mode]:items-baseline [&_.clinic-correction-mode]:text-[13px] [&_.clinic-correction-mode_small]:col-start-2 [&_.clinic-correction-mode_small]:text-[color:var(--v8-muted)]"><component :is="correction" :audio="audio" :client="client" :vue="vue" :key="'c:' + state.epoch"></component></section>
         <component :is="consent" :key="'v:' + state.epoch"></component>
       </div>
+      <component :is="keyBindings" :key="'keys:' + state.epoch"></component>
       <component :is="pedal"></component>
       <component :is="handmic" :key="'hid:' + state.epoch"></component>
     </div>
@@ -473,13 +592,14 @@ export const SettingsView = {
         const pedal = Vue.markRaw(createPedalSettingsComponent(Vue));
         const handmic = Vue.markRaw(createHandmicSettingsComponent(Vue, globalThis.navigator?.hid));
         const consent = Vue.markRaw(createConsentComponent(Vue, ctrl.client, { t: props.t }));
+        const keyBindings = Vue.markRaw(createKeyBindingsSettingsComponent(Vue, ctrl.client, () => ctrl.state.userId));
         const s = surfaceFor('error');
         const errorStyle = { background: s.background, color: s.color, borderColor: s.border };
         Vue.watch(() => userIdOf(props.currentUser), () => ctrl.setUser(props.currentUser));
         Vue.onBeforeUnmount(() => ctrl.dispose());
         return {
             state: ctrl.state, labels: LABELS, rows: ctrl.originRows, client: ctrl.client, vue: props.vue,
-            audio: NO_AUDIO, preferences, correction, pedal, handmic, consent, errorStyle,
+            audio: NO_AUDIO, preferences, correction, pedal, handmic, consent, keyBindings, errorStyle,
         };
     },
 };
