@@ -67,17 +67,6 @@ describe('correction editor ui', () => {
         expect(client.switchContext).toHaveBeenCalledWith({ accountId: 7, dictationId: D });
     });
 
-    it('fails closed when the current case no longer has access to templates', async () => {
-        const { editor, client } = make();
-        await editor.load();
-        expect(await editor.applyTemplate('t1')).toMatchObject({ ok: true });
-        client.request.mockResolvedValueOnce(fail('permission', 403));
-        expect(await editor.loadTemplates()).toMatchObject({ ok: false });
-        expect(editor.templates.items).toEqual([]);
-        expect(editor.template.value).toBeNull();
-        expect(client.request).toHaveBeenLastCalledWith('/templates?dictation_id=' + D);
-    });
-
     it('runs in manual mode when ASR produced no text and edits only with the lease', async () => {
         const routes = happy({ ['GET ' + base + '/correction']: ok({ dictation_id: D, text_revision_id: null, text: '', links: [] }) });
         const { editor } = make(routes);
@@ -167,6 +156,17 @@ describe('correction editor ui', () => {
         expect((await down.editor.load()).ok).toBe(true);
         expect(down.editor.templatesError.value).not.toBe('');
         expect(down.editor.text.value).toBe('Befund unauffällig');
+    });
+
+    it('fails closed when the current case no longer has access to templates', async () => {
+        const { editor, client } = make();
+        await editor.load();
+        expect(await editor.applyTemplate('t1')).toMatchObject({ ok: true });
+        client.request.mockResolvedValueOnce(fail('permission', 403));
+        expect(await editor.loadTemplates()).toMatchObject({ ok: false });
+        expect(editor.templates.items).toEqual([]);
+        expect(editor.template.value).toBeNull();
+        expect(client.request).toHaveBeenLastCalledWith('/templates?dictation_id=' + D);
     });
 
     it('retries after a network failure with the same method', async () => {

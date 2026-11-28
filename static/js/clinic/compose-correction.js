@@ -688,6 +688,13 @@ const UiIcon = {
  * and the spacing of the child panels. Tokens only, so light and dark both work.
  */
 const LOCAL_CSS = `
+.v8-ui .editor-page .document-choice{color:var(--v8-text)}
+.v8-ui .document-choice :is(.button,.snippet-option),.v8-ui .editor-page [data-tool=template]{min-height:48px;min-width:48px}
+.v8-ui .document-choice .snippet-option{overflow-wrap:anywhere;display:block}
+.v8-ui .document-choice :is(h3,h4,.document-preview):focus-visible,.v8-ui .document-choice label:focus-within{outline:var(--focus-outline);outline-offset:var(--focus-offset)}
+.v8-ui .document-choice label{cursor:pointer}
+.v8-ui .document-choice .document-preview{white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto;max-height:9lh;padding:10px;border:1px solid var(--line);border-radius:7px;background:var(--v8-s2)}
+.v8-ui .document-choice-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .v8-ui .editor-page :is(.subline,.document-id,.document-context dt,.word-sync-info,.font-size,.template-meta,.editor-status){color:var(--v8-text-2)}
 .v8-ui .editor-page :is(.context-tools,.player-controls,.word-sync-controls) .icon-button:not(:hover):not([aria-pressed=true]):not([aria-expanded=true]){background:transparent;border-color:transparent}
 .v8-ui .editor-page :is(.context-tools,.player-controls,.word-sync-controls) .icon-button:is(:hover,[aria-expanded=true]):not([aria-pressed=true]){background:var(--v8-s2);border-color:var(--line)}
@@ -704,13 +711,6 @@ const LOCAL_CSS = `
 .v8-ui .audio-edit-fields .clinic-audio-edit p {flex-basis:100%;margin:0}
 .v8-ui .editor-page :is(.context-tools,.toolbar-group:last-child,.find-row,.word-sync-controls,.dialoghead,.popover-heading) .tooltip{left:auto;right:0;transform:none}
 .v8-ui .editor-page .alignment-text{max-height:8lh;overflow:auto;overflow-wrap:anywhere;white-space:pre-wrap;line-height:1.8;margin:0}
-.v8-ui .editor-page .document-choice{color:var(--v8-text)}
-.v8-ui .document-choice :is(.button,.snippet-option),.v8-ui .editor-page [data-tool=template]{min-height:48px;min-width:48px}
-.v8-ui .document-choice .snippet-option{overflow-wrap:anywhere;display:block}
-.v8-ui .document-choice :is(h3,h4,.document-preview):focus-visible,.v8-ui .document-choice label:focus-within{outline:var(--focus-outline);outline-offset:var(--focus-offset)}
-.v8-ui .document-choice label{cursor:pointer}
-.v8-ui .document-choice .document-preview{white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto;max-height:9lh;padding:10px;border:1px solid var(--line);border-radius:7px;background:var(--v8-s2)}
-.v8-ui .document-choice-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .v8-ui .editor-page .editor-status{flex-wrap:wrap}
 .v8-ui .editor-page .editor-status>[role=status]{flex:1 1 220px;min-width:0}
 .v8-ui .editor-page .editor-status-right{flex-wrap:wrap;white-space:normal;min-width:0}
@@ -1006,7 +1006,7 @@ export const CorrectionBody = {
             onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, choice, choiceHeading, previewHeading, choiceNotice, closeChoice, toggleChoice, chooseSource, chooseFile, insertChoice, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId, loading: e.loading, error: e.error, manual: e.manual,
-            lease: e.lease, audio: e.audio, templates: e.templates, templatesError: e.templatesError,
+            lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
             editorAnnouncement: e.announcement,
             alignStatus: a.status, alignError: a.error, segments: a.segments, currentWord: a.currentWord, alignAnnouncement: a.announcement,
             saveState: s.state, saveMessage: s.message,
