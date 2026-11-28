@@ -7,7 +7,7 @@ author, pool and language columns are not rewritten.
 Version 1 stores an explicit document: each of those fields is ``keep`` or
 ``set``, and ASR is the tri-state ``keep`` / ``enable`` / ``disable``. A set
 recipient must be in the caller-supplied approved set. ``upgrade`` adds the
-two nullable columns to a staging database and leaves old rows untouched.
+nullable metadata and dropfolder ASR selection columns and leaves old rows untouched.
 """
 
 from __future__ import annotations
@@ -22,14 +22,16 @@ from sqlalchemy.engine import Engine
 
 SCHEMA_VERSION = 1
 TABLE = "clinic_import_intent"
-COLUMNS = ("metadata_version", "metadata_json")
+COLUMNS = ("metadata_version", "metadata_json", "asr_profile_id")
 _ADD_SQL = {
     "metadata_version": "ALTER TABLE clinic_import_intent ADD COLUMN metadata_version INTEGER",
     "metadata_json": "ALTER TABLE clinic_import_intent ADD COLUMN metadata_json TEXT",
+    "asr_profile_id": "ALTER TABLE clinic_import_intent ADD COLUMN asr_profile_id VARCHAR(36)",
 }
 _DROP_SQL = {
     "metadata_version": "ALTER TABLE clinic_import_intent DROP COLUMN metadata_version",
     "metadata_json": "ALTER TABLE clinic_import_intent DROP COLUMN metadata_json",
+    "asr_profile_id": "ALTER TABLE clinic_import_intent DROP COLUMN asr_profile_id",
 }
 _INPUT_KEYS = frozenset({"title", "priority", "recipient_user_id", "pool_id", "asr"})
 _ASR = frozenset({"keep", "enable", "disable"})

@@ -86,7 +86,8 @@ def resolve_transcription_model(value):
     return (default or '').strip() or None
 
 
-def resolve_transcription_params(recording=None, overrides=None, *, tags=None, folder=None, owner=None):
+def resolve_transcription_params(recording=None, overrides=None, *, tags=None, folder=None, owner=None,
+                                 clinic_asr_profile_id=None):
     """Resolve the complete transcribe job params for a recording.
 
     Args:
@@ -106,6 +107,7 @@ def resolve_transcription_params(recording=None, overrides=None, *, tags=None, f
             ABSENT, the first tag's id is used.
         tags / folder / owner: explicit context, used when ``recording`` is not
             passed. Ordered ``tags`` list; ``folder`` and ``owner`` objects.
+        clinic_asr_profile_id: profile selected by trusted clinic import policy.
 
     Returns:
         dict with keys language, min_speakers, max_speakers, tag_id, hotwords,
@@ -240,6 +242,7 @@ def resolve_transcription_params(recording=None, overrides=None, *, tags=None, f
     if clinic_mode_enabled():
         _apply_clinic_profile(
             result, overrides, owner, force_auto_language=force_auto_language,
+            profile_id=clinic_asr_profile_id,
         )
     return result
 
@@ -301,7 +304,7 @@ def _capability_extras(registry, target, record):
         record['checkpoint'] = {'status': CAPABILITY_UNAVAILABLE}
 
 
-def _apply_clinic_profile(result, overrides, owner, *, force_auto_language):
+def _apply_clinic_profile(result, overrides, owner, *, force_auto_language, profile_id=None):
     """Apply the clinic ASR defaults and the owner's server profile in place.
 
     Never raises for a missing, stale or unproven profile: core local GPU/CPU
@@ -324,7 +327,10 @@ def _apply_clinic_profile(result, overrides, owner, *, force_auto_language):
     if owner_id is not None:
         registry = current_app.extensions.get('clinic_capability_registry') or AsrCapabilityRegistry()
         try:
-            resolved = resolve_asr_job_profile(owner_id, 'batch', _JOB_FORMATS, registry)
+            resolved = resolve_asr_job_profile(
+                owner_id, 'batch', _JOB_FORMATS, registry, expected_profile_id=profile_id,
+                language_override=result['language'] if profile_id is not None and overrides.get('language') else None,
+            )
         except AsrJobProfileError as exc:
             record['status'] = exc.code
         else:
