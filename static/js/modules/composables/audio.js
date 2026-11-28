@@ -40,7 +40,7 @@ export async function acquireMicrophoneStream(mediaDevices, options = {}) {
         });
         return { stream, requestedDeviceId: deviceId, usedFallback: false, originalError: null };
     } catch (error) {
-        if (!deviceId || !isUnavailableAudioInputError(error)) throw error;
+        if (!deviceId || options.requireDevice || !isUnavailableAudioInputError(error)) throw error;
 
         const stream = await mediaDevices.getUserMedia({
             audio: buildMicrophoneConstraints('', disableAudioProcessing)
@@ -639,7 +639,8 @@ export function useAudio(state, utils) {
                 // grant initiated by the user's click.
                 let primaryResult = await acquireMicrophoneStream(navigator.mediaDevices, {
                     deviceId: primaryDeviceId,
-                    disableAudioProcessing: skipProc
+                    disableAudioProcessing: skipProc,
+                    requireDevice: clinicTake
                 });
                 let micStreamA = primaryResult.stream;
                 activeStreams.value = [micStreamA];
@@ -698,7 +699,7 @@ export function useAudio(state, utils) {
                 }
 
                 const secondaryDeviceId = (selectedSecondaryDeviceId && selectedSecondaryDeviceId.value) || '';
-                const wantsMix = !!secondaryDeviceId && secondaryDeviceId !== primaryDeviceId;
+                const wantsMix = !clinicTake && !!secondaryDeviceId && secondaryDeviceId !== primaryDeviceId;
                 audioContext.value = new (window.AudioContext || window.webkitAudioContext)();
 
                 if (wantsMix) {
