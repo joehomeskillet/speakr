@@ -50,6 +50,7 @@ from src.clinic.workstation_preferences import (
     PreferenceError,
     StaleVersion,
     WorkstationPreferences,
+    session_transport_status,
 )
 from src.config.ui_themes import DEFAULT_AUDIO_PLAYER_POSITION, DEFAULT_COLOR_SCHEME, DEFAULT_THEME
 from src.database import db
@@ -224,7 +225,7 @@ class PreferenceRoutes:
             ("/recipient-default", "recipient_default", self._recipient_default, ("GET", "PUT")),
             ("/recipient-default/resolve", "recipient_resolve", self._recipient_resolve, ("POST",)),
             ("/last-selection", "last_selection", self._last_selection, ("GET", "PUT")),
-            ("/workstations", "workstation_issue", self._workstation_issue, ("POST",)),
+            ("/workstations", "workstation_issue", self._workstation_issue, ("GET", "POST")),
             ("/workstations/<workstation_id>", "workstation", self._workstation, ("GET", "PUT")),
             ("/workstation-locks/<key>", "workstation_lock", self._workstation_lock, ("PUT", "DELETE")),
             ("/central", "central", self._central, ("GET",)),
@@ -350,6 +351,9 @@ class PreferenceRoutes:
 
     # -- workstation --------------------------------------------------------
     def _workstation_issue(self):
+        if request.method in {"GET", "HEAD"}:
+            return jsonify(session_transport_status())
+
         body = request.get_json(silent=True)
         if not isinstance(body, dict) or body.get("reuse") is not True:
             return jsonify(workstation_id=self._workstations.issue(current_user)), 201
