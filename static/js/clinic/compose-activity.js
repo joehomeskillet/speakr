@@ -28,6 +28,11 @@ import { createHistoryComponent } from './history-ui.js';
 import { formatAudioDuration } from './worklist-ui.js';
 
 export const STATISTICS_PATH = '/statistics/aggregates';
+const COLLECTION_PATH = '/statistics/collection';
+const COLLECTION_KINDS = Object.freeze([
+    { kind: 'usage', label: 'Anwendungsnutzung' },
+    { kind: 'history', label: 'Diktatverlauf' },
+]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -172,6 +177,35 @@ export function buildStatisticsView(data) {
     };
 }
 
+function validRetention(days) {
+    return Number.isInteger(days) && days >= 1 && days <= 3650;
+}
+
+function validPolicy(policy) {
+    return typeof policy?.enabled === 'boolean' && (validRetention(policy.retention_days)
+        || (!policy.enabled && policy.retention_days === null));
+}
+
+function collectionStatus(result) {
+    const period = result.data;
+    if (result.outcome !== 'ok' || !period) return { label: 'Nicht verfügbar' };
+    if (period.coverage === 'uncollected' && period.count === null) return { label: LABELS.notCollected, warning: true };
+    if (!['partial', 'collected'].includes(period.coverage) || !Number.isInteger(period.count) || period.count < 0) {
+        return { label: 'Nicht verfügbar' };
+    }
+    return {
+        label: period.coverage === 'partial' ? 'Teilweise erhoben' : 'Erhoben',
+        warning: period.coverage === 'partial',
+        count: period.count > 0 || period.zero_activity === true ? period.count : null,
+        limited: period.retention_limited === true || period.expired > 0,
+    };
+}
+
+function recentStart() {
+    const day = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Zurich' }).format(new Date());
+    return new Date(Date.parse(day) - 7 * 86400000).toISOString().slice(0, 10);
+}
+
 /**
  * Framework-free controller: account scope, statistics request and dictation id.
  * @param {{client: object, currentUser: object, makeState?: (o: object) => object}} deps
@@ -184,8 +218,11 @@ export function createActivityController(deps) {
         form: { timeBasis: 'created', from: '', to: '', grain: '', groupBy: [] },
         status: 'idle', message: '', view: null,
         dictationInput: '', dictationId: null, historyMessage: '',
+        policy: null, policyMessage: '', periods: [], periodMessage: '',
     });
     let seq = 0;
+    let periodSeq = 0;
+    let lastBounds = new URLSearchParams();
     let disposed = false;
 
     function reset() {
@@ -196,6 +233,12 @@ export function createActivityController(deps) {
         state.dictationInput = '';
         state.dictationId = null;
         state.historyMessage = '';
+        state.policy = null;
+        state.policyMessage = '';
+        periodSeq += 1;
+        state.periods = [];
+        state.periodMessage = '';
+        lastBounds = new URLSearchParams();
         state.form = { timeBasis: 'created', from: '', to: '', grain: '', groupBy: [] };
     }
 
@@ -210,10 +253,74 @@ export function createActivityController(deps) {
         client.switchContext({ accountId: id, dictationId: null });
     }
 
+    async function loadPeriods(bounds = lastBounds) {
+        lastBounds = bounds;
+        if (!state.policy) return;
+        const mine = ++periodSeq;
+        const from = bounds.get('from') || (bounds.has('to') ? '' : recentStart());
+        const to = bounds.get('to');
+        state.periods = [];
+        if (!from) {
+            state.periodMessage = 'Bitte auch ein Startdatum wählen, um die Erfassung zu prüfen.';
+            return;
+        }
+        const query = new URLSearchParams({ from });
+        if (to) query.set('to', to);
+        state.periodMessage = 'Erfassung wird geprüft …';
+        const periods = await Promise.all(COLLECTION_KINDS.map(async ({ kind, label }) => ({
+            kind, label, status: collectionStatus(await client.request('/statistics/' + kind + '?' + query)),
+        })));
+        if (mine !== periodSeq || disposed) return;
+        state.periods = periods;
+        state.periodMessage = to ? 'Ab ' + from + ' bis vor ' + to : 'Ab ' + from + ' bis jetzt';
+    }
+
+    async function loadPolicy() {
+        if (disposed || state.denied) return;
+        const epoch = state.epoch;
+        state.policyMessage = '';
+        const result = await client.request(COLLECTION_PATH);
+        if (disposed || epoch !== state.epoch) return;
+        if (result.outcome === 'permission' || result.status === 404) return;
+        if (result.outcome !== 'ok' || !COLLECTION_KINDS.every(({ kind }) => validPolicy(result.data?.[kind]))) {
+            state.policyMessage = 'Die Einstellungen konnten nicht geladen werden.';
+            return;
+        }
+        state.policyMessage = '';
+        state.policy = Object.fromEntries(COLLECTION_KINDS.map(({ kind }) => [kind, {
+            ...result.data[kind], busy: false, message: '', error: false,
+        }]));
+        await loadPeriods();
+    }
+
+    async function savePolicy(kind) {
+        const draft = state.policy?.[kind];
+        if (disposed || !draft || draft.busy) return;
+        if (!validRetention(draft.retention_days)) {
+            draft.error = true;
+            draft.message = 'Bitte eine ganze Zahl von 1 bis 3650 Tagen eingeben.';
+            return;
+        }
+        const body = { kind, enabled: draft.enabled, retention_days: draft.retention_days };
+        draft.busy = true;
+        draft.error = false;
+        draft.message = 'Wird gespeichert …';
+        const result = await client.request(COLLECTION_PATH, { method: 'PUT', body });
+        if (disposed || state.policy?.[kind] !== draft) return;
+        draft.busy = false;
+        draft.error = result.outcome !== 'ok' || !Object.keys(body).every((key) => body[key] === result.data?.[key]);
+        draft.message = draft.error ? 'Speichern nicht bestätigt. Bitte erneut versuchen.' : 'Gespeichert.';
+        if (!draft.error) await loadPeriods();
+    }
+
     async function load() {
         if (disposed || state.denied) return null;
         const built = buildStatisticsQuery(state.form);
         if (built.error) {
+            seq += 1;
+            periodSeq += 1;
+            state.periods = [];
+            state.periodMessage = 'Bitte den Zeitraum prüfen.';
             state.status = 'invalid';
             state.message = built.error;
             state.view = null;
@@ -222,7 +329,11 @@ export function createActivityController(deps) {
         const mine = (seq += 1);
         state.status = 'loading';
         state.message = '';
-        const res = await client.request(STATISTICS_PATH + '?' + built.query);
+        const params = new URLSearchParams(built.query);
+        const bounds = new URLSearchParams(['from', 'to'].filter((key) => params.has(key)).map((key) => [key, params.get(key)]));
+        const resPromise = client.request(STATISTICS_PATH + '?' + built.query);
+        const periodPromise = loadPeriods(bounds);
+        const res = await resPromise;
         if (mine !== seq || res.outcome === 'cancelled') return res;
         // Never keep figures after a refusal or a malformed response.
         state.view = null;
@@ -245,6 +356,7 @@ export function createActivityController(deps) {
             state.status = 'error';
             state.message = LABELS.failed;
         }
+        await periodPromise;
         return res;
     }
 
@@ -276,7 +388,7 @@ export function createActivityController(deps) {
     }
 
     setUser(deps.currentUser);
-    return { state, setUser, load, toggleGroup, openHistory, dispose };
+    return { state, setUser, load, loadPolicy, savePolicy, toggleGroup, openHistory, dispose };
 }
 
 const loadError = surfaceFor('error');
@@ -312,6 +424,34 @@ export const ACTIVITY_TEMPLATE = `
       <component v-if="state.dictationId" :is="historyComponent" :client="client" :dictation-id="state.dictationId"
         :key="state.epoch + ':' + state.dictationId"></component>
       <p v-else-if="!historyOnly && !state.historyMessage" class="empty">${LABELS.historyEmpty}</p>
+    </section>
+    <section v-if="!historyOnly && (state.policy || state.policyMessage)" class="panel [&_:focus-visible]:!outline-[color:var(--v8-text)]" aria-labelledby="act-policy-title">
+      <h2 id="act-policy-title">Statistik erfassen</h2>
+      <template v-if="state.policy">
+        <p class="hint">Änderungen gelten für neue Einträge. Diktate und das Sicherheitsprotokoll bleiben unverändert.</p>
+        <form v-for="{ kind, label } in collectionKinds" :key="kind" class="field" @submit.prevent="savePolicy(kind)">
+          <fieldset :disabled="state.policy[kind].busy" style="min-width: 0; margin: 0; border: 0; padding: 0">
+            <legend>{{ label }}</legend>
+            <div class="actions" style="align-items: end">
+              <label class="inline-label" style="min-height: 48px; min-width: 48px">
+                <input type="checkbox" v-model="state.policy[kind].enabled" :aria-label="label + ' erfassen'" /> Erheben
+              </label>
+              <div class="field" style="margin: 0">
+                <label :for="'act-days-' + kind">Tage aufbewahren</label>
+                <input :id="'act-days-' + kind" type="number" min="1" max="3650" step="1" required
+                  style="min-height: 48px; max-width: 100%; width: 10ch; border-color: var(--v8-muted)" v-model.number="state.policy[kind].retention_days" />
+              </div>
+              <button type="submit" class="primary" style="min-height: 48px"
+                :aria-label="label + ' speichern'">Speichern</button>
+            </div>
+          </fieldset>
+          <p role="status" style="margin: 0" :class="{ 'note warning': state.policy[kind].error }">{{ state.policy[kind].message }}</p>
+        </form>
+      </template>
+      <template v-else>
+        <p role="status">{{ state.policyMessage }}</p>
+        <button type="button" style="min-height: 48px" aria-label="Einstellungen erneut laden" @click="loadPolicy()">Erneut versuchen</button>
+      </template>
     </section>
     <section v-if="!historyOnly" role="region" aria-label="${LABELS.statsTitle}" data-testid="statistics-section" class="panel" :aria-busy="state.status === 'loading'">
       <h2>${LABELS.statsTitle}</h2>
@@ -383,6 +523,20 @@ export const ACTIVITY_TEMPLATE = `
           </table>
         </div>
       </template>
+      <div v-if="state.policy" style="margin-top: 18px" aria-labelledby="act-coverage-title" role="region">
+        <h3 id="act-coverage-title">Erfassung im Zeitraum</h3>
+        <p class="hint">Standortweite Erfassung, unabhängig von der Diktatauswahl oben.</p>
+        <p class="hint" role="status">{{ state.periodMessage }}</p>
+        <dl v-if="state.periods.length" class="metadata" style="grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr))">
+          <div v-for="period in state.periods" :key="period.kind">
+            <dt>{{ period.label }}</dt>
+            <dd><span class="tag" :class="{ wait: period.status.warning }">{{ period.status.label }}</span>
+              <span v-if="period.status.count != null"> · {{ period.status.count }} Einträge</span>
+              <span v-if="period.status.limited"> · Aufbewahrungsfrist für einen Teil der Daten abgelaufen</span>
+            </dd>
+          </div>
+        </dl>
+      </div>
       <p class="hint" style="margin: 14px 0 0">${LABELS.noExport}</p>
     </section>
     </div>
@@ -407,15 +561,21 @@ export const ActivityView = {
         });
         const historyComponent = Vue.markRaw(createHistoryComponent(Vue));
         const choices = createDictationChoices({ client: props.client, makeState: (s) => Vue.reactive(s) });
+        // History-only mode: with a dictation id the view shows that dictation's history and no account statistics.
+        const historyOnly = Vue.computed(() => Boolean(props.dictationId));
+        const loadPolicy = () => (!historyOnly.value && props.currentUser?.is_admin === true ? ctrl.loadPolicy() : null);
+        function loadOverview() {
+            if (historyOnly.value || ctrl.state.denied) return;
+            choices.load();
+            loadPolicy();
+        }
         Vue.watch(() => userIdOf(props.currentUser), () => {
             choices.clear();
             ctrl.setUser(props.currentUser);
-            if (!props.dictationId && !ctrl.state.denied) choices.load();
+            loadOverview();
         });
-        if (Vue.onMounted) Vue.onMounted(() => { if (!props.dictationId && !ctrl.state.denied) choices.load(); });
-        // History-only mode: with a dictation id the view shows that dictation's history and no account statistics.
-        const historyOnly = Vue.computed(() => Boolean(props.dictationId));
-        Vue.watch(() => props.dictationId, (id) => { if (id) ctrl.openHistory(id); });
+        if (Vue.onMounted) Vue.onMounted(loadOverview);
+        Vue.watch(() => props.dictationId, (id) => { if (id) ctrl.openHistory(id); else loadOverview(); });
         if (props.dictationId) ctrl.openHistory(props.dictationId);
         Vue.onBeforeUnmount(() => { choices.clear(); ctrl.dispose(); });
         return {
@@ -424,6 +584,9 @@ export const ActivityView = {
             historyOnly,
             formatWhen,
             load: () => (historyOnly.value ? null : ctrl.load()),
+            loadPolicy,
+            savePolicy: (kind) => (historyOnly.value || props.currentUser?.is_admin !== true ? null : ctrl.savePolicy(kind)),
+            collectionKinds: COLLECTION_KINDS,
             toggleGroup: ctrl.toggleGroup,
             choices,
             openHistory: (text) => ctrl.openHistory(choices.resolve(text === undefined ? ctrl.state.dictationInput : text) || ''),

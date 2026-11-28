@@ -321,3 +321,31 @@ def test_p15_first_profile_uses_existing_save_and_vocabulary_link(browser, app_b
         page.get_by_role("link", name="Wortschatz prüfen", exact=True).click()
         expect(page).to_have_url(app_base + "/admin#/wortschatz")
         expect(page.get_by_role("heading", name="Wortschatz", exact=True)).to_be_visible()
+
+
+def test_p15_mobile_navigation_keeps_central_preferences_and_statistics_controls(browser, tmp_path, monkeypatch):
+    monkeypatch.setenv("CLINIC_PROFILE", "staging")
+    with support.serve_app(tmp_path, support.SERVER) as base:
+        state = support.login(browser, base, support.ROLES["admin"])
+        with browser.new_context(viewport={"width": 390, "height": 844}, storage_state=state) as context:
+            page = context.new_page()
+            errors = []
+            page.on("pageerror", lambda exc: errors.append(str(exc)))
+            support.navigation.show_asr(page, base)
+            nav = page.get_by_test_id("clinic-v8-nav")
+            toggle = page.get_by_test_id("clinic-admin-nav-toggle")
+
+            toggle.click()
+            nav.get_by_role("button", name="Vorgaben", exact=True).click()
+            central = page.get_by_test_id("clinic-central-preferences")
+            expect(central.get_by_label("Einstellung", exact=True)).to_be_visible()
+            expect(toggle).to_have_text("Bereich: Vorgaben")
+            expect(toggle).to_have_attribute("aria-expanded", "false")
+
+            toggle.click()
+            nav.get_by_role("button", name="Aktivität und Audit", exact=True).click()
+            collection = page.get_by_role("region", name="Statistik erfassen", exact=True)
+            expect(collection.get_by_label("Tage aufbewahren", exact=True).first).to_be_visible()
+            expect(toggle).to_have_text("Bereich: Aktivität und Audit")
+            expect(toggle).to_have_attribute("aria-expanded", "false")
+            assert not errors, errors
