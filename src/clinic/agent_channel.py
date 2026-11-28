@@ -413,8 +413,17 @@ def _clean_item(policy, raw):
     )
 
 
+def _lock_intent_updates(agent_id):
+    # An UPDATE takes the write lock on both PostgreSQL and SQLite, even for a new snapshot.
+    locked = ClinicAgent.query.filter_by(id=agent_id, enabled=True).update(
+        {ClinicAgent.enabled: ClinicAgent.enabled}, synchronize_session=False,
+    )
+    if locked != 1:
+        raise AgentChannelError("forbidden", "agent disabled")
+
+
 @transactional
-def report_inventory(principal, policy, body, *, now=None):
+def report_inventory(principal, policy, body, *, now=None, evaluate=None):
     """Store the reported snapshot inventory. ``body['agent_id']`` is ignored on purpose.
 
     Every item is checked before anything is stored; one item outside the
@@ -422,6 +431,9 @@ def report_inventory(principal, policy, body, *, now=None):
     dictation right is derived from an inventory. Optional hint fields are
     stored as claims: a missing or unknown mark stays unknown, and file
     stability is not recorded as Philips EOL.
+
+    An optional server-side evaluator stages policy-authorized imports in the
+    same transaction as the accepted inventory.
     """
     agent = agent_of(principal)
     now = aware(now) or utcnow()
@@ -431,8 +443,22 @@ def report_inventory(principal, policy, body, *, now=None):
     outside = sorted({i["root_id"] for i in items} - allowed)
     if outside:
         raise AgentChannelError("forbidden", "source root not registered for this agent: " + outside[0])
-    for raw, item in zip(raw_items, items):
+    entries = zip(raw_items, items)
+    if evaluate is not None and items:
+        _lock_intent_updates(agent.id)
+        unique = {}
+        for raw, item in entries:
+            key = (item["source_id"], item["snapshot_version"])
+            if key in unique and unique[key][1] != item:
+                raise AgentChannelError("conflict", "different files share a snapshot version")
+            unique[key] = (raw, item)
+        entries = unique.values()
+    evaluated_rows = []
+    for raw, item in entries:
         row = inventory_row(agent.id, item["source_id"], item["snapshot_version"])
+        changed = evaluate is not None and row is not None and any(
+            getattr(row, field) != item[field] for field in ("root_id", "relative_path", "size", "sha256")
+        )
         if row is None:
             row = ClinicAgentInventory(agent_id=agent.id)
             db.session.add(row)
@@ -443,6 +469,11 @@ def report_inventory(principal, policy, body, *, now=None):
         for name, value in item.items():
             setattr(row, name, value)
         row.reported_at = now
+        if evaluate is not None:
+            evaluated_rows.append((row, raw, changed))
+    if evaluated_rows:
+        db.session.flush()
+        evaluate(policy, evaluated_rows, now=now)
     db.session.commit()
     return {"accepted": len(items)}
 
@@ -465,6 +496,25 @@ def list_inventory(policy, *, actor_user_id, agent_id):
 
 # --- intents ---------------------------------------------------------------------
 
+def live_intent_exists(agent_id, source_id, snapshot_version, now):
+    return ClinicAgentIntent.query.filter_by(
+        agent_id=agent_id, source_id=source_id, snapshot_version=snapshot_version,
+    ).filter(
+        ClinicAgentIntent.status.in_(("OPEN", "IN_PROGRESS", "STORED")), ClinicAgentIntent.expires_at > now,
+    ).first() is not None
+
+
+def stage_snapshot_intent(policy, *, actor_user_id, agent_id, source_id, snapshot_version, post_step="none", now):
+    """Stage an already-authorized snapshot intent in the caller's transaction."""
+    intent = ClinicAgentIntent(
+        agent_id=agent_id, source_id=source_id, snapshot_version=snapshot_version, post_step=post_step,
+        created_by_user_id=actor_user_id, created_at=now,
+        expires_at=(now + policy.intent_ttl).replace(microsecond=0),
+    )
+    db.session.add(intent)
+    return intent
+
+
 @transactional
 def create_intent(policy, *, actor_user_id, agent_id, source_id, snapshot_version, post_step="none", now=None):
     """An authorised web user asks the agent to import one reported snapshot."""
@@ -477,20 +527,15 @@ def create_intent(policy, *, actor_user_id, agent_id, source_id, snapshot_versio
         raise AgentChannelError("invalid", "post_step")
     if post_step != "none" and not policy.allow_post_import:
         raise AgentChannelError("forbidden", "post-import step is disabled by server policy")
+    _lock_intent_updates(agent.id)
     if inventory_row(agent.id, source_id, snapshot_version) is None:
         raise AgentChannelError("not_found", "snapshot not in the agent inventory")
-    for other in ClinicAgentIntent.query.filter(
-            ClinicAgentIntent.agent_id == agent.id, ClinicAgentIntent.source_id == source_id,
-            ClinicAgentIntent.snapshot_version == snapshot_version,
-            ClinicAgentIntent.status.in_(("OPEN", "IN_PROGRESS", "STORED"))):
-        if aware(other.expires_at) > now:
-            raise AgentChannelError("conflict", "an open intent exists for this snapshot")
-    intent = ClinicAgentIntent(
+    if live_intent_exists(agent.id, source_id, snapshot_version, now):
+        raise AgentChannelError("conflict", "an open intent exists for this snapshot")
+    intent = stage_snapshot_intent(
+        policy, actor_user_id=actor_user_id, now=now,
         agent_id=agent.id, source_id=source_id, snapshot_version=snapshot_version, post_step=post_step,
-        created_by_user_id=actor_user_id, created_at=now,
-        expires_at=(now + policy.intent_ttl).replace(microsecond=0),
     )
-    db.session.add(intent)
     db.session.commit()
     return _intent_wire(policy, agent, intent)
 
