@@ -39,6 +39,7 @@ AUTH: tuple[str, ...] = (
     'clinic_preferences.last_selection',
     'clinic_preferences.workstation_issue',
     'clinic_preferences.workstation',
+    'clinic_preferences.presets',
     'clinic_preferences.correction_mode',
     # Own-user focused key and pedal bindings (PAR-OPS-003). The handler reads current_user only.
     'clinic_preferences.key_bindings',
@@ -78,6 +79,9 @@ ADMIN: tuple[str, ...] = (
     'clinic_directory.preview',
     'clinic_directory.apply',
     'clinic_grants.change',
+    'clinic_preferences.central',
+    'clinic_preferences.system_preset',
+    'clinic_preferences.workstation_lock',
     'clinic_statistics.list_grants',
     'clinic_statistics.change_grant',
     'clinic_task_models.settings',

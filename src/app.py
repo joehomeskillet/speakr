@@ -1380,7 +1380,8 @@ def register_clinic_identity(flask_app):
     to be present (one dispatcher, mounted once). Identity providers stay disabled (default
     EntraConfig, IWA off): their routes answer the inert 422 and the exchange never runs.
     Directory comparison is disabled unless an approved provider is configured.
-    The last selection is durable (clinic user-preset row per user); workstation preferences are process-local.
+    The last selection is durable (clinic user-preset row per user); workstation
+    preferences, central locks and workflow presets use the shared clinic database.
     """
     from src.clinic import directory_provider
     from src.clinic import (app_wiring, entra, pool_policy, routes_admin_dictations, routes_directory, routes_grants,
