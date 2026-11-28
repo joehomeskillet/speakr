@@ -138,6 +138,9 @@ def test_lost_confirmations_keep_one_take_and_offer_keyboard_retry(app_base, siz
                 assert not (overflow['document'] or overflow['body']), overflow
 
             capture('empty')
+            recognition = view.get_by_role('switch', name='Spracherkennung')
+            recognition.click()
+            expect(recognition).to_have_attribute('aria-checked', 'false')
             view.get_by_test_id('rec-start').click()
             page.wait_for_function("document.querySelector('#app').__vue_app__._instance.proxy.recordingTime >= 2")
             view.get_by_test_id('rec-stop').click()
@@ -166,14 +169,20 @@ def test_lost_confirmations_keep_one_take_and_offer_keyboard_retry(app_base, siz
             expect(view.get_by_test_id('status')).to_contain_text('weiterhin in diesem Browser')
             expect(send).to_have_text('Erneut senden')
             capture('unconfirmed-upload')
-            with page.expect_response(re.compile('/api/clinic/v1/recording-takes/')) as lookup:
+            detail_path = app_base + f'/api/clinic/v1/dictations/{uploads[0]["dictation_id"]}/detail'
+            with (
+                page.expect_response(re.compile('/api/clinic/v1/recording-takes/')) as lookup,
+                page.expect_response(detail_path) as draft_detail,
+            ):
                 send.click()
             assert lookup.value.json() == uploads[0]
             expect(view.get_by_test_id('status')).to_have_text('Sie müssen nichts tun – es wird automatisch erneut gesendet.')
             expect(send).to_have_count(0)
             expect(view.get_by_test_id('status')).to_have_text('Aufnahme gespeichert. Senden hat nicht geklappt.')
             expect(view.get_by_role('button', name='Erneut senden', exact=True)).to_have_count(1)
+            expect(view.get_by_text('Diktat-Schutz (optional)', exact=True)).to_have_count(0)
             expect(view.get_by_test_id('send-destination')).to_have_text('Vorgesehen: Schreibdienst V860')
+            assert draft_detail.value.json()['use_speech_recognition'] is False
             assert send.bounding_box()['height'] >= 48
             capture('failure')
 

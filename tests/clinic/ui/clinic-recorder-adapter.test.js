@@ -68,10 +68,14 @@ describe('clinic recorder upload', () => {
         expect(stock.clearRecording).not.toHaveBeenCalled();
 
         vi.stubGlobal('navigator', { onLine: true });
-        await expect(recorder.uploadRecordedAudio(take)).rejects.toThrow('offline_retained');
+        const retry = { title: 'Geänderter Titel', useSpeechRecognition: true, clientUploadId: 'other-upload' };
+        await expect(recorder.uploadRecordedAudio(retry)).rejects.toThrow('offline_retained');
         expect(drafts.removeTake).not.toHaveBeenCalled();
-        expect(await recorder.uploadRecordedAudio(take)).toEqual({ id: 1 });
-        expect(upload.mock.calls.map(([, , sentOptions]) => sentOptions)).toEqual([options, options, options]);
+        expect(await recorder.uploadRecordedAudio(retry)).toEqual({ id: 1 });
+        const retryOptions = { ...options, retry: true };
+        expect(upload.mock.calls.map(([, sentTitle, sentOptions]) => [sentTitle, sentOptions])).toEqual([
+            ['Test', options], ['Test', retryOptions], ['Test', retryOptions],
+        ]);
         expect(drafts.removeTake).toHaveBeenCalledOnce();
         expect(drafts.removeTake).toHaveBeenCalledWith(binding);
         expect(stock.clearRecording).toHaveBeenCalledOnce();

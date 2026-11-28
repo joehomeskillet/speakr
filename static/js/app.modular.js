@@ -3126,10 +3126,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             const clinicMenuToolbarVisible = computed(() => clinicMenuActions.some((entry) => entry.view === currentView.value));
             const clinicFormats = clinicMenu ? clinicRecordingFormats() : [];
             // Recorded takes and selected files share the same upload and server receipt.
-            const clinicUploadFile = async (file, recordingTitle, { useSpeechRecognition = true, clientUploadId } = {}, take) => {
-                const takeId = take?.id;
+            const clinicUploadFile = async (file, recordingTitle, { useSpeechRecognition = true, clientUploadId, retry = false } = {}) => {
+                const takeId = recordingTitle === undefined ? null : clientUploadId;
                 const signal = takeId ? AbortSignal.timeout(120_000) : undefined;
-                if (take?.retry) {
+                if (takeId && retry) {
                     const saved = await fetch('/api/clinic/v1/recording-takes/' + encodeURIComponent(takeId), {
                         cache: 'no-store', signal,
                     });
