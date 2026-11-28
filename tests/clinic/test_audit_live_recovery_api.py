@@ -165,8 +165,57 @@ def test_recovery_pages_and_immutable_playback(recovery, monkeypatch):
     assert _resume(browser, headers, dictation, cursor).status_code == 403
 
 
+def test_empty_resume_distinguishes_edit_access_and_another_draft_holder(recovery):
+    flask, _, _, dictation, foreign, owner, viewer, client = recovery
+    browser, headers = client(owner)
+    view, view_headers = client(viewer)
+    for caller, csrf, read_only in ((browser, headers, False), (view, view_headers, True)):
+        response = _resume(caller, csrf, dictation, {})
+        assert response.status_code == 200
+        assert response.json == {"session_id": None, "read_only": read_only}
+    assert _resume(view, view_headers, foreign, {}).status_code == 403
+
+    with flask.app_context():
+        sid = live_session.start(foreign, owner, NOW).id
+        db.session.commit()
+    snapshot = _snapshot(flask, sid)
+    response = _resume(browser, headers, dictation, {})
+    assert response.status_code == 200
+    assert response.json == {"session_id": None, "read_only": True}
+    assert _snapshot(flask, sid) == snapshot
+
+
+@pytest.mark.parametrize("holder", ["fenced", "revoked", "other", "expired_other"])
+def test_resume_holder_conflict_reads_without_changing_lock(recovery, holder):
+    flask, store, _, dictation, _, owner, viewer, client = recovery
+    author = viewer if holder in {"other", "expired_other"} else owner
+    with flask.app_context():
+        sid = live_session.start(dictation, author, NOW).id
+        db.session.commit()
+        _save(store, dictation, sid, author, 1)
+        row = db.session.get(live_session.ClinicLiveSession, sid)
+        if holder in {"fenced", "revoked"}:
+            row.client_id = "holder-tab"
+            row.holder_generation = 1
+            if holder == "revoked":
+                live_session.revoke_holder(row)
+        if holder == "expired_other":
+            row.lock_expires_at = NOW - timedelta(seconds=1)
+        db.session.commit()
+
+    browser, headers = client(owner)
+    snapshot = _snapshot(flask, sid)
+    response = _resume(browser, headers, dictation, {})
+    assert response.status_code == 200
+    assert response.json["session_id"] == sid and response.json["read_only"] is True
+    event, = response.json["events"]
+    assert event["text"] == _text(1)
+    assert browser.get(event["audio_url"]).data == _wav(1)
+    assert _snapshot(flask, sid) == snapshot
+
+
 def test_history_never_reopens_finished_or_expired_sessions(recovery):
-    flask, store, _, dictation, _, owner, _, client = recovery
+    flask, store, _, dictation, _, owner, viewer, client = recovery
     later = NOW + timedelta(hours=1)
     with flask.app_context():
         expired = live_session.start(dictation, owner, NOW).id
@@ -183,6 +232,9 @@ def test_history_never_reopens_finished_or_expired_sessions(recovery):
     assert finished_snapshot[:3] == (live_session.ENDED, live_session.END_FINISHED, None)
     latest = _resume(browser, headers, dictation, {}).json
     assert latest["session_id"] == finished and latest["previous_session_id"] == expired and latest["read_only"]
+    assert latest["can_start"] is True
+    view, view_headers = client(viewer)
+    assert _resume(view, view_headers, dictation, {}).json["can_start"] is False
     older = _resume(browser, headers, dictation, {"session_id": latest["previous_session_id"]}).json
     assert older["previous_session_id"] is None and older["read_only"]
     assert older["events"][0]["phrase_id"] == phrase.phrase_id

@@ -3140,7 +3140,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             onUnmounted(() => clinicLiveChoices?.clear());
             const openClinicLive = () => {
                 const id = clinicLiveChoices?.resolve(clinicLiveDraft.value);
-                if (id) clinicLiveId.value = id;
+                if (!id) return;
+                const url = new URL(window.location.href);
+                url.searchParams.set('dictation', id);
+                window.history.replaceState(window.history.state, '', url);
+                clinicLiveId.value = id;
             };
             // A view that creates or lists dictations hands over to the existing correction view; the archive is read only.
             const openClinicMenuDictation = (payload) => openClinicDictation({

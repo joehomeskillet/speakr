@@ -34,6 +34,8 @@ HTML = """<!doctype html><html lang="de"><head>
 <script type="module">
 import { LiveView } from '/static/js/clinic/compose-live.js';
 window.calls = [];
+window.mountCalls = [];
+window.started = false;
 window.seq = 0;
 window.holdContinue = false;
 window.continueState = 'RECORDING';
@@ -46,7 +48,12 @@ const client = {
   switchContext() {},
   async request(path, options) {
     const body = options && options.body;
-    window.calls.push({ kind: 'request', path, method: options && options.method, body });
+    const call = { kind: 'request', path, method: options && options.method, body };
+    if (path.endsWith('/resume') && !window.started) {
+      window.mountCalls.push(call);
+      return { outcome: 'ok', status: 200, data: { session_id: null } };
+    }
+    window.calls.push(call);
     if (path.endsWith('/resume')) return { outcome: 'ok', status: 200, data: position('PAUSED', window.seq) };
     if (path.endsWith('/pause')) return { outcome: 'ok', status: 200, data: position('PAUSED', window.seq) };
     if (path.endsWith('/continue')) {
@@ -70,6 +77,7 @@ const client = {
     if (body.command === 'stop_live_session' && window.stopConflict) {
       return { outcome: 'conflict', status: 409, message: 'Versionskonflikt' };
     }
+    if (body.command === 'start_live_session') window.started = true;
     const revision = body.command === 'start_live_session' ? 1 : (window.seq + 1);
     return { outcome: 'ok', status: 200, data: { status: 'committed', revision } };
   },
@@ -137,6 +145,12 @@ def test_live_session_matches_server_state() -> None:
             view = page.locator('[data-testid=clinic-live-view]')
             expect(view).to_have_attribute('data-phase', 'idle')
             expect(page.get_by_text('Noch kein Text. Mit der Aufnahmetaste beginnen.')).to_be_visible()
+            page.wait_for_function('() => window.mountCalls.length > 0')
+            mount_calls = page.evaluate('window.mountCalls')
+            assert len(mount_calls) == 1
+            assert mount_calls[0]['method'] == 'POST'
+            assert mount_calls[0]['path'].endswith('/dictations/d-100/resume')
+            assert not page.evaluate('window.calls')
             _shots(page, 'empty')
             page.set_viewport_size({'width': 1440, 'height': 900})
             _theme(page, 'light')

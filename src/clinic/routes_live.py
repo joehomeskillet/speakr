@@ -335,10 +335,10 @@ def create_blueprint(
 
         model = live_session.ClinicLiveSession
 
-        def page(row, read_only):
+        def page(row, read_only, **extra):
             may_play = authorize_play is not None and authorize_play(actor, dictation_id)
             result = dict(_position(row), **_events(row, after, may_play), read_only=read_only,
-                          previous_session_id=_previous_session(row))
+                          previous_session_id=_previous_session(row), **extra)
             if result["events"]:
                 record_read(dictation_id, "live_phrase_text")
             return jsonify(result)
@@ -350,9 +350,16 @@ def create_blueprint(
         def latest_ended():
             row = (_history(dictation_id)
                    .order_by(model.started_at.desc(), model.created_at.desc(), model.id.desc()).first())
-            return page(row, True) if row is not None else _problem("REVISION_CONFLICT")
+            can_start = (authorize_dictation(actor, dictation_id)
+                         and not live_session.author_holders(actor, now()))
+            if row is None:
+                return jsonify(session_id=None, read_only=not can_start)
+            return page(row, True, can_start=bool(can_start))
 
-        active = model.query.filter_by(active_key=dictation_id).first()
+        def open_session():
+            return model.query.filter_by(active_key=dictation_id).first()
+
+        active = open_session()
         if active is None:
             return latest_ended()
         if not authorize_dictation(actor, dictation_id):
@@ -364,10 +371,18 @@ def create_blueprint(
                     dictation_id, actor, now(), client_id=data.get("client_id"),
                     generation=data.get("generation"), allow_ended=False)
             except live_session.LiveSessionError as error:
-                if error.reason != live_session.NO_SESSION or error.session is not None:
+                if error.reason not in (live_session.NOT_HOLDER, live_session.ACTIVE_SESSION,
+                                        live_session.NO_SESSION):
                     raise
                 db.session.rollback()
-                return latest_ended()
+                if not (authorize_view or authorize_dictation)(actor, dictation_id):
+                    return _problem("POLICY_DENIED")
+                active = open_session()
+                if active is None:
+                    return latest_ended()
+                if error.reason == live_session.NOT_HOLDER and "generation" in data:
+                    return _problem("POLICY_DENIED")
+                return page(active, True)
             response = page(row, False)
             db.session.commit()
             return response
