@@ -410,4 +410,31 @@ describe('compose-offline: registration', () => {
     it('the view carries no patient fields', () => {
         expect(OfflineView.template).not.toMatch(/patient|recipient|notes/i);
     });
+
+    it('only purges local drafts after confirming the logout warning', async () => {
+        const onLoggedOut = vi.fn();
+        const storage = memStorage();
+        const view = OfflineView.setup({ who, storage, client: fakeClient(grant()), onLoggedOut, vue: {} });
+        await view.c.start();
+        view.s.passphrase = PASS;
+        expect(await view.c.unlock(null)).toBe(true);
+        expect((await view.c.saveDraft(rec(), { text: SECRET })).saved).toBe(true);
+
+        const confirm = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+        vi.stubGlobal('window', { confirm });
+        try {
+            await view.confirmLogout();
+            expect(confirm).toHaveBeenCalledWith(TEXT.logoutHelp);
+            expect(view.s.drafts).toHaveLength(1);
+            expect(storage.remove).not.toHaveBeenCalled();
+            expect(onLoggedOut).not.toHaveBeenCalled();
+
+            await view.confirmLogout();
+            expect(storage.m.size).toBe(0);
+            expect(view.s.notice).toBe(TEXT.loggedOut);
+            expect(onLoggedOut).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
 });
