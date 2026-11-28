@@ -119,7 +119,7 @@ export function createClinicRecorder(audio, state, uploadFile) {
             gatedTake = null;
             await audio.clearRecording();
         },
-        async uploadRecordedAudio({ title }) {
+        async uploadRecordedAudio({ title, ...uploadOptions }) {
             const chunks = state.audioChunks.value;
             if (!state.audioBlobURL.value || !chunks.length) throw new Error('no_recorded_audio');
             const previous = takes.get(chunks);
@@ -129,7 +129,7 @@ export function createClinicRecorder(audio, state, uploadFile) {
             const file = gated
                 ? new File([gated], 'aufnahme.wav', { type: gated.type })
                 : new File(chunks, 'aufnahme.webm', { type: state.mediaRecorder.value.mimeType.split(';')[0] });
-            const receipt = await uploadFile(file, take.title, { id: take.id, retry: Boolean(previous) });
+            const receipt = await uploadFile(file, take.title, uploadOptions, { id: take.id, retry: Boolean(previous) });
             if (receiptDictationId(receipt) === null) throw new Error('no_receipt');
             // A new take gets its own chunk array as soon as capture starts.
             if (state.audioChunks.value === chunks) {
@@ -307,7 +307,7 @@ export function createRecorderPhases(options) {
         }
     }
 
-    async function send() {
+    async function send(uploadOptions) {
         const blocked = guard(['review', 'failed']);
         if (blocked) return blocked;
         if (!automaticTitle && !state.title.trim()) return denied('missing_title');
@@ -316,7 +316,10 @@ export function createRecorderPhases(options) {
         set({ phase: 'sending', error: null });
         let receipt = null;
         try {
-            receipt = await recorder.uploadRecordedAudio({ title: state.title.trim() || localDictationTitle() });
+            receipt = await recorder.uploadRecordedAudio({
+                title: state.title.trim() || localDictationTitle(),
+                ...uploadOptions,
+            });
         } catch (e) {
             receipt = null;
         }
