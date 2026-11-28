@@ -959,8 +959,13 @@ def grants_for(user_id: int, dictation) -> dict:
     if pool_id is not None:
         link_id = _staff_link_id(user_id, pool_id)
         if link_id is not None:
-            for action in STAFF_LINK_ACTIONS:
-                consider(action, {"reason": "staff_link", "link_id": link_id}, 0)
+            from src.clinic import workflow
+
+            item = db.session.get(workflow.ClinicWorkflowDictation, dictation.id)
+            target = workflow.read_routing_target(item) if item is not None else None
+            if target is None or target.mode != "self_correction":
+                for action in STAFF_LINK_ACTIONS:
+                    consider(action, {"reason": "staff_link", "link_id": link_id}, 0)
 
     allowed = {}
     for action in GRANTABLE_ACTIONS:
