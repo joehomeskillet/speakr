@@ -35,7 +35,7 @@ export const COMPOSE_OUTPUT_VERSION = 1;
 export const TEXT = Object.freeze({
     title: 'Ausgabe',
     eyebrow: 'Arbeitsliste',
-    subline: 'Freigegebene Version ausgeben und den Status jedes Ausgabekanals getrennt verfolgen.',
+    subline: 'Wählen Sie Dateiformat und Ablageort für die freigegebene Version.',
     colTarget: 'Dateiformat',
     colStatus: 'Status',
     colAction: 'Aktion',
@@ -59,6 +59,15 @@ export const TEXT = Object.freeze({
     collisionPolicy: 'Wenn der Name schon vergeben ist',
     catalogFailed: 'Die Ablageziele sind nicht verfügbar. Sie können die Datei herunterladen.',
     placementUnknown: 'Die Ablage ist nicht bestätigt. Prüfen Sie das Ziel, bevor Sie die Datei erneut ablegen.',
+    start: 'Starten',
+    exportSelected: 'Ausgewählte ausgeben',
+    saveDefaults: 'Standardziele speichern',
+    savingDefaults: 'Standardziele werden gespeichert …',
+    savedDefaults: 'Standardziele gespeichert.',
+    defaultsLoadFailed: 'Die Standardziele konnten nicht geladen werden. Bitte laden Sie die Seite neu.',
+    defaultsSaveFailed: 'Die Standardziele konnten nicht gespeichert werden.',
+    defaultsChanged: 'Die Standardziele wurden bereits geändert. Bitte laden Sie die Seite neu.',
+    kisUnavailable: 'Ausgabe ans KIS nicht verfügbar.',
     download: 'Herunterladen',
     downloadStarted: 'Download gestartet',
     downloadHint: 'Ob die Datei auf diesem Gerät gespeichert wurde, bestätigt der Browser nicht.',
@@ -107,6 +116,9 @@ const PLACEMENT_ERRORS = Object.freeze({
     INVALID_FILENAME: { label: 'Der Dateiname ist ungültig. Prüfen Sie den Namen oder das Muster.', surface: 'error' },
 });
 
+const OUTPUT_PREFERENCES = '/preferences/output';
+const preferenceId = (id) => id === 'kis' ? 'kis_draft' : id;
+
 const plainRef = (init) => {
     let value = init;
     return { get value() { return value; }, set value(next) { value = next; } };
@@ -147,6 +159,11 @@ export function createOutputViewController(options) {
     const releasedRevisionId = ref(null);
     const targets = ref([]);
     const results = ref({}); // format -> { phase, label, surface, job }
+    const selected = ref([]);
+    const preferences = ref(null);
+    const preferenceNotice = ref('');
+    const savingDefaults = ref(false);
+    const exportingSelected = ref(false);
     const keys = new Map();
     const inflight = ref(new Set());
     const destination = ref('');
@@ -202,8 +219,17 @@ export function createOutputViewController(options) {
         fileBodies.clear();
         for (const target of offered) {
             if (target.channel === 'file' && target.available && target.status && target.job_id) {
-                applyJob(target.id, { id: target.job_id, kind: 'file', status: target.status, filename: target.filename });
+                applyJob(target.id, { id: target.job_id, kind: 'file', status: target.status, filename: target.filename }, true);
             }
+        }
+        if (releasedRevisionId.value && targets.value.some((t) => t.channel === 'file') && !find('kis')) {
+            targets.value.push(targetView({ id: 'kis', channel: 'kis', available: false }, releasedRevisionId.value));
+        }
+        if (opts.includeAllFileFormats) {
+            const defaults = await client.request(OUTPUT_PREFERENCES);
+            preferences.value = defaults.outcome === 'ok' && Array.isArray(defaults.data?.formats) ? defaults.data : null;
+            selected.value = selectableTargets().filter((t) => preferences.value?.formats.includes(preferenceId(t.id))).map((t) => t.id);
+            preferenceNotice.value = preferences.value ? '' : TEXT.defaultsLoadFailed;
         }
         clipboard = null;
         phase.value = 'ready';
@@ -212,6 +238,55 @@ export function createOutputViewController(options) {
 
     function find(format) {
         return targets.value.find((t) => t.id === format) || null;
+    }
+
+    function selectableTargets() {
+        return releasedRevisionId.value ? targets.value.filter((t) => t.channel === 'file' || t.id === 'kis') : [];
+    }
+
+    function toggleTarget(id, checked) {
+        if (!selectableTargets().some((t) => t.id === id)) return;
+        selected.value = checked ? [...new Set([...selected.value, id])] : selected.value.filter((item) => item !== id);
+        if (preferenceNotice.value === TEXT.savedDefaults) preferenceNotice.value = '';
+    }
+
+    async function saveDefaults() {
+        if (!preferences.value || savingDefaults.value || !selectableTargets().length) return;
+        const { version, formats, open_after_export } = preferences.value;
+        const visible = new Set(selectableTargets().map((t) => preferenceId(t.id)));
+        savingDefaults.value = true;
+        preferenceNotice.value = TEXT.savingDefaults;
+        try {
+            const res = await client.request(OUTPUT_PREFERENCES, {
+                method: 'PUT', ifMatch: `"${version}"`,
+                body: { formats: [...formats.filter((id) => !visible.has(id)), ...selected.value.map(preferenceId)], open_after_export },
+            });
+            if (res.outcome === 'ok' && Array.isArray(res.data?.formats)) {
+                preferences.value = res.data;
+                preferenceNotice.value = TEXT.savedDefaults;
+            } else {
+                preferenceNotice.value = res.status === 412 ? TEXT.defaultsChanged : TEXT.defaultsSaveFailed;
+            }
+        } finally {
+            savingDefaults.value = false;
+        }
+    }
+
+    async function exportSelected() {
+        if (!releasedRevisionId.value || exportingSelected.value) return;
+        exportingSelected.value = true;
+        try {
+            await Promise.all(selected.value.map(async (id) => {
+                const target = find(id);
+                if (id === 'kis' || !target?.available) {
+                    setResult(id, 'unavailable', id === 'kis' ? TEXT.kisUnavailable : target?.reason || TEXT.unavailable, 'warning');
+                } else {
+                    await exportTo(id);
+                }
+            }));
+        } finally {
+            exportingSelected.value = false;
+        }
     }
 
     /** True when the export of this target may be requested now. */
@@ -246,12 +321,12 @@ export function createOutputViewController(options) {
         };
     }
 
-    function applyJob(format, job) {
+    function applyJob(format, job, showFilename = false) {
         const known = JOB_STATUS[job.status] || JOB_STATUS.unknown;
         if (job.destination?.outcome === 'created') {
             setResult(format, 'placed', 'Abgelegt: ' + job.destination.filename + ' – ' + job.destination.label, 'success', job);
         } else {
-            const label = opts.fileOptions && job.status === 'ready' && job.filename ? known.label + ': ' + job.filename : known.label;
+            const label = opts.fileOptions && showFilename && job.status === 'ready' && job.filename ? known.label + ': ' + job.filename : known.label;
             setResult(format, job.status, label, known.surface, job);
         }
     }
@@ -266,21 +341,24 @@ export function createOutputViewController(options) {
         inflight.value = new Set([...inflight.value, format]);
         fileBodies.set(format, keyId);
         setResult(format, 'working', 'Wird ausgegeben …', 'processing');
+        const markPlacementUnconfirmed = () => {
+            uncertainPlacements.add(body.revision_id + '|' + format);
+            setResult(format, 'unknown', TEXT.placementUnknown, 'warning');
+        };
         try {
             const res = await client.request(base + '/exports', {
                 method: 'POST', body, idempotencyKey,
             });
             if (res.outcome === 'ok' && res.data) {
                 if (opts.fileOptions || res.data.status === 'failed') keys.delete(keyId);
-                applyJob(format, res.data);
-            } else if (placing && (['network', 'UNKNOWN', 'cancelled'].includes(res.outcome)
-                    || res.code === 'DESTINATION_UNCONFIRMED')) {
-                uncertainPlacements.add(body.revision_id + '|' + format);
-                setResult(format, 'unknown', TEXT.placementUnknown, 'warning');
+                applyJob(format, res.data, body.browser_download === true);
             } else if (Object.hasOwn(PLACEMENT_ERRORS, res.code)) {
                 keys.delete(keyId);
                 const failure = PLACEMENT_ERRORS[res.code];
                 setResult(format, res.code, failure.label, failure.surface);
+            } else if (placing && (['network', 'UNKNOWN', 'cancelled'].includes(res.outcome)
+                    || res.code === 'DESTINATION_UNCONFIRMED')) {
+                markPlacementUnconfirmed();
             } else if (res.status === 503 || res.code === 'KIS_UNAVAILABLE') {
                 setResult(format, 'unavailable', TEXT.unavailable, 'warning');
             } else {
@@ -289,6 +367,9 @@ export function createOutputViewController(options) {
                 const f = FAILURES[res.outcome] || FAILURES.UNKNOWN;
                 setResult(format, res.outcome, f.label, f.surface);
             }
+        } catch {
+            if (placing) markPlacementUnconfirmed();
+            else setResult(format, 'network', FAILURES.network.label, FAILURES.network.surface);
         } finally {
             inflight.value = new Set([...inflight.value].filter((id) => id !== format));
         }
@@ -321,6 +402,7 @@ export function createOutputViewController(options) {
 
     return {
         dictationId, phase, releasedRevisionId, targets, results, load, canExport, exportTo,
+        selected, toggleTarget, preferences, preferenceNotice, savingDefaults, saveDefaults, exportingSelected, exportSelected,
         downloadUrl, markDownloadStarted, refreshStatus, clipboardCopy, text: TEXT,
         destination, destinations, catalogFailed, nameMode, filename, collisionPolicy, placementUnconfirmed,
         busy: () => inflight.value.size > 0,
@@ -398,12 +480,23 @@ export const OutputView = {
             <small v-if="c.nameMode.value === 'filename_pattern'" id="out-pattern-hint">{{ TEXT.patternHint }}</small>
           </label>
         </div>
+        <div v-if="c.releasedRevisionId.value && c.targets.value.some((t) => t.channel === 'file')" class="actions" style="margin-top: var(--sp-3)">
+          <button type="button" class="primary" style="min-height: 48px; padding-inline: var(--sp-3)" :disabled="!c.selected.value.length || c.exportingSelected.value" @click="c.exportSelected()">{{ TEXT.exportSelected }}</button>
+          <button type="button" class="quiet" style="min-height: 48px; padding-inline: var(--sp-3)" :disabled="!c.preferences.value || c.savingDefaults.value" @click="c.saveDefaults()">{{ TEXT.saveDefaults }}</button>
+        </div>
+        <p v-if="c.releasedRevisionId.value" class="text-status" role="status">{{ c.preferenceNotice.value }}</p>
         <div v-if="c.targets.value.some((t) => t.channel === 'file')" class="table-wrap" style="margin-top: 14px">
           <table :aria-label="TEXT.targets" style="white-space: normal">
             <thead><tr><th scope="col">{{ TEXT.colTarget }}</th><th scope="col">{{ TEXT.colStatus }}</th><th scope="col">{{ TEXT.colAction }}</th></tr></thead>
             <tbody>
               <tr v-for="t in c.targets.value.filter((x) => x.channel === 'file')" :key="t.id" :data-target="t.id">
-                <td><strong style="overflow-wrap: anywhere">{{ t.label }}</strong></td>
+                <td>
+                  <label v-if="c.releasedRevisionId.value" class="actions" style="flex-wrap: nowrap; min-height: 48px; cursor: pointer">
+                    <input type="checkbox" style="flex: none" :checked="c.selected.value.includes(t.id)" @change="c.toggleTarget(t.id, $event.target.checked)">
+                    <strong style="overflow-wrap: anywhere">{{ t.label }}</strong>
+                  </label>
+                  <strong v-else style="overflow-wrap: anywhere">{{ t.label }}</strong>
+                </td>
                 <td>
                   <span v-if="!t.available" class="tag wait" style="white-space: normal" data-testid="unavailable">{{ t.reason }}</span>
                   <span v-if="c.placementUnconfirmed(t.id)" class="tag wait" role="status" style="white-space: normal">{{ TEXT.placementUnknown }}</span>
@@ -412,11 +505,12 @@ export const OutputView = {
                 </td>
                 <td>
                   <div class="actions">
-                    <a v-if="c.downloadUrl(t.id)" :href="c.downloadUrl(t.id)" download class="button small" style="min-height: 48px"
+                    <a v-if="c.downloadUrl(t.id)" :href="c.downloadUrl(t.id)" download class="button small" style="min-height: 48px; overflow-wrap: anywhere"
                        @click="c.markDownloadStarted(t.id)">{{ TEXT.download }}</a>
-                    <button v-else type="button" class="small primary" style="min-height: 48px" :disabled="!c.canExport(t.id)" @click="c.exportTo(t.id)">{{ c.destination.value ? TEXT.save : TEXT.export }}</button>
+                    <button v-else type="button" class="small" style="min-height: 48px" :aria-label="c.destination.value ? null : TEXT.export"
+                            :disabled="!c.canExport(t.id)" @click="c.exportTo(t.id)">{{ c.destination.value ? TEXT.save : TEXT.start }}</button>
                     <button v-if="c.results.value[t.id] && c.results.value[t.id].job && ['pending', 'unknown'].includes(c.results.value[t.id].phase)"
-                            type="button" class="small" @click="c.refreshStatus(t.id)">{{ TEXT.status }}</button>
+                            type="button" class="small" style="min-height: 48px" @click="c.refreshStatus(t.id)">{{ TEXT.status }}</button>
                   </div>
                 </td>
               </tr>
@@ -424,6 +518,13 @@ export const OutputView = {
           </table>
         </div>
         <p v-else-if="c.releasedRevisionId.value" class="empty">{{ TEXT.empty }}</p>
+        <div v-if="c.releasedRevisionId.value && c.targets.value.some((t) => t.id === 'kis')" class="actions" style="margin-top: 14px">
+          <label class="actions" style="min-height: 48px; cursor: pointer">
+            <input type="checkbox" :checked="c.selected.value.includes('kis')" @change="c.toggleTarget('kis', $event.target.checked)">
+            <strong>KIS</strong>
+          </label>
+          <span class="tag wait" style="white-space: normal" role="status" :data-phase="c.results.value.kis?.phase">{{ c.results.value.kis?.label || TEXT.kisUnavailable }}</span>
+        </div>
         <p v-if="c.targets.value.some((t) => c.downloadUrl(t.id))" class="hint" style="margin-top: 14px">{{ TEXT.downloadHint }}</p>
       </section>
       <section v-if="c.releasedRevisionId.value" class="panel" aria-labelledby="out-clip">

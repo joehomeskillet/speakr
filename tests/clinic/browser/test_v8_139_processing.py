@@ -51,18 +51,39 @@ def test_processing_labels_and_dictation_jobs(browser, app_base, role_states, si
             page.goto(app_base + '/#/' + fragment)
             support._wait_loading_overlay_gone(page)
             view = page.get_by_test_id(testid)
-            for label in ('Transkription wartet', 'Transkription läuft', 'Transkription fehlgeschlagen'):
-                expect(view.get_by_text(label, exact=False).first).to_be_visible()
-            if fragment == 'arbeitsliste':
+            if fragment == 'aufnahmen':
+                rows = view.locator('button.recording-row')
+                for state, label in (('queued', 'Text wird erstellt'), ('processing', 'Text wird erstellt'),
+                                     ('failed', 'Text konnte nicht erstellt werden')):
+                    row = rows.filter(has=page.get_by_text(f'Titel: Synthetic {state}', exact=True))
+                    text_state = row.get_by_test_id('recording-text-state')
+                    expect(text_state).to_be_visible()
+                    expect(text_state).to_have_text(label)
+                    status = row.get_by_test_id('recording-next-step')
+                    expect(status).to_have_count(1)
+                    expect(status).to_have_text('Sie sind dran: Diktat an den Schreibdienst senden')
+                    expect(status).to_have_attribute('data-action-needed', 'true')
+                failed = text_state
+                completed = rows.filter(has=page.get_by_text('Titel: Synthetisch', exact=True))
+                expect(completed.get_by_test_id('recording-text-state')).to_have_text('Text erstellt')
+                status = completed.get_by_test_id('recording-next-step')
+                expect(status).to_have_count(1)
+                expect(status).to_have_attribute('data-action-needed', 'false')
+                expect(status).to_contain_text('Sie müssen nichts tun')
+            else:
+                for label in ('Transkription wartet', 'Transkription läuft', 'Transkription fehlgeschlagen'):
+                    expect(view.get_by_text(label, exact=False).first).to_be_visible()
                 assert view.locator('[data-layout="pill-status"]').evaluate_all(
                     '(items) => items.every(el => el.getBoundingClientRect().right <= el.closest("td").getBoundingClientRect().right)')
+                failed = view.get_by_text('Transkription fehlgeschlagen', exact=False).first
             if width < 768:
-                view.get_by_text('Transkription fehlgeschlagen', exact=False).first.scroll_into_view_if_needed()
+                failed.scroll_into_view_if_needed()
             page.screenshot(path=str(out / f'{fragment}-{size}-{theme}.png'), full_page=True)
         page.goto(app_base + '/#/aufnahmen')
         support._wait_loading_overlay_gone(page)
-        page.get_by_test_id('clinic-recordings-view').locator('button.recording-row').filter(
-            has_text='Transkription läuft').click()
+        view = page.get_by_test_id('clinic-recordings-view')
+        view.locator('button.recording-row').filter(
+            has=page.get_by_text('Titel: Synthetic processing', exact=True)).click()
         page.get_by_role('button', name='Verarbeitung', exact=True).click()
         jobs = page.get_by_test_id('clinic-jobs-view')
         expect(jobs.get_by_test_id('job-list')).to_be_visible()
