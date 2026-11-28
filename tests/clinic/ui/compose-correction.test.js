@@ -210,8 +210,12 @@ describe('dictation files', () => {
 });
 
 describe('compose-correction contract', () => {
-    it('opens a local editable draft for the selection hotkey and writes only on dialog submit', async () => {
-        const client = fakeClient(base({ 'GET /dictations/d1/correction': ok(correction({ links: [] })) }));
+    it.each([false, true])('opens a local editable draft and writes only on submit (rich text: %s)', async (richText) => {
+        const text = 'Hallo   Welt heute';
+        const document = { schema_version: 1, nodes: richText
+            ? [{ id: 'p1', kind: 'paragraph', level: 0, runs: [{ id: 'r1', text }] }]
+            : [{ id: 'g1', kind: 'graphic' }] };
+        const client = fakeClient(base({ 'GET /dictations/d1/correction': ok(correction({ text, document })) }));
         const vue = {
             ref: (value) => ({ value }), shallowRef: (value) => ({ value }),
             computed: (fn) => ({ get value() { return fn(); } }), nextTick: async () => {},
@@ -219,12 +223,14 @@ describe('compose-correction contract', () => {
         const ui = CorrectionBody.setup({ client, vue, dictationId: 'd1', currentUser: { id: 9 }, openMode: 'correction' });
         await ui.c.start();
         await ui.c.editor.acquire();
-        const [node] = ui.doc.doc.value.nodes;
-        const [run] = node.runs;
-        ui.doc.editRun(node.id, run.id, 'Hallo   Welt heute');
+        expect(ui.documentMode.value).toBe(richText);
         const area = { selectionStart: 0, selectionEnd: 0, focus: vi.fn() };
-        ui.setRunRoot({ querySelector: (selector) => selector === `[data-run-id="${run.id}"]` ? area : null });
-        ui.onRunSelection({ type: 'focus' }, node.id, run.id);
+        if (richText) {
+            ui.setRunRoot({ querySelector: (selector) => selector === '[data-run-id="r1"]' ? area : null });
+            ui.onRunSelection({ type: 'select' }, 'p1', 'r1');
+        } else {
+            ui.setTextEl(area);
+        }
         const press = (extra = {}) => ui.onTextKeydown({ ctrlKey: true, altKey: true, key: 'p', preventDefault: vi.fn(), ...extra });
         press();
         expect(ui.entryDraft.value).toBeNull();

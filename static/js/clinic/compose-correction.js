@@ -1435,8 +1435,8 @@ export const CorrectionBody = {
         const entryModal = useVocabularyEntryDialog(V, (draft) => canAddPhrase.value
             ? vocabulary.saveEntry(draft)
             : { message: 'Zum Hinzufügen muss das Diktat bearbeitbar sein.' }, 'ccv-voc', () => {
-            const selected = currentRun.value;
-            (selected ? runField(selected.run.id) : textEl.value)?.focus();
+            const field = documentMode.value ? runField(currentRun.value?.run.id) : textEl.value;
+            field?.focus();
         });
         const addSelectedPhrase = () => {
             if (!canAddPhrase.value) return;
@@ -1729,6 +1729,7 @@ export const CorrectionBody = {
             SESSION_FORMATS, fileInput, onSessionFile, fileAction: c.fileAction, fileMessage: c.fileMessage, fileError: c.fileError,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
             ...entryModal, entryListName: 'Eigene Liste', addSelectedPhrase, canAddPhrase,
+
             onQuery, onReplacement, onCase, onSelectionCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
             repeatState: c.repeat.state, REPEAT_TEXT,
             SessionTransportNotice,

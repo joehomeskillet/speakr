@@ -26,6 +26,7 @@
  * dictation_id); it is supplied by the mount package together with the recorder.
  */
 
+
 import { createHandmicView } from './handmic-webhid.js';
 import { DictationProtectionComponent } from './dictation-protection-ui.js';
 import { createRecorderPhases, isTitleEditable, LABELS, receiptDictationId } from './recorder-phases-ui.js';
@@ -635,7 +636,7 @@ export function createRecordingViewController(options) {
     const canUseRecorder = () => !state.disposed && state.mode === 'record' && !routing && allowed()
         && !(opts.draftMetadata && created());
     const enabled = (id) => machine.controls().some((control) => control.id === id && !control.disabled);
-    const { pause, resume, stop, play, skip, stopPlayback } = machine;
+    const { pause, resume, play, skip, stopPlayback } = machine;
 
     function handmicFeedback() {
         if (!canUseRecorder()) return { message: 'Handmikrofon inaktiv.', led: 'off' };

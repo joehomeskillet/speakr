@@ -175,10 +175,12 @@ export function createOutputViewController(options) {
         if (releasedRevisionId.value && targets.value.some((t) => t.channel === 'file') && !find('kis')) {
             targets.value.push(targetView({ id: 'kis', channel: 'kis', available: false }, releasedRevisionId.value));
         }
-        const defaults = await client.request(OUTPUT_PREFERENCES);
-        preferences.value = defaults.outcome === 'ok' && Array.isArray(defaults.data?.formats) ? defaults.data : null;
-        selected.value = selectableTargets().filter((t) => preferences.value?.formats.includes(preferenceId(t.id))).map((t) => t.id);
-        preferenceNotice.value = preferences.value ? '' : TEXT.defaultsLoadFailed;
+        if (opts.loadPreferences !== false) {
+            const defaults = await client.request(OUTPUT_PREFERENCES);
+            preferences.value = defaults.outcome === 'ok' && Array.isArray(defaults.data?.formats) ? defaults.data : null;
+            selected.value = selectableTargets().filter((t) => preferences.value?.formats.includes(preferenceId(t.id))).map((t) => t.id);
+            preferenceNotice.value = preferences.value ? '' : TEXT.defaultsLoadFailed;
+        }
         clipboard = null;
         phase.value = 'ready';
         return true;
