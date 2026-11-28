@@ -166,6 +166,7 @@ def create_blueprint(
             author_pool=None if pool is None else dict(id=pool.id, name=pool.name),
             staff_pools=_staff_pools(dictation.pool_id),
             takeover=_person(None if flow is None else flow.assignee_user_id),
+            routing_target=workflow.routing_public(flow),
             recording_time=dict(at=at, source='fallback' if fallback else 'recorded'),
             duration_seconds=None if flow is None else flow.audio_seconds,
             priority=None if flow is None else flow.priority,
