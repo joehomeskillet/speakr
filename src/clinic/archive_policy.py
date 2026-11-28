@@ -30,7 +30,7 @@ from sqlalchemy.exc import IntegrityError
 
 from src.clinic import archive, policy, release, revisions, workflow
 from src.clinic.config import clinic_mode_enabled
-from src.clinic.models import ClinicContextRevision
+from src.clinic.models import ClinicContextRevision, ClinicDictation
 from src.database import db
 from src.services import retention
 
@@ -477,14 +477,47 @@ class ArchiveBook:
             current = int(recording.archive_revision or 0)
             if current != expected_archive_revision:
                 raise StaleVersion(current)
+        return self._apply_confirmed(
+            session, store, item, row, dry, action=action, now=now, request_id=request_id,
+            first_archive=first_archive, recording=recording,
+        )
+
+    def apply_retention(self, session, recording, *, now: datetime, retention_days: int) -> ApplyResult:
+        """Project the scheduled retention decision under the caller's locks."""
+        dictation = session.query(ClinicDictation).filter_by(recording_id=recording.id).one()
+        item = session.get(workflow.ClinicWorkflowDictation, dictation.id)
+        if item is None or item.status != workflow.DONE:
+            raise ArchivePolicyError("transition_failed")
+        current = _current_entry(dictation)
+        if current is None:
+            raise ArchivePolicyError("links_required")
+        store = self._store(session)
+        prior = store.get_row(dictation.id)
+        row = prior if prior is not None else current
+        # The sweep uses the current release and its effective tag/global period.
+        now = _utc(now)
+        dry = self._evaluate_row(dict(row, finished_at=current["finished_at"],
+                                      retention_days=retention_days), now, None)
+        if not dry.eligible:
+            raise ArchivePolicyError("retention_ineligible", dry.reason)
+        result = self._apply_confirmed(
+            session, store, item, row, dry, action=ARCHIVE, now=now,
+            request_id=f"retention:{dictation.id}:{recording.archive_revision + 1}",
+            first_archive=prior is None, retention_changed=True,
+        )
+        dictation.version_counter += 1
+        return result
+
+    def _apply_confirmed(self, session, store, item, row, dry, *, action, now, request_id,
+                         first_archive, recording=None, retention_changed=False):
+        dictation_id, expected_version = item.id, row["version"]
         trigger = trigger_for(action)
         if workflow.TRANSITIONS.get((item.status, trigger)) is None:
             raise ArchivePolicyError("transition_failed")
         if first_archive and not store.insert_row(dictation_id, row):
             raise StaleVersion(self._require(dictation_id, store)["version"])
-        changed = False
         if recording is not None and dry.eligible:
-            changed = bool(archive.archive_for_retention(
+            retention_changed = bool(archive.archive_for_retention(
                 recording,
                 now=_aware(now).replace(tzinfo=None),
                 retention_days=dry.retention_days,
@@ -497,7 +530,7 @@ class ArchiveBook:
             raise StaleVersion(self._require(dictation_id, store)["version"])
         row = self._require(dictation_id, store)
         result = self._result(
-            dictation_id, action, trigger, item.status, row, dry, True, request_id, changed,
+            dictation_id, action, trigger, item.status, row, dry, True, request_id, retention_changed,
         )
         store.put_done(result)
         return result
