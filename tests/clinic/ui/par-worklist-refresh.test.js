@@ -73,7 +73,8 @@ it('delegates editor F5 to the finish dialog and writes only after explicit conf
     const ref = (value) => ({ value });
     const unmount = [];
     const vue = { ref, shallowRef: ref, computed: (read) => ({ get value() { return read(); } }),
-        reactive: (value) => value, watch: () => () => {}, onBeforeUnmount: (fn) => unmount.push(fn) };
+        reactive: (value) => value, watch: () => () => {}, onBeforeUnmount: (fn) => unmount.push(fn),
+        defineAsyncComponent: (loader) => loader };
     const client = { switchContext() {}, request: vi.fn(async (path) => path.endsWith('/leases')
         ? ok({ held: true, lease_id: 'lease', generation: 1 })
         : ok({ transcript_revision_id: 'transcript' })) };

@@ -170,6 +170,7 @@ export const TEXT = Object.freeze({
     dictation: 'Diktat',
     close: 'Schliessen',
     closeFailed: 'Schliessen nicht möglich: Die Änderungen konnten nicht gespeichert werden.',
+    closeReleaseFailed: 'Das Ende der Bearbeitung konnte nicht bestätigt werden. Bitte versuchen Sie es erneut.',
     toolbar: 'Werkzeugleiste',
     template: 'Vorlage',
     noTemplate: 'Keine Vorlage gewählt',
@@ -337,6 +338,7 @@ export function createCorrectionViewController(options) {
     let disposed = false;
     let opening = null;
     let closing = false;
+    let closed = false;
     const stops = [];
     const audioListeners = [];
     let activeRange = null;
@@ -931,8 +933,12 @@ export function createCorrectionViewController(options) {
 
 
     // --- lifecycle ------------------------------------------------------------
-    const leaseRun = { acquire: editor.acquire, release: editor.release, takeOver: editor.takeOver };
-    const leaseButtons = () => editor.availableLeaseActions().filter((a) => typeof leaseRun[a.id] === 'function');
+    const leaseRun = { acquire: editor.acquire, release: () => endSession(false), takeOver: editor.takeOver };
+    const leaseButtons = () => editor.availableLeaseActions()
+        .filter((a) => typeof leaseRun[a.id] === 'function')
+        .map((a) => a.id === 'release' ? {
+            ...a, label: editor.lease.value.releaseUnconfirmed ? 'Erneut versuchen' : 'Bearbeitung beenden',
+        } : a);
 
     // --- foot pedal, keyboard mode (PAR-OPS-001) -----------------------------
     // Pedal commands bypass correction backstep: hold release already applies its own rewind.
@@ -991,15 +997,53 @@ export function createCorrectionViewController(options) {
         return opening;
     }
 
-    /** Unsaved edits are saved before the page is told to close; a failed save keeps the view open. */
-    async function close() {
-        if (disposed || closing || fileAction.value) return false;
+    /** Save before releasing the lease, then let the optional session review finish before navigating. */
+    async function endSession(navigate) {
+        if (disposed || closing || closed || fileAction.value) return false;
         closing = true;
         try {
             if (opening) await opening;
-            if (disposed || !(await saveBeforeClose())) return false;
-            if (editor.lease.value.status === 'held') await editor.release();
             if (disposed) return false;
+            const reviewOnClose = typeof opts.onSessionEnd === 'function';
+            // A manual save can still be in flight even when the text is clean.
+            if (reviewOnClose && !editor.dirty.value && saver.state.value === 'saving') {
+                await saver.whenSettled();
+                if (disposed) return false;
+                if (!editor.dirty.value && saver.state.value !== 'saved') {
+                    closeMessage.value = TEXT.closeFailed;
+                    return false;
+                }
+            }
+            // A save can settle an older pending operation and leave newer text dirty (reconcile first),
+            // or the text can change while the save is awaited: save again, bounded, until nothing is dirty.
+            // A save already in flight (autosave follow-up) is awaited, not counted as a failure or a pass.
+            for (let pass = 0; editor.dirty.value;) {
+                const res = pass > CLOSE_EXTRA_SAVES ? null : await save().catch(() => null);
+                if (disposed) return false;
+                if (res && res.state === 'saving') {
+                    await saver.whenSettled();
+                    if (disposed) return false;
+                    continue;
+                }
+                pass += 1;
+                if (!res || !res.ok) {
+                    closeMessage.value = TEXT.closeFailed;
+                    return false;
+                }
+            }
+            if (editor.lease.value.status === 'held' || editor.lease.value.releaseUnconfirmed) {
+                const result = await editor.release({ confirm: reviewOnClose }).catch(() => null);
+                if (disposed) return false;
+                if ((!navigate || reviewOnClose) && !result?.released) {
+                    closeMessage.value = TEXT.closeReleaseFailed;
+                    return false;
+                }
+                closeMessage.value = '';
+                if (reviewOnClose) await opts.onSessionEnd(navigate);
+                if (disposed) return false;
+            }
+            if (!navigate) return true;
+            closed = true;
             if (typeof opts.onClose === 'function') opts.onClose({ dictationId });
             return true;
         } finally {
@@ -1007,26 +1051,7 @@ export function createCorrectionViewController(options) {
         }
     }
 
-    async function saveBeforeClose() {
-        // A save can settle an older pending operation and leave newer text dirty (reconcile first),
-        // or the text can change while the save is awaited: save again, bounded, until nothing is dirty.
-        // A save already in flight (autosave follow-up) is awaited, not counted as a failure or a pass.
-        for (let pass = 0; editor.dirty.value;) {
-            const res = pass > CLOSE_EXTRA_SAVES ? null : await save();
-            if (disposed) return false;
-            if (res && res.state === 'saving') {
-                await saver.whenSettled();
-                if (disposed) return false;
-                continue;
-            }
-            pass += 1;
-            if (!res || !res.ok) {
-                closeMessage.value = TEXT.closeFailed;
-                return false;
-            }
-        }
-        return true;
-    }
+    const close = () => endSession(true);
 
     /** Stops every timer, listener and request, releases a held lease and clears clinical data held in memory. */
     function dispose() {
@@ -1241,20 +1266,41 @@ export const CorrectionBody = {
     setup(props, ctx) {
         const V = props.vue || globalThis.Vue;
         if (!V) throw new Error('Vue is required to mount the correction view');
+        const SessionVocabularyReview = V.defineAsyncComponent(() =>
+            import('./vocabulary-review-ui.js').then((mod) => mod.SessionVocabularyReview));
+        const leaseBar = V.ref(null);
+        const sessionReviewOpen = V.ref(false);
+        let finishSessionReview;
+        let stayInEditor = false;
+        function dismissSessionReview() {
+            sessionReviewOpen.value = false;
+            const finish = finishSessionReview;
+            finishSessionReview = null;
+            finish?.();
+            if (stayInEditor) V.nextTick(() => leaseBar.value?.querySelector('button[data-action="acquire"]:enabled')?.focus());
+        }
         const c = createCorrectionViewController({
             client: props.client || undefined,
             dictationId: props.dictationId,
             currentUser: props.currentUser,
             vue: props.vue || undefined,
-            contract: 'v8',
+            contract: 'v8', // the mounted view runs the V8 save contract: lease controller, reconcile first, +-5 s step
             document: props.openMode !== 'player',
             openMode: props.openMode,
+            onSessionEnd: (navigate) => new Promise((resolve) => {
+                stayInEditor = !navigate;
+                finishSessionReview = resolve;
+                sessionReviewOpen.value = true;
+            }),
             recordingId: props.recordingId || undefined,
             createAudioContext: props.createAudioContext || undefined,
             onClose: () => { if (ctx && typeof ctx.emit === 'function') ctx.emit('close'); },
         });
         if (typeof V.onMounted === 'function') V.onMounted(() => { c.start(); });
-        if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => c.dispose());
+        if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => {
+            c.dispose();
+            dismissSessionReview();
+        });
         if (typeof document !== 'undefined' && document.head && !document.getElementById(LOCAL_CSS_ID)) {
             const styleEl = document.createElement('style');
             styleEl.id = LOCAL_CSS_ID;
@@ -1666,6 +1712,7 @@ export const CorrectionBody = {
             reviewLoaded: c.reviewLoaded, reviewFocused, reviewSpan, reviewMark, setReviewRef, activateReview, onReviewKeydown,
             formatDictationReference,
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff, finishOptions, finishWorkflow, onFinishKeydown,
+            leaseBar, sessionReviewOpen, dismissSessionReview, SessionVocabularyReview,
             SESSION_FORMATS, fileInput, onSessionFile, fileAction: c.fileAction, fileMessage: c.fileMessage, fileError: c.fileError,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
             onQuery, onReplacement, onCase, onSelectionCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
@@ -1758,10 +1805,11 @@ export const CorrectionBody = {
       <div><dt>{{ TEXT.editing }}</dt><dd data-worker-name>{{ workerLabel() }}</dd></div>
     </dl>
 
-    <div class="live-inline-status" role="group" :aria-label="TEXT.lease" data-testid="lease-bar"
+    <div ref="leaseBar" class="live-inline-status" role="group" :aria-label="TEXT.lease" data-testid="lease-bar"
          style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
       <span role="status" aria-live="polite" :style="{ color: lease.surface.color }">{{ lease.message }}</span>
-      <button v-for="b in c.leaseButtons()" :key="b.id" type="button" :class="['button', 'small', b.id === 'acquire' ? 'primary' : '']" :style="FOCUS" :disabled="b.disabled || Boolean(fileAction)"
+      <button v-for="b in c.leaseButtons()" :key="b.id" type="button" :class="['button', 'small', b.id === 'acquire' ? 'primary' : '']"
+              :style="[FOCUS, b.id === 'release' && { minHeight: '48px' }]" :disabled="b.disabled || sessionReviewOpen || Boolean(fileAction)"
               :data-action="b.id" @click="c.leaseRun[b.id]()">{{ b.label }}</button>
     </div>
 
@@ -2106,16 +2154,18 @@ export const CorrectionBody = {
     </div>
   </div>
   <div role="status" aria-live="polite" class="sr-only">{{ editorAnnouncement }}</div>
+  <component :is="SessionVocabularyReview" v-if="sessionReviewOpen" :client="c.client" :user-id="currentUser.id" :vue="vue"
+      @close="dismissSessionReview" />
 </section>`,
 };
 
-/** Registered view. Re-keying the body on `dictationId` disposes all children of the previous dictation. */
+/** Re-key the editor when the account, dictation or open mode changes. */
 export const CorrectionView = {
     name: 'ClinicCorrectionView',
     components: { CorrectionBody },
     props: BODY_PROPS,
     emits: ['close'],
-    template: `<CorrectionBody :key="dictationId" :client="client" :dictation-id="dictationId" :current-user="currentUser"
+    template: `<CorrectionBody :key="JSON.stringify([currentUser?.id, dictationId, openMode])" :client="client" :dictation-id="dictationId" :current-user="currentUser"
                               :vue="vue" :recording-id="recordingId" :create-audio-context="createAudioContext"
         :dictator="dictator" :pool="pool" :open-mode="openMode" :open-audio-edits="openAudioEdits" @close="$emit('close')">
           <template v-if="$slots['back-action']" #back-action="scope"><slot name="back-action" v-bind="scope"></slot></template>

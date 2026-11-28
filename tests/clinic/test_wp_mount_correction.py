@@ -229,6 +229,11 @@ def _open_from_worklist(page, base):
     return view
 
 
+def _dismiss_session_review(page):
+    review = page.get_by_test_id("session-vocabulary-review")
+    review.get_by_role("button", name="Schliessen", exact=True).click()
+
+
 def test_typist_opens_corrects_saves_and_returns(live_server):
     from playwright.sync_api import sync_playwright
 

@@ -23,11 +23,11 @@
  * stay in memory and are cleared on dispose. Durable draft state is server-side
  * (src/clinic/live_drafts.py LiveDrafts, live_phrases) and comes back through the
  * resume call. Draft switching (POST live/drafts/<id>/switch) is not wired here.
- * Switching "dictationId" re-keys the body, which disposes the previous one.
+ * Switching accounts or dictations re-keys the body and disposes the previous one.
  * No patient data is shown: the view shows the dictation id only.
  *
  * Exports:
- *   LiveView  Vue options; props client, dictationId, vue?, canWrite?, onReady? (receives the controller).
+ *   LiveView  Vue options; props client, dictationId, currentUser?, vue?, canWrite?, onReady?.
  *   registerLiveView(app)  app.component('clinic-live-view', LiveView).
  *   createLiveViewController(options)  the controller behind the view.
  *   liveViewActions(state)  the buttons for a state.
@@ -140,6 +140,7 @@ export function createLiveViewController(options) {
     let note = '';
     let lost = false; // the last request ended without an answer
     let disposed = false;
+    let stopPending = false;
 
     const client = {
         async request(path, o) {
@@ -275,35 +276,42 @@ export function createLiveViewController(options) {
 
         /** Stop needs every final phrase saved; otherwise the stop would drop text. */
         async stop() {
-            if (phase !== 'live' && phase !== 'paused') return state();
-            const back = phase;
-            const wasLive = phase === 'live';
-            if (!wasLive) phase = 'live'; // saving needs the writable gate
-            await saveUnsaved();
-            phase = back;
-            if (disposed) return state();
-            const afterSave = session.getState();
-            if (afterSave.hasUnsaved || afterSave.status === 'stale') {
-                // A conflict or a failed save keeps the phrase text and does not end the session.
-                if (afterSave.status === 'stale') setPhase('stale', afterSave.hasUnsaved ? NOTES.stopBlocked : NOTES.stopFailed);
-                else setPhase(lost ? 'reconnecting' : back, NOTES.stopBlocked);
+            if (disposed || stopPending || (phase !== 'live' && phase !== 'paused')) return state();
+            stopPending = true;
+            try {
+                const back = phase;
+                if (phase === 'paused') phase = 'live'; // saving needs the writable gate
+                await saveUnsaved();
+                if (disposed) return state();
+                phase = back;
+                const s = session.getState();
+                if (s.hasUnsaved || s.status === 'stale') {
+                    // A conflict or a failed save keeps the phrase text and does not end the session.
+                    if (s.status === 'stale') setPhase('stale', s.hasUnsaved ? NOTES.stopBlocked : NOTES.stopFailed);
+                    else setPhase(lost ? 'reconnecting' : back, NOTES.stopBlocked);
+                    return state();
+                }
+                if (!Number.isInteger(s.revision) || s.revision < 1) {
+                    setPhase(back, NOTES.stopFailed);
+                    return state();
+                }
+                setPhase('stopping');
+                const res = await client.command({
+                    command: 'stop_live_session', request_id: newKey(), expected_revision: s.revision,
+                    payload: { session_id: s.sessionId, generation: s.generation, last_sequence: s.checkpoint },
+                }, { idempotencyKey: newKey() });
+                if (disposed || res.outcome === 'cancelled') return state();
+                if (res.outcome === 'ok' && res.data?.status === 'committed') {
+                    setPhase('stopped');
+                    if (!disposed) opts.onStopConfirmed?.({
+                        dictationId, sessionId: s.sessionId,
+                    });
+                } else if (res.outcome === 'conflict' || res.outcome === 'ok') setPhase(back, NOTES.stopFailed);
+                else failed(res, back);
                 return state();
+            } finally {
+                stopPending = false;
             }
-            const s = session.getState();
-            if (!Number.isInteger(s.revision) || s.revision < 1) {
-                setPhase(back, NOTES.stopFailed);
-                return state();
-            }
-            setPhase('stopping');
-            const res = await client.command({
-                command: 'stop_live_session', request_id: newKey(), expected_revision: s.revision,
-                payload: { session_id: s.sessionId, generation: s.generation, last_sequence: s.checkpoint },
-            }, { idempotencyKey: newKey() });
-            if (disposed || res.outcome === 'cancelled') return state();
-            if (res.outcome === 'ok') setPhase('stopped');
-            else if (res.outcome === 'conflict') setPhase(back, NOTES.stopFailed);
-            else failed(res, back);
-            return state();
         },
 
         /** Resume from the durable checkpoint, then retry the unsaved phrases of the adopted generation. */
@@ -351,28 +359,44 @@ export function createLiveViewController(options) {
 const BODY_PROPS = {
     client: { type: Object, default: null },
     dictationId: { type: String, required: true },
+    currentUser: { type: Object, default: null },
     vue: { type: Object, default: null },
     canWrite: { type: Function, default: null },
     onReady: { type: Function, default: null },
 };
 
-/** Inner body: one instance per dictation. */
+/** Inner body: one instance per account and dictation. */
 const LiveBody = {
     name: 'ClinicLiveBody',
     props: BODY_PROPS,
     setup(props) {
         const V = props.vue || globalThis.Vue;
         if (!V) throw new Error('Vue is required to mount the live view');
+        const SessionVocabularyReview = V.defineAsyncComponent(() =>
+            import('./vocabulary-review-ui.js').then((mod) => mod.SessionVocabularyReview));
+        const client = props.client || createClinicApiClient();
+        const userId = props.currentUser?.id;
+        const reviewOpen = V.shallowRef(false);
+        const controls = V.shallowRef(null);
+        let active = true;
         const c = createLiveViewController({
-            client: props.client || undefined,
+            client,
             dictationId: props.dictationId,
             canWrite: props.canWrite || undefined,
+            onStopConfirmed: () => { if (userId != null && userId !== '') reviewOpen.value = true; },
         });
         const state = V.shallowRef(c.getState());
         const stop = c.subscribe((snap) => { state.value = snap; });
         if (typeof V.onMounted === 'function') V.onMounted(() => { if (props.onReady) props.onReady(c); });
-        if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => { stop(); c.dispose(); });
-        return { c, state, FOCUS, box, TEXT, ICON_PATHS };
+        if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(() => { active = false; stop(); c.dispose(); });
+
+        async function dismissReview() {
+            reviewOpen.value = false;
+            await V.nextTick();
+            if (active) controls.value?.querySelector('button[data-action="start"]:enabled')?.focus();
+        }
+
+        return { c, state, FOCUS, box, TEXT, ICON_PATHS, controls, reviewOpen, client, userId, dismissReview, SessionVocabularyReview };
     },
     template: `
 <section class="clinic-live-view v8-page" data-testid="clinic-live-view" aria-labelledby="clv-title" :data-phase="state.phase">
@@ -394,10 +418,10 @@ const LiveBody = {
       <span class="tag neutral dot">{{ TEXT.count(state.session.phrases.length) }}</span>
     </div>
     <div class="recorder compact-recorder" :class="{ recording: state.phase === 'live' }">
-      <div class="recorder-controls" role="group" :aria-label="TEXT.controls" data-testid="live-controls">
+      <div ref="controls" class="recorder-controls" role="group" :aria-label="TEXT.controls" data-testid="live-controls">
         <template v-for="a in state.actions" :key="a.id">
           <button v-if="ICON_PATHS[a.id]" type="button" class="icon-button" :class="{ 'record-button': a.id === 'start' }" :style="FOCUS"
-                  :disabled="a.disabled" :data-action="a.id" :aria-label="a.label" :title="a.label" @click="c[a.id]()">
+                  :disabled="a.disabled || reviewOpen" :data-action="a.id" :aria-label="a.label" :title="a.label" @click="c[a.id]()">
             <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false"><path :d="ICON_PATHS[a.id]"></path></svg>
           </button>
           <button v-else type="button" class="button" style="min-height: 2.75rem" :style="FOCUS" :disabled="a.disabled" :data-action="a.id" @click="c[a.id]()">{{ a.label }}</button>
@@ -427,15 +451,17 @@ const LiveBody = {
     </div>
     <div class="editor-status"><span>{{ TEXT.phrases }}: {{ state.session.phrases.length }}</span><span class="editor-status-right"><span>{{ state.announcement }}</span></span></div>
   </section>
+  <component :is="SessionVocabularyReview" v-if="reviewOpen" :client="client" :user-id="userId" :vue="vue" @close="dismissReview" />
 </section>`,
 };
 
-/** Registered view. Re-keying the body on dictationId disposes the previous dictation's state. */
+/** Registered view; account or dictation changes dispose the previous body. */
 export const LiveView = {
     name: 'ClinicLiveView',
     components: { LiveBody },
     props: BODY_PROPS,
-    template: `<LiveBody :key="dictationId" :client="client" :dictation-id="dictationId" :vue="vue" :can-write="canWrite" :on-ready="onReady" />`,
+    template: `<LiveBody :key="JSON.stringify([currentUser?.id, dictationId])" :client="client" :dictation-id="dictationId"
+                         :current-user="currentUser" :vue="vue" :can-write="canWrite" :on-ready="onReady" />`,
 };
 
 export function registerLiveView(app) {
