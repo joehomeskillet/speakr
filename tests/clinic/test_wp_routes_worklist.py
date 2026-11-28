@@ -97,7 +97,8 @@ def login(uid):
     return c, {"X-CSRF-Token": c.get("/api/csrf-token").json["csrf_token"]}
 
 # Explicit release authority for author a only (own default never includes release).
-policy.register_grant_provider(lambda uid: [policy.Grant("own", frozenset({"release"}))] if uid == ids["a"] else [])
+# The title write needs its own rename grant; edit no longer stands in for it.
+policy.register_grant_provider(lambda uid: [policy.Grant("own", frozenset({"release", "rename"}))] if uid == ids["a"] else [])
 W = "/api/clinic/v1/worklist"
 D = f"/api/clinic/v1/dictations/{did}"
 anon = app.test_client()

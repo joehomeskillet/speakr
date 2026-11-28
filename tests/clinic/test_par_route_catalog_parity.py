@@ -29,12 +29,12 @@ CATALOGS = (
     route_policy_admin,
 )
 
-# Full tables from 7acabaf4 plus the P-189, P-036, P-083, P-042 and P-240 clinic endpoints,
+# Full tables from 7acabaf4 plus the P-189, P-036, P-083, P-042, P-174 and P-240 clinic endpoints,
 # serialized with json.dumps(sort_keys=True).
 # Intentional route changes must update the snapshot together with their registration tests.
 BASELINE_TABLE_SHA256 = {
     False: "88f25130a4c4514b82b166e06829ec5427fb26343a2cba42f37b0614fb03502e",
-    True: "635070705d38a889d75d430124bf95642806792cfba2841c7092845b55c7b521",
+    True: "79ba1d3c22ef72d645235a485c14978cc7de5b9ae044d3a12cfd48d6db57b6d4",
 }
 
 _CHILD_INSPECT = r'''
@@ -137,7 +137,7 @@ def test_catalog_endpoints_match_built_clinic_table(monkeypatch):
             for endpoint in getattr(module, attr):
                 catalog_entries[endpoint] = kind
 
-    assert len(catalog_entries) == 155
+    assert len(catalog_entries) == 156
     assert not (set(catalog_entries) & set(off_table))
     assert set(on_table) - set(off_table) == set(catalog_entries)
     for endpoint, kind in catalog_entries.items():

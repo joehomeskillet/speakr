@@ -227,6 +227,26 @@ def test_saved_rule_crud_and_policy(mounted_api):
         assert not db.session.get(presets.ClinicRegexRule, rule_id).is_active
 
 
+def test_apply_cannot_bypass_an_explicit_rename_denial(mounted_api):
+    app, _, (editor, csrf), editor_id, dictation_id = mounted_api
+    payload = {'dictation_id': dictation_id, 'rules': [RULES[0]], 'text': TEXT}
+    preview = editor.post(PREVIEW, headers=csrf, json=payload)
+    assert preview.status_code == 200
+    assert preview.json['resulting_fields'] == {'title': 'P-4711'}
+    confirm = {key: preview.json[key] for key in ('rule_version', 'input_digest')}
+    with app.app_context():
+        admin_id = db.session.query(User.id).filter_by(username='regex-admin').scalar()
+        lease.acquire(dictation_id, editor_id, datetime.now(timezone.utc))
+        pools.deny(editor_id, 'own', actor_id=admin_id, actions=('rename',))
+        db.session.commit()
+
+    denied = editor.post(APPLY, headers=csrf, json={**payload, **confirm})
+    assert (denied.status_code, denied.json['code']) == (403, 'POLICY_DENIED')
+    with app.app_context():
+        dictation = db.session.get(ClinicDictation, dictation_id)
+        assert db.session.get(Recording, dictation.recording_id).title == 'Original'
+
+
 @pytest.mark.parametrize('targets', [
     ('title', 'notes', 'priority', 'deadline'),
     ('dictation_name', 'remarks', 'urgency', 'due_date'),

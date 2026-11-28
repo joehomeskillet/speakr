@@ -5080,7 +5080,7 @@ Summarization Instructions:
                             const title = typeof row.own_title === 'string' ? row.own_title : '';
                             const label = [title.trim() || row.capture_label || 'Diktat',
                                 row.dictated_by?.display_name || 'Name nicht verfügbar', formatDay(row.day),
-                                formatTime(row.sort_time || row.recorded_at), formatDictationReference(row.dictation_id)].join(' · ');
+                                formatTime(row.sort_time || row.recorded_at), formatDictationReference(row.dictation_id)].join(', ');
                             choices.value.push({ id: row.dictation_id, label, fields: title ? { title } : emptyFields });
                         }
                         nextCursor.value = result.data.next_cursor || null;
