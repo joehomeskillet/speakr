@@ -249,6 +249,11 @@ def test_typist_opens_corrects_saves_and_returns(live_server):
             text.wait_for(state="visible", timeout=30000)
             assert text.input_value() == "Anamnese Husten seit drei Tagen."
             assert text.get_attribute("readonly") is not None
+            lease_url = f"{base}/api/clinic/v1/dictations/{dictation}/leases"
+            rows_url = f"{base}/api/clinic/v1/worklist/rows"
+            assert page.request.get(lease_url).json()["held"] is False
+            assert next(row for row in page.request.get(rows_url).json()["items"]
+                        if row["dictation_id"] == dictation)["status"] == "zu_schreiben"
             page.locator("[data-action=acquire]").click()
             try:
                 page.wait_for_function("!document.querySelector('[data-testid=text]').readOnly", timeout=20000)
@@ -367,7 +372,9 @@ def test_dictation_files_round_trip(file_server, tmp_path):
         expect(files).to_have_attribute('open', '')
         text = editor.get_by_test_id('text')
         audio = editor.locator('audio')
-        editor.locator('[data-action=acquire]').click()
+        # An authorized Schreibplatz open acquires the lease before loading the document.
+        expect(editor.locator('[data-action=release]')).to_be_visible()
+        expect(editor.get_by_test_id('correction-document')).to_be_visible()
         expect(text).to_be_editable()
         expect(text).to_have_value('')
         status = editor.get_by_test_id('session-file-status')

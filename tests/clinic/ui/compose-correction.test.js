@@ -193,6 +193,8 @@ describe('dictation files', () => {
         const opening = c.openSession({ name: 'test.txt' });
         try {
             await vi.waitFor(() => expect(count(client, 'POST', importPath)).toBe(1));
+            expect(c.setText('Änderung während des Ladens')).toBe(false);
+            expect(await c.close()).toBe(false);
             expect(await c.confirmReview('m1')).toMatchObject({ ok: false, code: 'readOnly' });
             expect(count(client, 'POST', confirmPath)).toBe(0);
 
@@ -216,16 +218,15 @@ describe('compose-correction contract', () => {
     });
 
     it('composes the editor and finish building blocks and reuses tokens and api-client', () => {
-        for (const mod of [
+        const expected = [
             'correction-editor-ui', 'correction-alignment-ui', 'correction-waveform-ui', 'playback-tempo-ui',
             'correction-modes-ui', 'correction-save-ui', 'audio-markers-ui', 'playback-gain-ui',
-            'finish-options-ui', 'workflow-actions-ui',
-        ]) expect(source).toContain(`./${mod}.js`);
-        expect(source).toContain("from './tokens.js'");
-        expect(source).toContain("from './api-client.js'");
-        const imports = [...source.matchAll(/from '(\.\/(?!correction-player-position\.js')[^']+)'/g)].map((m) => m[1]);
+            'correction-toolbar-ui', 'richtext-editor-ui', 'finish-options-ui', 'workflow-actions-ui',
+            'correction-player-position', 'worklist-ui', 'tokens', 'api-client',
+        ].map((mod) => `./${mod}.js`).sort();
+        const imports = [...source.matchAll(/from '(\.\/[^']+)'/g)].map((m) => m[1]);
         expect(imports).toHaveLength(new Set(imports).size);
-        expect(imports).toHaveLength(13);
+        expect(imports.sort()).toEqual(expected);
     });
 
     it('uses German labels, tokens only, keyboard-operable native controls and no browser storage', () => {
