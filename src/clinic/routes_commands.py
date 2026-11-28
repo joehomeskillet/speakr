@@ -15,12 +15,13 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from flask import Blueprint, abort, current_app, jsonify, request, session
+from flask import Blueprint, Response, abort, current_app, jsonify, request, session, url_for
 from flask_login import current_user
 from flask_wtf.csrf import CSRFError, validate_csrf
+from sqlalchemy.orm.exc import StaleDataError
 from wtforms.validators import ValidationError
 
-from src.clinic import policy, vocabulary, voice_command_runtime
+from src.clinic import policy, text_blocks, vocabulary, voice_command_runtime
 from src.clinic.asr_capabilities import (
     AsrCapability,
     AsrCapabilityRegistry,
@@ -28,7 +29,10 @@ from src.clinic.asr_capabilities import (
     CAPABILITY_UNAVAILABLE,
 )
 from src.clinic.config import clinic_mode_enabled
+from src.clinic.identity import ClinicAccountPolicy
 from src.clinic.parity_dispatch import CommandProblem, ParityDispatch, _problem
+from src.clinic.rich_text_doc import RichTextError
+from src.clinic.startup import originals_root
 from src.clinic.voice_command_runtime import (
     APP_RIGHTS,
     Confirmation,
@@ -65,10 +69,149 @@ def _require_actor() -> int | None:
 
 def _require_csrf() -> bool:
     try:
-        validate_csrf(request.headers.get("X-CSRF-Token"))
+        validate_csrf(request.headers.get("X-CSRF-Token") or request.headers.get("X-CSRFToken"))
         return True
     except (CSRFError, ValidationError):
         return False
+
+
+_TEXT_BLOCKS = "/api/clinic/v1/resources/text-blocks"
+
+
+def _text_block_actor() -> int | None:
+    actor_id = _require_actor()
+    if actor_id is None:
+        return None
+    account = db.session.get(ClinicAccountPolicy, actor_id)
+    return actor_id if account is None or account.status == "active" else None
+
+
+def _private(response: Response) -> Response:
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@commands_blueprint.get(_TEXT_BLOCKS)
+def list_text_blocks():
+    actor_id = _text_block_actor()
+    if actor_id is None:
+        return _problem("UNAUTHORIZED")
+    cursor = request.args.get("cursor")
+    try:
+        limit = int(request.args.get("limit", text_blocks.MAX_PAGE))
+        if not 1 <= limit <= text_blocks.MAX_PAGE or (cursor is not None and str(uuid.UUID(cursor)) != cursor):
+            return _problem("INVALID_PAYLOAD")
+    except ValueError:
+        return _problem("INVALID_PAYLOAD")
+
+    block = text_blocks.ClinicTextBlock
+    query = text_blocks.eligible_blocks(actor_id)
+    if cursor is not None:
+        query = query.filter(block.id > cursor)
+    rows = query.order_by(block.id).limit(limit + 1).all()
+    next_cursor = rows[limit - 1].id if len(rows) > limit else None
+    return _private(jsonify(items=[row.as_item() for row in rows[:limit]], next_cursor=next_cursor))
+
+
+@commands_blueprint.get(_TEXT_BLOCKS + "/<uuid:block_id>")
+def get_text_block(block_id: uuid.UUID):
+    actor_id = _text_block_actor()
+    if actor_id is None:
+        return _problem("UNAUTHORIZED")
+    block = text_blocks.eligible_blocks(actor_id).filter_by(id=str(block_id)).first()
+    if block is None:
+        return _make_problem("not_found", "Textbaustein nicht gefunden", 404)
+    return _private(jsonify(block.as_detail()))
+
+
+@commands_blueprint.get(_TEXT_BLOCKS + "/<uuid:block_id>/graphics/<object_id>")
+def get_text_block_graphic(block_id: uuid.UUID, object_id: str):
+    actor_id = _text_block_actor()
+    if actor_id is None:
+        return _problem("UNAUTHORIZED")
+    block = text_blocks.eligible_blocks(actor_id).filter_by(id=str(block_id)).first()
+    if block is None or not any(ref["object_id"] == object_id for ref in block.graphics):
+        return _make_problem("not_found", "Grafik nicht gefunden", 404)
+    try:
+        data = text_blocks.read_graphic(originals_root(current_app), block, object_id)
+    except (RichTextError, OSError, RuntimeError):
+        return _make_problem("not_found", "Grafik nicht gefunden", 404)
+    response = _private(Response(data, mimetype="image/png"))
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+    return response
+
+
+@commands_blueprint.post(_TEXT_BLOCKS)
+def create_text_block():
+    return _save_text_block()
+
+
+@commands_blueprint.put(_TEXT_BLOCKS + "/<uuid:block_id>")
+def update_text_block(block_id: uuid.UUID):
+    return _save_text_block(str(block_id))
+
+
+def _save_text_block(block_id: str | None = None):
+    actor_id = _text_block_actor()
+    if actor_id is None:
+        return _problem("UNAUTHORIZED")
+    if not _require_csrf():
+        return _problem("FORBIDDEN")
+    request.max_content_length = min(text_blocks.MAX_BODY_BYTES, request.max_content_length or text_blocks.MAX_BODY_BYTES)
+    try:
+        body = request.get_json(silent=True)
+    except RecursionError:
+        return _problem("INVALID_PAYLOAD")
+    if not isinstance(body, dict):
+        return _problem("INVALID_PAYLOAD")
+
+    fields = {"title", "text", "graphics"}
+    if block_id is None:
+        scope, pool_id = body.get("scope"), body.get("pool_id")
+        if body.keys() - (fields | {"scope", "pool_id"}) or scope not in ("personal", "pool", "global"):
+            return _problem("INVALID_PAYLOAD")
+        if scope == "pool":
+            if not isinstance(pool_id, str) or not text_blocks.POOL_ID.fullmatch(pool_id):
+                return _problem("INVALID_PAYLOAD")
+        elif "pool_id" in body:
+            return _problem("INVALID_PAYLOAD")
+        block = text_blocks.ClinicTextBlock(
+            scope=scope, user_id=actor_id if scope == "personal" else None, pool_id=pool_id,
+        )
+    else:
+        block = text_blocks.eligible_blocks(actor_id).filter_by(id=block_id).first()
+        if block is None:
+            return _make_problem("not_found", "Textbaustein nicht gefunden", 404)
+    if not text_blocks.can_write(current_user, block):
+        return _problem("FORBIDDEN")
+    if block_id is not None:
+        if body.keys() - (fields | {"revision"}) or type(body.get("revision")) is not int:
+            return _problem("INVALID_PAYLOAD")
+        if body["revision"] != block.revision:
+            return _problem("REVISION_CONFLICT")
+    try:
+        content = text_blocks.content_fields(body, originals_root(current_app), block)
+    except (ValueError, OSError, RuntimeError):
+        return _problem("INVALID_PAYLOAD")
+    for name, value in content.items():
+        setattr(block, name, value)
+    if block_id is None:
+        db.session.add(block)
+    else:
+        block.revision += 1
+    try:
+        db.session.flush()
+        detail = block.as_detail()
+        db.session.commit()
+    except StaleDataError:
+        db.session.rollback()
+        return _problem("REVISION_CONFLICT")
+    response = _private(jsonify(detail))
+    if block_id is None:
+        response.status_code = 201
+        response.headers["Location"] = url_for(".get_text_block", block_id=block.id)
+    return response
 
 
 def _resolve_actor_pools(actor_id: int, requested_pools: list[str] | None = None) -> list[str]:

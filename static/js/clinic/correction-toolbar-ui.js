@@ -268,15 +268,16 @@ export function createCorrectionToolbar(options) {
             applyEntry(e); recount(); state.message = ''; emit();
             return true;
         },
-        insertParagraph() {
+        insertText(value) {
             if (blocked()) return false;
             const cur = sync();
             const caret = Math.min(cur.start, cur.end);
-            const text = cur.text.slice(0, caret) + PARAGRAPH_BREAK + cur.text.slice(Math.max(cur.start, cur.end));
-            const next = caret + PARAGRAPH_BREAK.length;
+            const text = cur.text.slice(0, caret) + value + cur.text.slice(Math.max(cur.start, cur.end));
+            const next = caret + value.length;
             commit(text, next, next);
             return true;
         },
+        insertParagraph() { return api.insertText(PARAGRAPH_BREAK); },
         // Review marks (W11) are server-side flags that block release. The toolbar never writes demo text into
         // the clinical transcript; until it is wired to the server mark path it only explains why it does nothing.
         insertMarker() {

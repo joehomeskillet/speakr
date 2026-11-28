@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+    CorrectionBody,
     CorrectionView,
     STEP_SECONDS,
     TEXT,
@@ -95,6 +96,40 @@ function controllerFor(client, extra = {}) {
 }
 
 const count = (client, method, suffix) => client.calls.filter((c) => c.method === method && c.path.endsWith(suffix)).length;
+
+it('inserts an eligible text block at the selection as one undoable edit', async () => {
+    let eligible = true;
+    const client = fakeClient(base({
+        'GET /resources/text-blocks': ok({ items: [{ id: 'block-1', title: 'Testbaustein' }], next_cursor: null }),
+        'GET /resources/text-blocks/block-1': () => eligible
+            ? ok({ insert_text: 'Praxis' }) : fail('http', 404, 'nicht gefunden'),
+    }));
+    const ref = (value) => ({ value });
+    const vue = { ref, shallowRef: ref, computed: (read) => ({ get value() { return read(); } }) };
+    const view = CorrectionBody.setup({ client, dictationId: 'd1', currentUser: user, vue });
+    try {
+        await view.c.start();
+        await view.c.editor.acquire();
+        expect(view.canEdit.value).toBe(true);
+        const editor = { selectionStart: 6, selectionEnd: 10, setSelectionRange: vi.fn(), focus: vi.fn() };
+        view.setTextEl(editor);
+        await view.toggleTemplates();
+        expect(view.blocks.value.items).toEqual([{ id: 'block-1', title: 'Testbaustein' }]);
+        await view.pickBlock('block-1');
+        expect(view.text.value).toBe('Hallo Praxis heute');
+        expect(editor.setSelectionRange).toHaveBeenCalledWith(12, 12);
+        expect(editor.focus).toHaveBeenCalled();
+        expect(view.tb.undo()).toBe(true);
+        expect(view.text.value).toBe('Hallo Welt heute');
+        eligible = false;
+        await view.toggleTemplates();
+        await view.pickBlock('block-1');
+        expect(view.text.value).toBe('Hallo Welt heute');
+        expect(view.blocksError.value).toBe(TEXT.blocksFailed);
+    } finally {
+        view.c.dispose();
+    }
+});
 
 async function openForEdit(client, extra = {}) {
     const c = controllerFor(client, extra);

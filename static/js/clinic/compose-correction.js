@@ -107,6 +107,9 @@ export const TEXT = Object.freeze({
     workerLost: 'Übernahme verloren',
     workerFree: 'Noch nicht übernommen',
     templateMenu: 'Textbaustein einfügen',
+    blocksMore: 'Weitere Bausteine',
+    blocksFailed: 'Textbaustein konnte nicht geladen werden.',
+    blockSelectionChanged: 'Auswahl geändert. Textbaustein erneut wählen.',
     openAssignment: 'Zuordnung offen',
     noPool: 'Kein Pool zugewiesen',
     options: 'Wiedergabeoptionen',
@@ -145,7 +148,6 @@ export const TEXT = Object.freeze({
     close: 'Schliessen',
     closeFailed: 'Schliessen nicht möglich: Die Änderungen konnten nicht gespeichert werden.',
     toolbar: 'Werkzeugleiste',
-    template: 'Vorlage',
     noTemplate: 'Keine Vorlage gewählt',
     seekSelection: 'Zur Auswahl im Audio springen',
     reload: 'Aktuellen Stand laden',
@@ -893,6 +895,56 @@ export const CorrectionBody = {
         const WORKER = { held: TEXT.workerHeld, foreign: TEXT.workerForeign, lost: TEXT.workerLost };
         const workerLabel = () => WORKER[e.lease.value.status] || TEXT.workerFree;
         const templatesOpen = V.ref(false);
+        const blocks = V.shallowRef({ items: [], next_cursor: null });
+        const blocksBusy = V.ref(false);
+        const blocksError = V.ref('');
+        let blocksGeneration = 0;
+        const closeTemplates = () => {
+            templatesOpen.value = false;
+            blocksGeneration += 1;
+            blocks.value = { items: [], next_cursor: null };
+            blocksBusy.value = false;
+            blocksError.value = '';
+        };
+        if (typeof V.onBeforeUnmount === 'function') V.onBeforeUnmount(closeTemplates);
+        if (typeof V.watch === 'function') V.watch(() => props.currentUser.id, closeTemplates);
+        const requestBlock = async (suffix, apply) => {
+            if (!templatesOpen.value || blocksBusy.value || !e.canEdit.value) return;
+            const generation = ++blocksGeneration;
+            blocksBusy.value = true;
+            blocksError.value = '';
+            const response = await c.client.request('/resources/text-blocks' + suffix);
+            if (generation !== blocksGeneration) return;
+            blocksBusy.value = false;
+            if (response.outcome === 'ok' && response.data) apply(response.data);
+            else blocksError.value = TEXT.blocksFailed;
+        };
+        const loadBlocks = (cursor = null) => requestBlock(cursor ? '?cursor=' + encodeURIComponent(cursor) : '',
+            (page) => { blocks.value = page; });
+        const toggleTemplates = () => {
+            shortcutsOpen.value = false;
+            if (templatesOpen.value) return closeTemplates();
+            templatesOpen.value = true;
+            return loadBlocks();
+        };
+        const pickBlock = (id) => {
+            const selection = editorPort.read();
+            return requestBlock('/' + encodeURIComponent(id), (block) => {
+                if (typeof block.insert_text !== 'string' || !block.insert_text) {
+                    blocksError.value = TEXT.blocksFailed;
+                    return;
+                }
+                const current = editorPort.read();
+                if (selection.text !== current.text || selection.start !== current.start || selection.end !== current.end) {
+                    blocksError.value = TEXT.blockSelectionChanged;
+                    return;
+                }
+                if (tb.insertText(block.insert_text)) {
+                    closeTemplates();
+                    later(() => textEl.value?.focus());
+                }
+            });
+        };
         const DRAWER_TITLES = { assignment: TEXT.ctxAssignment, marks: TEXT.ctxMarks, options: TEXT.ctxOptions };
         const drawerTitle = () => DRAWER_TITLES[drawer.value] || '';
         const closeDrawer = () => {
@@ -909,13 +961,14 @@ export const CorrectionBody = {
         };
         // saveMessage already says "Nicht gespeicherte Änderungen." while dirty; do not repeat it.
         const unsavedSuffix = () => Boolean(e.dirty.value) && !/nicht gespeicherte/i.test(String(s.message.value || ''));
-        const pickTemplate = (id) => { templatesOpen.value = false; if (id) e.applyTemplate(id); };
+        const pickTemplate = (id) => { closeTemplates(); if (id) e.applyTemplate(id); };
         const toolStatus = () => tbState.value.readOnlyReason || tbState.value.message || '';
         return {
             formatDictationReference,
             c, FOCUS, MODES, box, styleFor, TEXT, showDiff,
             tb, tbState, textEl, setTextEl, fontPx, focusMode, shortcutsOpen, highlightOn, inlineWord, editorScroll, followOn, onTextInput, onTextKeydown, onFindKeydown,
             onQuery, onReplacement, onCase, countLabel, SHORTCUTS, toolStatus, workerLabel, templatesOpen, pickTemplate, drawer, drawerTitle, drawerClose, closeDrawer, toggleDrawer, unsavedSuffix,
+            blocks, blocksBusy, blocksError, closeTemplates, loadBlocks, pickBlock, toggleTemplates,
             repeatState: c.repeat.state, REPEAT_TEXT,
             text: e.text, canEdit: e.canEdit, dirty: e.dirty, textRevisionId: e.textRevisionId, loading: e.loading, error: e.error, manual: e.manual,
             lease: e.lease, audio: e.audio, template: e.template, templates: e.templates, templatesError: e.templatesError,
@@ -1020,7 +1073,7 @@ export const CorrectionBody = {
         <span v-if="pedalStatus" data-testid="pedal-status">{{ pedalStatus }}</span>
       </p>
 
-      <div class="editor-document" @keydown.esc="shortcutsOpen = false; templatesOpen = false">
+      <div class="editor-document" @keydown.esc="shortcutsOpen = false; closeTemplates()">
         <div class="editorbar symbol-toolbar" role="toolbar" :aria-label="TEXT.toolbar" data-testid="toolbar">
           <div class="toolbar-group">
             <span class="tool-wrap" v-tip="{ label: TEXT.undo, keys: 'Strg/Cmd+Z' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.undo"
@@ -1034,7 +1087,7 @@ export const CorrectionBody = {
             <span class="tool-wrap" v-tip="{ label: TEXT.markerTip, keys: 'Strg/Cmd+Umschalt+M' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.marker"
                     aria-disabled="true" data-tool="marker" @click="tb.insertMarker()"><UiIcon name="marker" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.templateMenu }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.templateMenu"
-                    :aria-expanded="String(templatesOpen)" aria-controls="ccv-templates" :disabled="!canEdit" data-tool="template" @click="templatesOpen = !templatesOpen; shortcutsOpen = false"><UiIcon name="snippet" /></button></span>
+                    :aria-expanded="String(templatesOpen)" aria-controls="ccv-templates" :disabled="!canEdit" data-tool="template" @click="toggleTemplates"><UiIcon name="snippet" /></button></span>
           </div>
           <div class="toolbar-group">
             <span class="tool-wrap" v-tip="{ label: TEXT.find, keys: 'Strg/Cmd+F' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.find"
@@ -1054,7 +1107,7 @@ export const CorrectionBody = {
             <span class="tool-wrap" v-tip="{ label: focusMode ? TEXT.focusOff : TEXT.focusOn }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="focusMode ? TEXT.focusOff : TEXT.focusOn"
                     :aria-pressed="String(focusMode)" data-tool="focus" @click="tb.toggleFocus()"><UiIcon :name="focusMode ? 'unfocus' : 'focus'" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.shortcuts, keys: 'F1' }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.shortcuts"
-                    :aria-expanded="String(shortcutsOpen)" data-tool="shortcuts" @click="shortcutsOpen = !shortcutsOpen; templatesOpen = false"><UiIcon name="keyboard" /></button></span>
+                    :aria-expanded="String(shortcutsOpen)" data-tool="shortcuts" @click="shortcutsOpen = !shortcutsOpen; closeTemplates()"><UiIcon name="keyboard" /></button></span>
             <span class="tool-wrap" v-tip="{ label: TEXT.save, keys: 'Strg/Cmd+S' }"><button type="button" class="icon-button save-button" :class="{ 'has-changes': dirty }" :style="FOCUS"
                     :aria-label="dirty ? TEXT.saveDirty : TEXT.save"
                     :disabled="saveState === 'saving' || saveState === 'saved'" data-testid="save" @click="c.save()"><UiIcon name="save" /></button></span>
@@ -1089,8 +1142,8 @@ export const CorrectionBody = {
 
         <div v-if="templatesOpen" id="ccv-templates" class="editor-popover" role="dialog" :aria-label="TEXT.templateMenu" data-testid="template-menu" style="left: 13px">
           <div class="popover-heading">
-            <strong>{{ TEXT.template }}</strong>
-            <span class="tool-wrap" v-tip="{ label: TEXT.close }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.close" @click="templatesOpen = false"><UiIcon name="close" /></button></span>
+            <strong>{{ TEXT.templateMenu }}</strong>
+            <span class="tool-wrap" v-tip="{ label: TEXT.close }"><button type="button" class="icon-button" :style="FOCUS" :aria-label="TEXT.close" @click="closeTemplates"><UiIcon name="close" /></button></span>
           </div>
           <div class="snippet-options">
             <button type="button" class="snippet-option" :style="FOCUS" :disabled="!canEdit" :aria-pressed="String(!template)" @click="pickTemplate('')">
@@ -1100,7 +1153,14 @@ export const CorrectionBody = {
                     :aria-pressed="String(Boolean(template && template.id === row.id))" @click="pickTemplate(row.id)">
               <UiIcon name="snippet" /><span><strong>{{ row.name }}</strong><small>Version {{ row.version }}</small></span>
             </button>
+            <button v-for="row in blocks.items" :key="'block-' + row.id" type="button" class="snippet-option" :style="FOCUS"
+                    :disabled="!canEdit || blocksBusy" @click="pickBlock(row.id)">
+              <UiIcon name="snippet" /><span><strong>{{ row.title }}</strong></span>
+            </button>
+            <button v-if="blocks.next_cursor" type="button" class="small" :style="FOCUS" :disabled="!canEdit || blocksBusy"
+                    @click="loadBlocks(blocks.next_cursor)">{{ TEXT.blocksMore }}</button>
           </div>
+          <p v-if="blocksError" class="template-meta" role="status">{{ blocksError }}</p>
         </div>
 
         <p v-if="templatesError" class="template-meta" role="note">{{ templatesError }}</p>
