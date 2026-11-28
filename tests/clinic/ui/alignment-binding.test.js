@@ -1,3 +1,4 @@
+import { strictEqual } from 'node:assert/strict';
 import { describe, expect, it } from 'vitest';
 import { bindAlignment, cueAt, projectDocument } from '../../../static/js/clinic/alignment-binding.js';
 
@@ -442,8 +443,8 @@ describe('cueAt', () => {
         for (let i = 0; i < 100000; i += 1) {
             const ms = (i * 7919) % 100000 + 0.5;
             const cue = cueAt(big, ms);
-            if (cue) { hits += 1; expect(ms >= cue.startMs && ms < cue.endMs).toBe(true); }
-            else expect(ms % 10 >= 8).toBe(true);
+            if (cue) { hits += 1; strictEqual(ms >= cue.startMs && ms < cue.endMs, true); }
+            else strictEqual(ms % 10 >= 8, true);
         }
         expect(hits).toBeGreaterThan(0);
         expect(performance.now() - t0).toBeLessThan(2000);
