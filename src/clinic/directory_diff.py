@@ -18,6 +18,7 @@ from src.clinic.directory_reconcile import (
     LocalUser,
     compute_diff,
     confirmed_actions,
+    normalise_directory_email,
 )
 
 
@@ -236,6 +237,10 @@ def apply_preview(
         if action.kind == "update_display_name":
             user = updated[action.local_user_id]
             updated[user.id] = replace(user, display_name=by_subject[action.object_id].display_name)
+        elif action.kind == "update_email":
+            user = updated[action.local_user_id]
+            email = normalise_directory_email(by_subject[action.object_id].email)
+            updated[user.id] = replace(user, email=email)
         elif action.kind == "deactivate":
             user = updated[action.local_user_id]
             updated[user.id] = replace(user, active=False)
