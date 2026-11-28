@@ -1161,7 +1161,7 @@ export const RECORDING_TEMPLATE = `
             </div>
           </div>
         </div>
-        <details v-if="(m.phase === 'title' || m.phase === 'ready') && microphone?.formats?.length > 1"
+        <details v-if="!m.routing && (m.phase === 'title' || m.phase === 'ready') && microphone?.formats?.length > 1"
                  data-testid="capture-format" style="width: 100%; max-width: 20rem; margin: var(--ui-space-4) auto 0; text-align: left">
           <summary class="focus-visible:outline-ui-text" style="${TOUCH}; align-content: center; cursor: pointer">
             Aufnahmeformat ({{ microphone.formats.find(format => format.mimeType === microphone.mimeType)?.label || 'Automatisch' }})
@@ -1174,7 +1174,7 @@ export const RECORDING_TEMPLATE = `
                     @click="microphone.selectFormat(format.mimeType)" style="${TOUCH}">{{ format.label }}</button>
           </div>
         </details>
-        <a v-if="m.phase === 'title' || m.phase === 'ready'" href="#/neu" data-testid="mode-file" @click.prevent="c.setMode('file')"
+        <a v-if="!m.routing && (m.phase === 'title' || m.phase === 'ready')" href="#/neu" data-testid="mode-file" @click.prevent="c.setMode('file')"
            style="${LINK}; font-size: .875rem">oder Datei hochladen</a>
       </template>
       <div v-else-if="!m.created" style="display: grid; gap: var(--ui-space-3); text-align: left">

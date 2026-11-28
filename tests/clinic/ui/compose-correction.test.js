@@ -335,14 +335,14 @@ describe('document preview', () => {
             { client, dictationId: 'd1', currentUser: user, vue }, { emit() {} },
         );
         const field = { value: 'Hallo Welt heute', selectionStart: 0, selectionEnd: 0, selectionDirection: 'none' };
-        const opener = { closest: () => ({ querySelector: () => field }) };
+        view.setRunRoot({ querySelector: () => field });
         try {
             await view.c.start();
             await view.c.editor.acquire();
-            await view.toggleChoice(opener);
+            await view.toggleChoice();
             const pending = view.chooseSource({ templateId: 'old' });
             view.closeChoice();
-            await view.toggleChoice(opener);
+            await view.toggleChoice();
             await view.chooseSource({ templateId: 'current' });
             finishOld(ok({ text: 'Überholte Antwort', text_revision_id: 'r1' }));
             await pending;
