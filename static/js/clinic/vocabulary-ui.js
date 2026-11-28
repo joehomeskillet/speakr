@@ -36,6 +36,8 @@ const LABELS = {
     'clinic.vocabulary.exact': 'Genau gleich',
     'clinic.vocabulary.active': 'Aktiv',
     'clinic.vocabulary.suppressed': 'Unterdrückt',
+    'clinic.vocabulary.asrSuppressionUnavailable': 'ASR-Wortunterdrückung nicht verfügbar',
+    'clinic.vocabulary.asrSuppressionDetail': '„Unterdrückt“ ist nur ein Status in der Wortliste. Die lokale Spracherkennung kann diese Wörter weiterhin erkennen.',
     'clinic.vocabulary.all': 'Alle',
     'clinic.vocabulary.unknown': 'Unbekannt',
     'clinic.vocabulary.loading': 'Wortschatz wird geladen …',
@@ -311,7 +313,7 @@ export const VOCABULARY_TEMPLATE = `
     </div>
     <div class="field" style="border:0;padding:0;box-shadow:none;background:none">
       <label for="voc-filter">{{ label('clinic.vocabulary.filter') }}</label>
-      <select class="select" :style="controlStyle" id="voc-filter" v-model="state.query.filter"><option v-for="filter in filters" :key="filter" :value="filter">{{ enumLabel(filter) }}</option></select>
+      <select class="select" :style="controlStyle" id="voc-filter" aria-describedby="voc-asr-suppression" v-model="state.query.filter"><option v-for="filter in filters" :key="filter" :value="filter">{{ enumLabel(filter) }}</option></select>
     </div>
     <button type="submit" class="primary">{{ label('clinic.vocabulary.search') }}</button>
     <div v-if="poolStatus === 'empty' || poolStatus === 'error'" class="voc-pool-feedback">
@@ -346,7 +348,7 @@ export const VOCABULARY_TEMPLATE = `
         <td class="wrap"><strong>{{ e.written }}</strong></td><td class="wrap">{{ e.spoken || '–' }}</td>
         <td><span class="tag" :class="{ error: e.status === 'suppressed' }">{{ enumLabel(e.status) }}</span></td>
         <td>
-          <button type="button" class="small" v-if="e.status === 'active'" @click="store.suppress(e.id)">{{ label('clinic.vocabulary.suppress') }}</button>
+          <button type="button" class="small" v-if="e.status === 'active'" aria-describedby="voc-asr-suppression" @click="store.suppress(e.id)">{{ label('clinic.vocabulary.suppress') }}</button>
           <button type="button" class="small" v-else @click="store.reactivate(e.id)">{{ label('clinic.vocabulary.reactivate') }}</button>
         </td>
       </tr></tbody>
@@ -354,6 +356,10 @@ export const VOCABULARY_TEMPLATE = `
   </div>
   <p v-else-if="state.status === 'ready'" class="empty" role="status">
     <slot name="empty" :scope="state.scope" :query="state.query">{{ label('clinic.vocabulary.empty') }} für diese Auswahl. Suche oder Status anpassen.</slot>
+  </p>
+  <p id="voc-asr-suppression" class="note">
+    <strong>{{ label('clinic.vocabulary.asrSuppressionUnavailable') }}</strong>.
+    {{ label('clinic.vocabulary.asrSuppressionDetail') }}
   </p>
   <section class="voc-editor" aria-labelledby="voc-editor-title">
     <header class="voc-editor-head">

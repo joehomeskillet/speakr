@@ -63,6 +63,15 @@ export const HOSTED_CSS = [
     '.v8-ui .v8-empty p{color:var(--v8-muted)}',
     '.v8-ui .worktable .titletext .cl-search-metadata{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}',
     '.v8-ui .cl-search-metadata mark{border-radius:2px;padding:0;font:inherit}',
+    // Leave the blank area clickable as part of the row when selection reflows the table.
+    '.v8-ui .clinic-worklist-view .worktable .cl-id-disclosure:not([open]){width:fit-content}',
+    '.v8-ui .clinic-worklist-view .worktable td.cl-scoped-metadata{white-space:pre-wrap;overflow-wrap:anywhere}',
+    '@container (min-width:1101px){',
+    '  .v8-ui .clinic-worklist-view .worktable{table-layout:auto;min-width:0}',
+    '  .v8-ui .clinic-worklist-view .worktable th:not(.check){width:auto;white-space:normal}',
+    '  .v8-ui .clinic-worklist-view .worktable th.cl-scoped-metadata{min-width:8rem}',
+    '  .v8-ui .clinic-worklist-view .worktable td[data-label]{white-space:normal}',
+    '}',
 ].join('\n');
 
 /** Adds the stylesheet above once per document. */
@@ -121,8 +130,7 @@ export const TEXT = Object.freeze({
     detailInfo: 'Eckdaten',
 });
 
-// Columns the layout may order, sort and group. Title, notes and recipient are
-// left out on purpose (W16). The case reference belongs to the row heading.
+// Columns the saved layout may order, sort and group.
 // The order is the default column order of the V8 worklist (Status, Priorität, Pool, Diktiert von, Quelle, Dauer, ...).
 export const LIST_COLUMNS = Object.freeze([
     { key: 'status', label: 'Status' },
@@ -137,6 +145,13 @@ export const LIST_COLUMNS = Object.freeze([
     { key: 'assignee_user_id', label: 'Zugewiesen an' },
     { key: 'assigned_at', label: 'Zugewiesen' },
 ].map((c) => Object.freeze(c)));
+
+// Q-01 fixed columns consume only metadata from scoped worklist rows.
+const SCOPED_METADATA_COLUMNS = [
+    { key: 'title', label: 'Titel' },
+    { key: 'notes', label: 'Anmerkung' },
+    { key: 'recipient', label: 'Empfänger' },
+];
 
 // Column key to the width class of the V8 worklist table (clinic-v8.css).
 const COL_CLASS = Object.freeze({
@@ -312,8 +327,8 @@ export function searchSegments(value, query) {
 /** Only searched fields from the already authorized response; no additional detail fetch. */
 export function searchMetadata(row, query) {
     if (!String(query ?? '').trim()) return [];
-    return [['title', 'Titel'], ['notes', 'Anmerkung'], ['recipient', 'Empfänger']]
-        .map(([key, label]) => ({ key, label, segments: searchSegments(row[key], query) }))
+    return SCOPED_METADATA_COLUMNS
+        .map(({ key, label }) => ({ key, label, segments: searchSegments(row[key], query) }))
         .filter((field) => field.segments.some((part) => part.match));
 }
 
@@ -411,6 +426,7 @@ export function createWorklistViewController(options) {
         apiClient: client,
         role: user.role || ROLE_AUTHOR,
         userId: user.id,
+        serverScopedRows: true, // Search and paging use the same authorized rows as refresh.
         tokenVersion: TOKEN_CONTRACT_VERSION,
         intervalMs: options.intervalMs,
         fetchChanges: options.fetchChanges || null, // v8-148: poll the clinic worklist rows by default.
@@ -759,6 +775,7 @@ export function createWorklistViewController(options) {
     return {
         vue: V, view, panels, selectedId, selectedRow: worklist.selectedRow, leaseState, leaseRun, paused,
         worklist, refresh, filters, layout, workflow, detailClient, displayed, columns, headerAttrs,
+        scopedMetadataColumns: SCOPED_METADATA_COLUMNS,
         detailRequest: (id) => id === detailId ? pendingDetail : null,
         refreshIfChanged: () => loadedRevision !== client.dictationChanges ? reload() : null,
         start, dispose, reload, assignmentDone, select, open, canOpen, listenOnly, onRowKey,
@@ -945,6 +962,7 @@ export const WorklistView = {
                 <tr>
                   <th class="check"><input type="checkbox" :checked="c.allChecked()" :aria-label="c.text.selectAll" @change="c.toggleAll()"></th>
                   <th class="titlecol" scope="col">{{ c.text.dictation }}</th>
+                  <th v-for="col in c.scopedMetadataColumns" :key="col.key" scope="col" class="cl-scoped-metadata">{{ col.label }}</th>
                   <th v-for="col in c.columns()" :key="col.key" scope="col" v-bind="c.headerAttrs(col.key)"
                       :class="c.colClass(col.key)" :style="c.colStyle(col)" style="cursor: pointer"
                       @keydown="c.layout.onKeydown(col.key, $event)" @click="c.layout.cycleSort(col.key)">{{ col.label }} {{ c.sortMark(col.key) }}</th>
@@ -953,7 +971,7 @@ export const WorklistView = {
               <tbody>
                 <template v-for="item in c.displayed.value" :key="item.key">
                   <tr v-if="item.kind === 'group'" class="group-row">
-                    <th scope="rowgroup" :colspan="c.columns().length + 2" style="text-align: left; background: var(--v8-s1); color: var(--v8-text)"
+                    <th scope="rowgroup" :colspan="c.columns().length + c.scopedMetadataColumns.length + 2" style="text-align: left; background: var(--v8-s1); color: var(--v8-text)"
                         :style="{ paddingLeft: (0.75 + item.depth) + 'rem' }">{{ item.label }}</th>
                   </tr>
                   <tr v-else tabindex="0" :class="c.selectedId.value === c.key(item.row) ? 'selected' : ''" data-row :data-id="c.key(item.row)"
@@ -983,6 +1001,8 @@ export const WorklistView = {
                         </label>
                       </details>
                     </td>
+                    <td v-for="col in c.scopedMetadataColumns" :key="col.key" :data-label="col.label" class="cl-scoped-metadata"
+                        :class="c.emptyCell(item.row, col.key) ? 'cl-empty' : ''">{{ c.cell(item.row, col.key) }}</td>
                     <td v-for="col in c.columns()" :key="col.key" :data-label="col.label" :class="c.emptyCell(item.row, col.key) ? 'cl-empty' : ''">
                       <span v-if="col.key === 'status'" class="status cl-workflow-status" data-layout="pill-status" :class="c.statusTone(item.row)">Arbeitsstand: {{ c.badge(item.row).workflow }}</span>
                       <span v-else-if="col.key === 'priority'" class="prio" :class="c.prioClass(item.row)" :title="c.cell(item.row, col.key)"><span>{{ c.cell(item.row, col.key) }}</span></span>
