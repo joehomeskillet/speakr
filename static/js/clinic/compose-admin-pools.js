@@ -90,7 +90,7 @@ export const TEXT = Object.freeze({
     keys: 'Tastatur: Esc bricht eine offene Rückfrage ab.',
     eyebrow: 'Verwaltung',
     subline: 'Zuständige Gruppen und ihre Mitglieder verwalten. Die Zuweisung eines Diktats bezieht sich auf einen Schreibkräfte-Pool.',
-    addPool: 'Pool hinzufügen',
+    addPool: 'Gruppe hinzufügen',
     listTitle: 'Pools und Mitglieder',
     search: 'Suche',
     searchPlaceholder: 'Pool oder Mitglied …',
@@ -101,7 +101,7 @@ export const TEXT = Object.freeze({
     colAction: 'Aktion',
     groupNote: 'Verantwortliche Gruppe',
     noMembersShort: 'Keine Mitglieder',
-    edit: 'Schreibkräfte-Pool bearbeiten',
+    edit: 'Details öffnen',
     statPools: 'Schreibkräfte-Pools',
     statPoolsNote: 'Gruppenzuständigkeit',
     statActive: 'Aktive Pools',
@@ -581,23 +581,25 @@ export const ADMIN_POOLS_TEMPLATE = `
       <p v-if="!c.selected() && c.visibleRows().length" class="hint" data-testid="detail-panel">{{ c.text.noSelection }}</p>
       <p v-if="!c.rows().length" class="empty" data-testid="empty-state">{{ c.text.empty }}</p>
       <p v-else-if="!c.visibleRows().length" class="empty" data-testid="filter-empty">{{ c.text.filterEmpty }}</p>
-      <div v-else class="table-wrap">
-        <table :aria-label="c.text.listLabel" data-testid="pool-list">
-          <thead><tr>
-            <th scope="col">{{ c.text.colPool }}</th><th scope="col">{{ c.text.members }}</th>
-            <th scope="col">{{ c.text.colStatus }}</th><th scope="col">{{ c.text.colAction }}</th>
+      <div v-else class="table-wrap cap-list">
+        <table role="table" :aria-label="c.text.listLabel" data-testid="pool-list">
+          <thead role="rowgroup"><tr role="row">
+            <th role="columnheader" scope="col">{{ c.text.colPool }}</th><th role="columnheader" scope="col">{{ c.text.members }}</th>
+            <th role="columnheader" scope="col">{{ c.text.colStatus }}</th><th role="columnheader" scope="col">{{ c.text.colAction }}</th>
           </tr></thead>
-          <tbody>
-            <tr v-for="p in c.visibleRows()" :key="p.id" :data-id="p.id" :class="{ 'is-selected': c.state.selectedId === p.id }">
-              <td><strong>{{ p.name }}</strong><small>{{ c.text.groupNote }}</small></td>
-              <td class="wrap">
+          <tbody role="rowgroup">
+            <tr v-for="p in c.visibleRows()" :key="p.id" role="row" :data-id="p.id" :class="{ 'is-selected': c.state.selectedId === p.id }">
+              <td role="cell" class="cap-identity"><strong>{{ p.name }}</strong><small>{{ c.text.groupNote }}</small></td>
+              <td role="cell" class="wrap cap-members">
+                <span class="cap-phone-label" aria-hidden="true">{{ c.text.members }}: </span>
                 <span v-if="p.memberUserIds.length">{{ c.memberNames(p.id).join(', ') }}</span>
                 <span v-else class="muted">{{ c.text.noMembersShort }}</span>
               </td>
-              <td><span class="tag" :class="p.status.key === 'active' ? 'neutral' : 'wait'">{{ p.status.label }}</span></td>
-              <td>
-                <span class="tool-wrap"><button type="button" class="icon-button" :aria-label="c.text.edit + ': ' + p.name" :title="c.text.edit"
-                        :aria-current="c.state.selectedId === p.id ? 'true' : 'false'" :data-id="p.id" @click="c.select(p.id)">${ICONS.edit}</button></span>
+              <td role="cell"><span class="tag dot" :class="p.status.key === 'active' ? 'neutral' : 'wait'">{{ p.status.label }}</span></td>
+              <td role="cell" class="cap-action">
+                <button type="button" class="icon-button cap-open" :aria-label="c.text.edit + ': ' + p.name" :title="c.text.edit"
+                        :aria-current="c.state.selectedId === p.id ? 'true' : 'false'" :data-id="p.id"
+                        @click="c.select(p.id); $nextTick(() => $refs.details?.focus())">${ICONS.edit}<span class="cap-phone-label">{{ c.text.edit }}</span></button>
               </td>
             </tr>
           </tbody>
@@ -606,7 +608,7 @@ export const ADMIN_POOLS_TEMPLATE = `
     </section>
     <aside v-if="c.selected()" class="grid equal" aria-labelledby="cap-detail-title" data-testid="detail-panel">
       <section class="panel" :key="c.state.selectedId">
-        <h2 id="cap-detail-title">{{ c.text.detail }}: {{ c.selected().name }}</h2>
+        <h2 id="cap-detail-title" ref="details" tabindex="-1">{{ c.text.detail }}: {{ c.selected().name }}</h2>
         <form class="field-grid" @submit.prevent="c.rename()">
           <div class="field full">
             <label for="cap-rename">{{ c.text.nameLabel }}</label>
