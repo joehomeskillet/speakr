@@ -534,7 +534,7 @@ export const IMPORT_TEMPLATE = `
           <thead><tr><th scope="col">Datei</th><th scope="col" class="max-md:hidden">Quelle</th><th scope="col" class="max-md:w-1/3">EOL</th><th scope="col" class="max-md:hidden">Grösse</th><th scope="col" class="max-md:hidden">Aufnahmedatum</th><th scope="col" class="max-md:hidden">Stand</th></tr></thead>
           <tbody>
             <tr v-for="(item, i) in c.state.inventory" :key="item.snapshot_id || (item.source_id + '|' + item.snapshot_version + '|' + i)">
-              <td class="whitespace-normal break-words max-md:[overflow-wrap:anywhere]">
+              <td class="whitespace-normal break-words">
                 <label v-if="c.canSendDevice(item)" class="flex min-h-12 items-center gap-3">
                   <input type="checkbox" class="shrink-0 focus-visible:outline-ui-text" :checked="c.state.selectedSnapshots.includes(item.snapshot_id)"
                          :disabled="c.state.loading || c.state.sending || c.state.deviceResults[item.snapshot_id] === c.text.sendQueued"
@@ -549,7 +549,7 @@ export const IMPORT_TEMPLATE = `
                 <div v-if="c.canSendDevice(item)" role="status" data-testid="device-result">{{ c.state.deviceResults[item.snapshot_id] }}</div>
               </td>
               <td class="max-md:hidden">{{ item.source_id }}</td>
-                <td><span class="tag dot max-md:!whitespace-normal" :class="c.completionView(item.completion_source).tag" :style="c.completionView(item.completion_source).style">{{ c.completionView(item.completion_source).label }}</span></td>
+              <td><span class="tag dot max-md:!whitespace-normal" :class="c.completionView(item.completion_source).tag" :style="c.completionView(item.completion_source).style">{{ c.completionView(item.completion_source).label }}</span></td>
               <td class="max-md:hidden" :title="item.size">{{ c.size(item.size) }}</td>
               <td class="max-md:hidden">{{ c.when(item.mtime_utc) }}</td><td class="max-md:hidden">{{ item.snapshot_version }}</td>
             </tr>
