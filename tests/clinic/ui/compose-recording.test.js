@@ -666,6 +666,11 @@ describe('view registration and setup', () => {
         expect(RECORDING_TEMPLATE).toContain('Standardmikrofon');
     });
 
+    it('keeps server upload hidden while a managed user can still open a local file', () => {
+        expect(RECORDING_TEMPLATE).toContain('v-if="!m.routing || m.created || m.canOpenLocal"');
+        expect(RECORDING_TEMPLATE).toMatch(/v-if="!m\.routing && [^"]+" href="#\/neu" data-testid="mode-file"/);
+    });
+
     it('samples the injected recorder level only while recording and stops on unmount', async () => {
         const vue = fakeVue();
         const readLevel = vi.fn(() => 0.4);
