@@ -51,6 +51,7 @@ AUTH: tuple[str, ...] = (
     'clinic_live.resume_recording',
     'clinic_live.append_phrase',
     'clinic_live.resume',
+    'clinic_live.phrase_audio',
     'clinic_live.switch_draft',
     'clinic_live.stream_audio',
     # Durable live drafts additionally require ownership of the underlying dictation.

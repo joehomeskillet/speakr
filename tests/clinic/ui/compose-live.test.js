@@ -240,6 +240,51 @@ describe('phrases', () => {
     });
 });
 
+describe('restore', () => {
+    const cursor = { session_id: 's1', after_sequence: 1 };
+    const event = (sequence, event_id) => ({ sequence, event_id, generation: 1, text: 'Text ' + sequence,
+        phrase_id: 'p' + sequence, audio_url: '/original-' + sequence });
+
+    it('does not publish a partial recovery, then retries from the beginning and retains the stop checkpoint', async () => {
+        let broken = true;
+        const client = fakeClient(baseRoutes({
+            'POST /dictations/d1/resume': (_path, { body }) => body.cursor
+                ? (broken ? ok(position({ sequence: 2, next_cursor: cursor }))
+                    : ok(position({ sequence: 2, read_only: true, events: [event(2, 'second')], next_cursor: null })))
+                : ok(position({ sequence: 2, events: [event(1, 'first')], next_cursor: cursor })),
+        }));
+        const c = make(client);
+        expect((await c.restore()).phase).toBe('reconnecting');
+        expect(c.getState().session.phrases).toEqual([]);
+        expect(c.getState().actions.map((action) => action.id)).toEqual(['reconnect']);
+        broken = false;
+        const state = await c.reconnect();
+        expect(client.command).not.toHaveBeenCalled();
+        expect(state.phase).toBe('paused');
+        expect(state.session.phrases.map((p) => [p.text, p.audioUrl])).toEqual([
+            ['Text 1', '/original-1'], ['Text 2', '/original-2'],
+        ]);
+        await c.stop();
+        expect(client.command.mock.calls[0][0]).toMatchObject({ expected_revision: 3, payload: { last_sequence: 2 } });
+    });
+
+    it('does not allow start or concurrent recovery, and ignores a response after dispose', async () => {
+        let finish;
+        const pending = new Promise((resolve) => { finish = resolve; });
+        const client = fakeClient(baseRoutes({ 'POST /dictations/d1/resume': () => pending }));
+        const c = make(client);
+        const restoring = c.restore();
+        await c.restore();
+        await c.reconnect();
+        await c.start();
+        expect(client.request).toHaveBeenCalledTimes(1);
+        expect(client.command).not.toHaveBeenCalled();
+        c.dispose();
+        finish(ok(position({ sequence: 1, events: [event(1, 'first')] })));
+        expect((await restoring).session.phrases).toEqual([]);
+    });
+});
+
 describe('reconnect', () => {
     it('resumes from the durable checkpoint, adopts server phrases and returns to live', async () => {
         let phraseOk = false;
