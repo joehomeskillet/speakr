@@ -912,7 +912,8 @@
   .v8-ui .topbar .brand-link{gap:var(--ui-space-1)}
   .v8-ui .topbar .topspacer{min-width:0}
   .v8-ui .record-toolbar .record-select{flex-basis:100%}
-  .v8-ui .clinic-live-view .document-id{white-space:normal;overflow-wrap:anywhere}
+  .v8-ui .clinic-live-view .document-title{display:block}
+  .v8-ui .clinic-live-view .document-title :is(h2,.document-id){white-space:normal;overflow-wrap:anywhere}
   .v8-ui .clinic-worklist-view .cl-popover{max-height:65dvh}
 }
 .v8-ui .ui-icon{width:20px;height:20px;display:block;flex:none;pointer-events:none}

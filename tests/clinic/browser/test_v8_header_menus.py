@@ -56,6 +56,11 @@ def test_header_menus(browser, app_base, role_states, commit, path, role, size, 
         expect(root).to_have_attribute("data-v-app", "")
         if path == "/":
             support._wait_loading_overlay_gone(page)
+        elif width == 320:
+            assert root.locator(".page-header__brand h1").evaluate("el => el.scrollWidth <= el.clientWidth + 1")
+        if path == "/account" and width <= 390:
+            tabs = page.locator("#tabs-container > .tab:visible")
+            assert tabs.evaluate_all("els => els.every(el => el.scrollWidth <= el.clientWidth + 1)")
         assert page.evaluate("document.documentElement.classList.contains('dark')") == (theme == "dark")
 
         stem = f"{commit}__header_{path.strip('/') or 'recordings'}_{role}_{size}_{theme}"

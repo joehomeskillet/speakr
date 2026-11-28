@@ -41,6 +41,16 @@
     /* Until the header app mounts, the controls hold their space but stay
        invisible, so raw template markup never shows. */
     #global-header:not([data-v-app]) .global-header-controls { visibility: hidden; }
+    {% if clinic_mode %}
+    @media (max-width: 340px) {
+        #global-header { gap: var(--ui-space-1); padding-inline: var(--ui-space-2); }
+        .page-header__brand { gap: var(--ui-space-1); }
+        .page-header__brand .app-logo {
+            width: calc(var(--ui-touch-min) / 2);
+            height: calc(var(--ui-touch-min) / 2);
+        }
+    }
+    {% endif %}
 </style>
 <script type="module" src="{{ url_for('static', filename='js/global-header.js', v=app_version) }}"></script>
 

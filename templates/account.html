@@ -476,6 +476,7 @@
         {% if clinic_mode %}
         .text-\[10px\]:not(i,svg) { font-size: var(--ui-label-min); }
         @media (max-width: 530px) {
+            #tabs-container > .tab { flex: 0 0 auto; }
             :is(main,.modal-overlay) :is(.tab,.tabs-scroller__nav,button,.btn,select),
             :is(main,.modal-overlay) input:not([type=hidden],[type=checkbox],[type=radio]) {
                 min-width: var(--ui-touch-min);

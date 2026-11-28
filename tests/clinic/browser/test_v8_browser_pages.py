@@ -63,6 +63,16 @@ def test_mounted_page(case, browser, app_base, role_states, axe_js, commit, stri
         support.assert_label_floor(page, stem)
         if width <= 390:
             support.assert_phone_control_floor(page, stem)
+        if width == 320 and page_entry.page_id == "P05":
+            title = page.locator(".clinic-live-view .document-title")
+            assert title.evaluate("""el => {
+                const count = el.parentElement.querySelector('.tag').getBoundingClientRect();
+                return [...el.children].every(child => {
+                    const text = document.createRange();
+                    text.selectNodeContents(child);
+                    return [...text.getClientRects()].every(rect => rect.right <= count.left);
+                });
+            }""")
 
         diagnostics.extend(page.v8_notes)
         overflow = support.horizontal_overflow(page)
