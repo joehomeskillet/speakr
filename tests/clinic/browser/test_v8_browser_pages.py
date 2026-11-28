@@ -264,6 +264,7 @@ def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
             output = details.locator("dt").get_by_text("Ausgabeformat", exact=True).locator("..")
             values = output.locator("dd")
             fields = values.locator("span")
+            expect(values).to_be_visible()
             expect(values).to_have_text("webm · opus · 48000 Hz")
             expect(values).to_have_css("flex-wrap", "wrap")
             expect(fields).to_have_text(["webm ·", "opus ·", "48000 Hz"])
