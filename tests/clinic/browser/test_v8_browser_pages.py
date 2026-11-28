@@ -209,13 +209,18 @@ def test_p15_profile_layout(browser, app_base, role_states, size, theme, state):
         page.keyboard.press("Enter")
         expect(details.get_by_text("Eingabehinweise (Prompts)", exact=True)).to_be_visible()
         if state == "populated":
+            expect(details.get_by_text("webm · opus · 48000 Hz", exact=True)).to_be_visible()
             output = details.locator("dt").get_by_text("Ausgabeformat", exact=True).locator("..")
             fields = output.locator("dd > span")
-            expect(fields).to_have_text(["webm", "opus", "48000 Hz"])
+            expect(fields).to_have_text(["webm ·", "opus ·", "48000 Hz"])
             for field in fields.all():
                 expect(field).to_be_visible()
             assert fields.last.text_content() == "48000\u00a0Hz"
+            expect(output.locator("dd")).to_have_css("flex-wrap", "wrap")
+            expect(fields.last).to_have_css("white-space", "nowrap")
             assert output.evaluate("row => row.scrollWidth <= row.clientWidth")
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            details.screenshot(path=proof.with_name(proof.name + "-details").with_suffix(".png"), animations="disabled")
 
 
 def test_p15_first_profile_uses_existing_save_and_vocabulary_link(browser, app_base, role_states):

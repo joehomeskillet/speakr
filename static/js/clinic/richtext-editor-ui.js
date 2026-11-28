@@ -252,29 +252,48 @@ export function useRichTextEditor(options) {
 
 const keyFormat = { b: 'bold', i: 'italic', u: 'underline' };
 
-/** Vue component. Props: client, savePath, document, version, canEdit. */
+/** Vue component. A correctionSave controller uses the shared correction save instead of the standalone save. */
 export const RichTextEditor = {
     name: 'ClinicRichTextEditor',
     props: {
-        client: { type: Object, required: true },
-        savePath: { type: String, required: true },
-        document: { type: Object, required: true },
+        client: { type: Object },
+        savePath: { type: String },
+        document: { type: Object },
         version: { type: Number, default: 0 },
         canEdit: { type: Boolean, default: true },
+        correctionSave: { type: Object },
     },
     setup(props) {
-        const editor = useRichTextEditor({
+        const correction = props.correctionSave?.document;
+        const editor = correction || useRichTextEditor({
             client: props.client, savePath: props.savePath, document: props.document,
             version: props.version, canEdit: props.canEdit,
         });
         const warning = surfaceFor('warning');
         const lossStyle = { background: warning.background, color: warning.color, border: `1px solid ${warning.border}` };
-        const focusStyle = { '--focus-outline': FOCUS_INDICATOR.outline, '--focus-offset': FOCUS_INDICATOR.outlineOffset };
+        const focusStyle = { '--focus-outline': FOCUS_INDICATOR.outline, '--focus-offset': FOCUS_INDICATOR.outlineOffset,
+            '--border-focus': correction ? 'var(--brand-accent)' : undefined };
+        const targetStyle = correction ? { minHeight: '48px' } : null;
+        function runStyle(run) {
+            if (!correction) return focusStyle;
+            const active = correction.activeRunId.value === run.id;
+            return { ...focusStyle, ...targetStyle, maxWidth: '100%', width: '100%',
+                fontWeight: run.bold ? 'bold' : undefined, fontStyle: run.italic ? 'italic' : undefined,
+                textDecoration: run.underline ? 'underline' : undefined,
+                backgroundColor: active ? 'var(--ui-hover)' : undefined,
+                borderColor: active ? 'var(--brand-accent)' : 'var(--ui-text-muted)' };
+        }
         function onKey(event, node, run) {
-            const format = keyFormat[String(event.key).toLowerCase()];
-            if ((event.ctrlKey || event.metaKey) && format) {
+            if (!event.ctrlKey && !event.metaKey) return;
+            const key = String(event.key).toLowerCase();
+            if (correction && (key === 'z' || key === 'y')) {
                 event.preventDefault();
-                editor.toggleFormat(format, node.id, run.id);
+                event.stopPropagation();
+                if (key === 'y' || event.shiftKey) correction.redo();
+                else correction.undo();
+            } else if (keyFormat[key]) {
+                event.preventDefault();
+                editor.toggleFormat(keyFormat[key], node.id, run.id);
             }
         }
         function onPaste(event, node, run) {
@@ -285,30 +304,42 @@ export const RichTextEditor = {
         function format(node, run) {
             return FORMATS.filter((f) => run[f]).map((f) => label('clinic.richtext.' + f)).join(', ');
         }
-        return { ...editor, label, lossStyle, focusStyle, onKey, onPaste, format, FORMATS };
+        const save = correction ? props.correctionSave : null;
+        return { ...editor, label, lossStyle, focusStyle, targetStyle, runStyle, onKey, onPaste, format, FORMATS,
+            correction, ...(save ? { save: save.save, status: save.state, saveMessage: save.message } : {}),
+        };
     },
     template: `
 <section class="clinic-richtext" :aria-label="label('clinic.richtext.toolbar')">
-  <div role="toolbar" :aria-label="label('clinic.richtext.toolbar')">
+  <div role="toolbar" :aria-label="label('clinic.richtext.toolbar')" :style="correction ? { display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' } : null">
     <button v-for="f in FORMATS" :key="f" type="button" :aria-pressed="String(!!(selection.runId && doc.nodes.some(n => n.runs.some(r => r.id === selection.runId && r[f]))))"
-      :disabled="readOnly || !selection.runId" :style="focusStyle" @click="toggleFormat(f)">{{ label('clinic.richtext.' + f) }}</button>
-    <button type="button" :disabled="readOnly || !selection.nodeId" :style="focusStyle"
+      :disabled="readOnly || !selection.runId" :style="[focusStyle, targetStyle]" @click="toggleFormat(f)">{{ label('clinic.richtext.' + f) }}</button>
+    <button type="button" :disabled="readOnly || !selection.nodeId" :style="[focusStyle, targetStyle]"
       @click="insertRun(selection.nodeId, undefined, '')">{{ label('clinic.richtext.insert') }}</button>
-    <button type="button" :disabled="readOnly || !dirty || status === 'saving'" :aria-busy="status === 'saving'"
-      :style="focusStyle" @click="save">{{ status === 'failed' ? label('clinic.richtext.retry') : label('clinic.richtext.save') }}</button>
+    <template v-if="correction">
+      <button type="button" :disabled="readOnly || !historyState.canUndo" :style="[focusStyle, targetStyle]" @click="undo">Rückgängig</button>
+      <button type="button" :disabled="readOnly || !historyState.canRedo" :style="[focusStyle, targetStyle]" @click="redo">Wiederholen</button>
+      <button type="button" :disabled="readOnly || doc.nodes.findIndex(n => n.id === selection.nodeId) < 1" :style="[focusStyle, targetStyle]" @click="moveParagraph(-1)">Absatz nach oben</button>
+      <button type="button" :disabled="readOnly || !selection.nodeId || selection.nodeId === doc.nodes.at(-1)?.id" :style="[focusStyle, targetStyle]" @click="moveParagraph(1)">Absatz nach unten</button>
+      <button type="button" :disabled="!canSeek(selection.runId)" :style="[focusStyle, targetStyle]" @click="seekToSegment(selection.runId)">Zur Tonstelle springen</button>
+    </template>
+    <button type="button" :class="correction ? 'button primary' : null" :disabled="readOnly || (correction ? status !== 'unsaved' : !dirty || status === 'saving')" :aria-busy="status === 'saving'"
+      :style="[focusStyle, targetStyle]" @click="save">{{ status === 'failed' ? label('clinic.richtext.retry') : label('clinic.richtext.save') }}</button>
   </div>
-  <div v-for="(node, ni) in doc.nodes" :key="node.id" :data-node-id="node.id" role="group">
-    <input v-for="(run, ri) in node.runs" :key="run.id" type="text" :data-run-id="run.id" :value="run.text"
-      :readonly="readOnly" :style="focusStyle"
-      :aria-label="label('clinic.richtext.run', { run: ri + 1, node: ni + 1 }) + (format(node, run) ? ', ' + format(node, run) : '') + (run.audio_anchor_id ? '' : ', ' + label('clinic.richtext.unaligned'))"
+  <p v-if="correction && !doc.nodes.some(n => n.runs.some(r => r.text))">Noch kein Text vorhanden.</p>
+  <div v-for="(node, ni) in doc.nodes" :key="node.id" :data-node-id="node.id" role="group" :style="correction ? { marginBottom: '8px' } : null">
+    <component :is="correction ? 'textarea' : 'input'" v-for="(run, ri) in node.runs" :key="run.id" :type="correction ? null : 'text'" :rows="correction ? 1 : null" :data-run-id="run.id" :value="run.text"
+      :readonly="readOnly" :style="runStyle(run)" :data-playing="correction && activeRunId === run.id ? 'true' : null"
+      :aria-label="label('clinic.richtext.run', { run: ri + 1, node: ni + 1 }) + (format(node, run) ? ', ' + format(node, run) : '') + ((correction ? canSeek(run.id) : run.audio_anchor_id) ? '' : ', ' + label('clinic.richtext.unaligned'))"
       @focus="select(node.id, run.id)" @input="editRun(node.id, run.id, $event.target.value)"
-      @keydown="onKey($event, node, run)" @paste="onPaste($event, node, run)">
+      @keydown="onKey($event, node, run)" @paste="onPaste($event, node, run)"></component>
   </div>
-  <div v-if="losses.length" role="note" :style="lossStyle">
+  <div v-if="!correction && losses.length" role="note" :style="lossStyle">
     <strong>{{ label('clinic.richtext.losses') }}</strong>
     <ul><li v-for="l in losses" :key="l.code">{{ l.message }}</li></ul>
   </div>
   <p v-if="status === 'stale'" role="alert">{{ label('clinic.richtext.stale') }}</p>
+  <p v-if="correction" role="status" aria-live="polite">{{ saveMessage }}</p>
   <div role="status" aria-live="polite">{{ announcement }}</div>
 </section>`,
 };

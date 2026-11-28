@@ -143,9 +143,9 @@ const ASR_TECHNICAL_ROWS = `
   <div><dt>{{ view.labels.prompts }}</dt><dd>{{ view.prompts.label }}</dd></div>
   <div v-if="view.output">
     <dt>{{ view.labels.format }}</dt>
-    <dd class="actions" style="min-width:0;gap:4px 12px;overflow-wrap:anywhere">
-      <span v-if="view.output.container">{{ view.output.container }}</span>
-      <span v-if="view.output.codec">{{ view.output.codec }}</span>
+    <dd class="actions" style="min-width:0;gap:var(--sp-1) var(--sp-3);overflow-wrap:anywhere">
+      <span v-if="view.output.container">{{ view.output.container }}{{ (view.output.codec || view.output.sampleRate != null) ? (adminLayout ? ' · ' : ' ') : '' }}</span>
+      <span v-if="view.output.codec">{{ view.output.codec }}{{ view.output.sampleRate != null ? (adminLayout ? ' · ' : ' ') : '' }}</span>
       <span v-if="view.output.sampleRate != null" style="white-space:nowrap">{{ view.output.sampleRate }}&nbsp;Hz</span>
     </dd>
   </div>

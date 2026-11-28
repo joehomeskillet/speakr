@@ -36,9 +36,11 @@ AUTH: tuple[str, ...] = (
     'clinic_commands.import_commands',
     'clinic_preferences.recipient_default',
     'clinic_preferences.recipient_resolve',
+    'clinic_preferences.active_pool',
     'clinic_preferences.last_selection',
     'clinic_preferences.workstation_issue',
     'clinic_preferences.workstation',
+    'clinic_preferences.presets',
     'clinic_preferences.correction_mode',
     # Own-user focused key and pedal bindings (PAR-OPS-003). The handler reads current_user only.
     'clinic_preferences.key_bindings',
@@ -56,6 +58,7 @@ AUTH: tuple[str, ...] = (
     'clinic_jobs.health',
     'clinic_jobs.retry',
     'clinic_statistics.aggregates',
+    'clinic_statistics.export_csv',
     # --- v8-75: own-user voice consent and voice enrollment (mounted by register_clinic_voice_consent) ---
     # Each handler authenticates the browser session itself (active user, session id match, CSRF for
     # writes) and acts only on current_user: no body or URL names a subject.
@@ -78,6 +81,8 @@ ADMIN: tuple[str, ...] = (
     'clinic_directory.preview',
     'clinic_directory.apply',
     'clinic_grants.change',
+    'clinic_preferences.system_preset',
+    'clinic_preferences.workstation_lock',
     'clinic_statistics.list_grants',
     'clinic_statistics.change_grant',
     'clinic_task_models.settings',
@@ -96,6 +101,7 @@ ADMIN: tuple[str, ...] = (
     'clinic_training.start',
     'clinic_training.status',
     'clinic_training.cancel',
+    'clinic_voice_purge.purge',
     'clinic_statistics.collection_policy',
     'clinic_statistics.collection_period',
     'clinic_statistics.collection_retention',
